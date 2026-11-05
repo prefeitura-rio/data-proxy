@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { expect, type BrowserContext, type Page } from '@playwright/test';
 import * as v from 'valibot';
 import { Grant } from '../../src/lib/types';
-import { BASE, Given, hydrated, saved, Then, When, type World } from '../fixtures';
+import { BASE, Given, hydrated, saved, scenario, Then, When, type World } from '../fixtures';
 import { PASSWORD, sessionFile } from '../session';
 
 /** Read the first bytes of a link. The link is signed for its own host, so the request keeps that host. */
@@ -415,9 +415,72 @@ Then('the confirm button stays disabled until I type {name}', async ({ page }, n
 
 When('I add the schema {name}', async ({ page, world }, name: string) => {
 	world.schemas.push(name);
-	await page.getByPlaceholder('name', { exact: true }).first().fill(name);
+	await page.getByPlaceholder('short name', { exact: true }).first().fill(name);
 	await page.getByRole('button', { name: 'Add schema' }).click();
 	await expect(listOf(page, 'Encrypted').rows.getByRole('cell', { name, exact: true })).toBeVisible();
+});
+
+/** The name of a project in a scenario. It has no underscore, so the suffix of the scenario joins it as it is. */
+const projectName = (project: string) => `${project}${scenario.suffix}`;
+
+/** The physical name of a schema of a project: the project, an underscore, and the short name. */
+const physicalName = (project: string, schema: string) => `${projectName(project)}_${schema}`;
+
+const projectRows = (page: Page) => page.getByRole('table', { name: 'Projects' }).locator('tbody tr');
+
+When('I add the project {string}', async ({ page, world }, project: string) => {
+	const name = projectName(project);
+
+	world.projects.push(name);
+	await page.getByPlaceholder('letters and digits').fill(name);
+	await page.getByRole('button', { name: 'Add project' }).click();
+	await expect(projectRows(page).getByRole('cell', { name, exact: true })).toBeVisible();
+});
+
+When('I add the schema {name} to the project {string}', async ({ page, world }, schema: string, project: string) => {
+	world.schemas.push(physicalName(project, schema));
+	await page.locator('form[action="?/createSchema"] select[name=project]').selectOption(projectName(project));
+	await page.getByPlaceholder('short name', { exact: true }).first().fill(schema);
+	await page.getByRole('button', { name: 'Add schema' }).click();
+});
+
+Then('the schema {name} is listed in the project {string}', async ({ page }, schema: string, project: string) => {
+	const named = listOf(page, 'Encrypted').rows.filter({
+		has: page.getByRole('cell', { name: physicalName(project, schema), exact: true })
+	});
+
+	await expect(named).toHaveCount(1);
+	await expect(named.getByRole('cell', { name: projectName(project), exact: true })).toBeVisible();
+});
+
+When(
+	'I delete the schema {name} of the project {string} by typing its name',
+	async ({ page }, schema: string, project: string) => {
+		const name = physicalName(project, schema);
+
+		await row(page, new RegExp(`^${name} `))
+			.getByRole('button', { name: 'Delete' })
+			.click();
+		await page.locator('dialog[open] input[name=confirm]').fill(name);
+		await page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click();
+		await expect(
+			listOf(page, 'Encrypted').rows.filter({ has: page.getByRole('cell', { name, exact: true }) })
+		).toHaveCount(0);
+	}
+);
+
+When('I delete the project {string}', async ({ page }, project: string) => {
+	const name = projectName(project);
+
+	await projectRows(page)
+		.filter({ has: page.getByRole('cell', { name, exact: true }) })
+		.getByRole('button', { name: 'Delete' })
+		.click();
+	await page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click();
+});
+
+Then('I see no project {string}', async ({ page }, project: string) => {
+	await expect(projectRows(page).getByRole('cell', { name: projectName(project), exact: true })).toHaveCount(0);
 });
 
 When(
@@ -573,16 +636,25 @@ When('I apply the previewed import', async ({ page }) => {
 });
 
 When('I set the cache TTL of every table in the exported file to {int}', async ({ world }, ttl: number) => {
+	const Tables = v.array(v.looseObject({ name: v.string() }));
 	const Document = v.looseObject({
-		schemas: v.record(v.string(), v.looseObject({ tables: v.array(v.looseObject({ name: v.string() })) }))
+		projects: v.record(v.string(), v.looseObject({ schemas: v.record(v.string(), v.looseObject({ tables: Tables })) }))
 	});
 	const document = v.parse(Document, JSON.parse(await readFile(world.exported, 'utf8')));
 	const changed = {
 		...document,
-		schemas: Object.fromEntries(
-			Object.entries(document.schemas).map(([name, schema]) => [
-				name,
-				{ ...schema, tables: schema.tables.map((table) => ({ ...table, cache_ttl: ttl })) }
+		projects: Object.fromEntries(
+			Object.entries(document.projects).map(([project, body]) => [
+				project,
+				{
+					...body,
+					schemas: Object.fromEntries(
+						Object.entries(body.schemas).map(([name, schema]) => [
+							name,
+							{ ...schema, tables: schema.tables.map((table) => ({ ...table, cache_ttl: ttl })) }
+						])
+					)
+				}
 			])
 		)
 	};

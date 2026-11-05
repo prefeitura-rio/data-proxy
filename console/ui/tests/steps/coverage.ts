@@ -106,7 +106,7 @@ Then('the grant lists {int} tables', ({ world }, count: number) => {
 });
 
 When('I try to add the schema {string}', async ({ page }, name: string) => {
-	await page.getByPlaceholder('name', { exact: true }).first().fill(name);
+	await page.getByPlaceholder('short name', { exact: true }).first().fill(name);
 	await page.getByRole('button', { name: 'Add schema' }).click();
 });
 
@@ -239,15 +239,18 @@ After({ tags: '@new-schema' }, async ({ world }) => {
 	scenario.suffix = '';
 
 	const names = world.schemas.filter((name) => /^[a-z][a-z0-9_]*$/.test(name)).map((name) => `'${name}'`);
+	const projects = world.projects.filter((name) => /^[a-z][a-z0-9]*$/.test(name)).map((name) => `'${name}'`);
 
-	if (names.length === 0) {
-		return;
+	if (names.length > 0) {
+		await sql(`
+			DELETE FROM console.rls WHERE table_name IN (SELECT name FROM console.tables WHERE schema IN (${names.join(', ')}));
+			DELETE FROM console.tables WHERE schema IN (${names.join(', ')});
+			DELETE FROM console.schemas WHERE name IN (${names.join(', ')})`);
 	}
 
-	await sql(`
-		DELETE FROM console.rls WHERE table_name IN (SELECT name FROM console.tables WHERE schema IN (${names.join(', ')}));
-		DELETE FROM console.tables WHERE schema IN (${names.join(', ')});
-		DELETE FROM console.schemas WHERE name IN (${names.join(', ')})`);
+	if (projects.length > 0) {
+		await sql(`DELETE FROM console.projects WHERE name IN (${projects.join(', ')})`);
+	}
 });
 
 After({ tags: '@import-ttl' }, async () => {

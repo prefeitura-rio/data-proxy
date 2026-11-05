@@ -91,3 +91,13 @@ Feature: Scenarios that add, change and delete a schema of their own
     Then I see an alert
     And the dialog stays open with an alert
     And the schema "other_claim" still has the claim "cpf"
+
+  Scenario: A schema in a project takes the name of the project
+    Given I sign in as "web_root"
+    When I open the "Config" tab
+    And I add the project "e2eproj"
+    And I add the schema "orders" to the project "e2eproj"
+    Then the schema "orders" is listed in the project "e2eproj"
+    When I delete the schema "orders" of the project "e2eproj" by typing its name
+    And I delete the project "e2eproj"
+    Then I see no project "e2eproj"

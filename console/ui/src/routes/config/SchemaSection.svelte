@@ -58,16 +58,16 @@
 
 <Section title="Schemas">
 	<Table
-		head={['Project', 'Name', 'Source', 'Claim', 'Encrypted', 'Health', '']}
+		head={['Name', 'Project', 'Source', 'Claim', 'Encrypted', 'Health', '']}
 		caption="Schemas"
 		count={rows.length}
 		empty="No schema yet."
 	>
 		{#each groups as group (group.project)}
-			{#each group.schemas as schema, index (schema.name)}
+			{#each group.schemas as schema (schema.name)}
 				<tr>
-					<td>{index === 0 ? group.project : ''}</td>
 					<td>{schema.name}</td>
+					<td>{schema.project}</td>
 					<td>{schema.source}</td>
 					<td>{schema.claim ?? ''}</td>
 					<td>
