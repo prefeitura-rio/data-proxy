@@ -1,0 +1,65 @@
+suite: Terraform registry routes
+templates:
+  - istio.yaml
+set:
+  ingress.enabled: true
+  ingress.host: api.example.com
+tests:
+  - it: adds no registry route without a bucket
+    asserts:
+      - notExists:
+          path: spec.http[?(@.name == "registry")]
+      - equal:
+          path: spec.http[0].route[0].destination.host
+          value: data-proxy-proxy
+
+  - it: sends the service discovery to the bucket
+    set:
+      ingress.registry.bucket: registry-bucket
+    asserts:
+      - equal:
+          path: spec.http[0].name
+          value: registry-discovery
+      - equal:
+          path: spec.http[0].match[0].uri.exact
+          value: /.well-known/terraform.json
+      - equal:
+          path: spec.http[0].rewrite.uri
+          value: /registry-bucket/.well-known/terraform.json
+      - equal:
+          path: spec.http[0].rewrite.authority
+          value: storage.googleapis.com
+      - equal:
+          path: spec.http[0].route[0].destination.host
+          value: storage.googleapis.com
+
+  - it: sends the provider paths to the bucket
+    set:
+      ingress.registry.bucket: registry-bucket
+    asserts:
+      - equal:
+          path: spec.http[1].name
+          value: registry
+      - equal:
+          path: spec.http[1].match[0].uri.prefix
+          value: /v1/providers/
+      - equal:
+          path: spec.http[1].rewrite.uri
+          value: /registry-bucket/v1/providers/
+
+  - it: takes the storage host from the values
+    set:
+      ingress.registry.bucket: registry-bucket
+      ingress.registry.storageHost: storage.example.test
+    asserts:
+      - equal:
+          path: spec.http[1].rewrite.authority
+          value: storage.example.test
+
+  - it: keeps the registry routes before the catch-all route of the proxy
+    set:
+      ingress.registry.bucket: registry-bucket
+    asserts:
+      - equal:
+          path: spec.http[2].route[0].destination.host
+          value: data-proxy-proxy

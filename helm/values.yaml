@@ -440,6 +440,12 @@ ingress:
     issuer: ""
     jwksUri: ""
     audience: ""
+  ## A static Terraform provider registry in a public bucket. The gateway sends /.well-known/terraform.json and
+  ## /v1/providers/ of the host to the bucket, so the host also speaks the registry protocol. An empty bucket
+  ## adds no route. The cluster needs a ServiceEntry and a DestinationRule with TLS origination for storageHost.
+  registry:
+    bucket: ""
+    storageHost: storage.googleapis.com
 ## Caching proxy in front of PostgREST.
 proxy:
   cacheTtl: 300

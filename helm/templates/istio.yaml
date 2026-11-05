@@ -13,6 +13,34 @@ spec:
   hosts:
     - {{ .Values.ingress.host | quote }}
   http:
+    {{- with .Values.ingress.registry }}
+    {{- if .bucket }}
+    - name: registry-discovery
+      match:
+        - uri:
+            exact: /.well-known/terraform.json
+      rewrite:
+        uri: /{{ .bucket }}/.well-known/terraform.json
+        authority: {{ .storageHost }}
+      route:
+        - destination:
+            host: {{ .storageHost }}
+            port:
+              number: 80
+    - name: registry
+      match:
+        - uri:
+            prefix: /v1/providers/
+      rewrite:
+        uri: /{{ .bucket }}/v1/providers/
+        authority: {{ .storageHost }}
+      route:
+        - destination:
+            host: {{ .storageHost }}
+            port:
+              number: 80
+    {{- end }}
+    {{- end }}
     {{- if .Values.swaggerUi.enabled }}
     - name: docs-redirect
       match:
