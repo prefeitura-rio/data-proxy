@@ -213,7 +213,11 @@ class TestMigrationsOnExistingData:
         ],
     )
     async def test_00010_reads_the_schema_from_the_name_of_a_schedule(
-        self, rbac: Postgres, schedule_name: str, expected: str | None
+        self,
+        rbac: Postgres,
+        dbos_schema: str,
+        schedule_name: str,
+        expected: str | None,
     ) -> None:
         """The one function that knows the prefix gives the schema, or nothing."""
         await migrate(rbac, migrations_until(10))
