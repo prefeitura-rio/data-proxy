@@ -339,6 +339,16 @@ export def wait-for [kind: string, kubecfg: path]: list<string> -> nothing {
     }
 }
 
+# Return the paths of a list that belong to the chart: the files of helm/ except its tests, and the values file.
+export def chart-files []: list<string> -> list<string> {
+    where (($it | str starts-with helm/) and ($it !~ ^helm/tests/)) or $it == helm/values.yaml
+}
+
+# Return the rows of IMAGES that a list of changed paths rebuilds, or every row when a full build is forced.
+export def images-changed [files: list<string>, force_full: bool]: nothing -> list<record> {
+    $IMAGES | where $force_full or ($files | any {$in =~ $it.change_pattern})
+}
+
 # Return the first Helm release tag of a list that is newest first, or null when there is none.
 export def latest-helm-tag []: list<string> -> oneof<string, nothing> {
     where $it =~ ^helm-v | get --optional 0

@@ -1,5 +1,5 @@
 use std/assert
-use ../lib.nu [latest-helm-tag release-tag]
+use ../lib.nu [chart-files images-changed latest-helm-tag release-tag]
 
 # Verify that the newest Helm tag wins and that other tags do not count.
 export def "test latest-helm-tag-skips-other-tags" []: nothing -> nothing {
@@ -24,4 +24,41 @@ export def "test release-tag-is-null-without-a-release" []: nothing -> nothing {
 
     assert equal ($message | release-tag) null
     assert equal ("" | release-tag) null
+}
+
+# Verify that only a chart file counts: a template, a helper and the values file, and not a chart test or other code.
+export def "test chart-files-keeps-the-chart-and-drops-the-rest" []: nothing -> nothing {
+    let cases = [
+        [name files expected];
+        ['a template' [helm/templates/a.yaml] [helm/templates/a.yaml]]
+        ['the values file' [helm/values.yaml] [helm/values.yaml]]
+        ['a chart test' [helm/tests/a_test.yaml] []]
+        ['source and docs' [proxy/src/a.lua docs/a.md] []]
+        ['a mix' [docs/a.md helm/Chart.yaml helm/tests/a_test.yaml] [helm/Chart.yaml]]
+        ['nothing' [] []]
+    ]
+
+    for case in $cases {
+        assert equal ($case.files | chart-files) $case.expected $case.name
+    }
+}
+
+# Verify which images a list of paths rebuilds, and that a forced build rebuilds all of them.
+export def "test images-changed-matches-the-paths-of-each-image" []: nothing -> nothing {
+    let cases = [
+        [name files force expected];
+        ['proxy source' [proxy/src/proxy/cache.lua] false [proxy]]
+        ['sync source and a migration' [sync/src/sync/a.py console/migrations/00012_a.sql] false [sync]]
+        ['console app' [console/ui/src/a.ts] false [console]]
+        ['a sync test' [sync/tests/unit/a.py] false []]
+        ['docs only' [docs/a.md llms.txt] false []]
+        ['no path' [] false []]
+        ['no path, forced' [] true [sync proxy jobs postgres console]]
+    ]
+
+    for case in $cases {
+        let ids = images-changed $case.files $case.force | get id | sort
+
+        assert equal $ids ($case.expected | sort) $case.name
+    }
 }

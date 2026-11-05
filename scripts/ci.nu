@@ -1,8 +1,10 @@
 use std/log
 use lib.nu [
+    chart-files
     check-result
     fail
     IMAGES
+    images-changed
     latest-helm-tag
     make-dir
     read-data
@@ -59,11 +61,23 @@ def write-output [name: string, value: string]: nothing -> nothing {
     }
 }
 
+# Return the commit to compare with. A push to main compares with the last chart release, so a red run does not hide
+# its files from the next green run. Another run compares with the commit before the push.
+def comparison-base []: nothing -> string {
+    let release = if ($env.GITHUB_REF? == refs/heads/main) { previous-helm-tag } else { null }
+
+    if $release != null {
+        git rev-list -n 1 $release | str trim
+    } else {
+        $env.BEFORE? | default HEAD~1
+    }
+}
+
 # Detect changed components and write the build outputs.
 def 'main changes' []: nothing -> nothing {
     log info 'Detecting changed components...'
     let force_full = ($env.FORCE_FULL? | default 'false') == 'true'
-    let before = $env.BEFORE? | default HEAD~1
+    let before = comparison-base
     let after = $env.GITHUB_SHA? | default HEAD
 
     let files = if $force_full {
@@ -73,8 +87,7 @@ def 'main changes' []: nothing -> nothing {
         git diff --name-only $before $after | lines
     }
 
-    let images = $IMAGES
-    | where $force_full or ($files | any {$in =~ $it.change_pattern})
+    let images = images-changed $files $force_full
     | each {|image|
         {
             name: $image.label
@@ -275,17 +288,15 @@ def 'main chart publish' []: nothing -> nothing {
     log info 'Published the Helm chart.'
 }
 
-# Decide whether a Helm release is needed.
+# Decide whether a Helm release is needed: a chart file or an image path changed since the last release tag.
 def 'main guard' []: nothing -> nothing {
     log info 'Checking whether a Helm release is needed...'
 
-    let previous = previous-helm-tag
-    let base = $previous | default HEAD~1
-    let relevant = git diff --name-only $base HEAD
-    | lines
-    | where { (($in | str starts-with helm/) and ($in !~ ^helm/tests/)) or $in == helm/values.yaml }
+    let base = previous-helm-tag | default HEAD~1
+    let files = git diff --name-only $base HEAD | lines
+    let changed = ($files | chart-files | is-not-empty) or (images-changed $files false | is-not-empty)
     let release = ($env.RELEASE? | default 'true') == 'true'
-    let skip = (not $release) or ($relevant | is-empty)
+    let skip = (not $release) or (not $changed)
 
     write-output skip ($skip | into string)
     log info $'Release needed: (not $skip)'
