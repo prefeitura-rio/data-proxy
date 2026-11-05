@@ -39,5 +39,5 @@ The reviewers are in the GitHub settings of the repository, under Environments a
 <!-- nav:start -->
 ---
 
-[Previous: CI and releases](./ci.md) | [Next: Operations](../operations/index.md) | [Index](./index.md) | [Home](../index.md)
+[Previous: CI and releases](./ci.md) | [Next: Provider releases](./provider.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

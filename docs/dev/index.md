@@ -1,6 +1,6 @@
 # Development
 
-This section helps you set up the repository, run the checks and find your way in the code. [Tests](tests.md) says how to run each suite. [CI](ci.md) describes the pipeline and the release. [Production deploys](promote.md) says how a release reaches production. [Style](../style.md) has the rules for the code and the docs.
+This section helps you set up the repository, run the checks and find your way in the code. [Tests](tests.md) says how to run each suite. [CI](ci.md) describes the pipeline and the release. [Production deploys](promote.md) says how a release reaches production. [Provider releases](provider.md) covers the provider. [Style](../style.md) has the rules for the code and the docs.
 
 ## Code map
 
@@ -46,7 +46,7 @@ The root `devenv.yaml` imports the folders `proxy/`, `sync/`, `console/` and `he
 | `sync`, `proxy`, `console` | One component with its test services, for `devenv test` and `devenv up`. |
 | `integration` | The three `:int` tasks, which start the service profiles. |
 | `chart` | Helm, `cog` and the `ci` script. |
-| `terraform` | Go, `golangci-lint`, Terraform and `tfplugindocs` for `terraform/`. |
+| `terraform` | Go and `golangci-lint` for `terraform/`. `terraform-acc` adds OpenTofu. |
 | `nix` | The checks of the profile sizes and of the commands in the docs. |
 | `base`, `python` | The parts that the other profiles share, in `nix/profiles/shared.nix`. |
 
@@ -82,7 +82,7 @@ Before a release, run the checks that CI can't run. `cluster k6 e2e` tests the w
 devenv --profile console up
 ```
 
-The first start takes about one minute. Add `-d` to run in the background, wait with `devenv processes wait` and stop with `devenv down`. Open `http://console.localhost:13001/console`, or run `devenv --profile console tasks run console:open:browser`. Sign in as `admin` (role `dp_admin`, schema `test`) with the password `admin`. The tests also use six users with the password `web-test`:
+Add `-d` to run in the background, wait with `devenv processes wait` and stop with `devenv down`. Open `http://console.localhost:13001/console`, or run `devenv --profile console tasks run console:open:browser`. Sign in as `admin` (role `dp_admin`, schema `test`) with the password `admin`. The tests also use six users with the password `web-test`:
 
 - `web_admin`: role `dp_admin`, schema `test`.
 - `web_viewer`: role `dp_console`.

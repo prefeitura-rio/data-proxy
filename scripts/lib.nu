@@ -101,6 +101,15 @@ export def read-data [file: path]: nothing -> record {
     }
 }
 
+# Return the SHA-256 checksum of a file, as hexadecimal text, or fail with the reason.
+export def sha256-file [file: path]: nothing -> string {
+    try {
+        open --raw $file | hash sha256
+    } catch {|err|
+        fail $'Cannot read ($file): ($err.msg)'
+    }
+}
+
 # Save the text from the pipeline to a file, or fail with the reason. It replaces the file unless the flag is set.
 export def write-text [file: path, --append]: string -> nothing {
     let text = $in
@@ -381,6 +390,16 @@ export def version-of-digest [tags: list<record<tag: string, digest: string>>, d
 # Return the first Helm release tag of a list that is newest first, or null when there is none.
 export def latest-helm-tag []: list<string> -> oneof<string, nothing> {
     where $it =~ ^helm-v | get --optional 0
+}
+
+# Return the first provider release tag of a list that is newest first, or null when there is none.
+export def latest-terraform-tag []: list<string> -> oneof<string, nothing> {
+    where $it =~ ^terraform-v | get --optional 0
+}
+
+# Return the file name of a provider archive. The name follows the layout of a Terraform mirror.
+export def provider-archive [name: string, version: string, os: string, arch: string]: nothing -> string {
+    $'terraform-provider-($name)_($version)_($os)_($arch).zip'
 }
 
 # Return the tag that `cog bump --dry-run` prints when a release is due, or null when it prints a message.

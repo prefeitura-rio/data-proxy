@@ -1,0 +1,55 @@
+name: Terraform provider
+on:
+  push:
+    branches:
+      - main
+    paths: &terraform_paths
+      - terraform/**
+      - nix/profiles/terraform.nix
+      - .github/workflows/terraform.yaml
+  pull_request:
+    paths: *terraform_paths
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The provider version to release, such as 0.1.0. Leave it empty to run the checks only.
+        type: string
+        required: false
+permissions:
+  contents: read
+jobs:
+  check:
+    name: Lint and test the provider
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: devenv --profile terraform shell -- bash -e {0}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/cache-nix
+      - uses: ./.github/actions/setup-devenv
+      - name: Lint and run the unit tests
+        run: devenv --profile terraform tasks run tf:lint:go tf:test:unit
+  release:
+    name: Release the provider
+    needs: check
+    if: github.event_name == 'workflow_dispatch' && inputs.version != '' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: devenv --profile terraform shell -- bash -e {0}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/cache-nix
+      - uses: ./.github/actions/setup-devenv
+      - name: Build the archives and publish the release
+        run: nu scripts/ci.nu terraform release "$VERSION"
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

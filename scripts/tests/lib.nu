@@ -3,7 +3,9 @@ use ../lib.nu [
     chart-files
     images-changed
     latest-helm-tag
+    latest-terraform-tag
     newest-version
+    provider-archive
     release-commit
     release-tag
     valid-chart-version
@@ -19,6 +21,25 @@ export def "test latest-helm-tag-skips-other-tags" []: nothing -> nothing {
 export def "test latest-helm-tag-is-null-without-a-helm-tag" []: nothing -> nothing {
     assert equal ([v1.0.0] | latest-helm-tag) null
     assert equal ([] | latest-helm-tag) null
+}
+
+# Verify that the newest provider tag wins and that the chart tags do not count.
+export def "test latest-terraform-tag-skips-other-tags" []: nothing -> nothing {
+    assert equal ([helm-v2.0.0 terraform-v0.2.0 terraform-v0.1.0] | latest-terraform-tag) 'terraform-v0.2.0'
+    assert equal ([helm-v2.0.0] | latest-terraform-tag) null
+}
+
+# Verify the name of a provider archive, which follows the layout of a Terraform mirror.
+export def "test provider-archive-follows-the-mirror-layout" []: nothing -> nothing {
+    let cases = [
+        [name version os arch expected];
+        [dataproxy 0.1.0 linux amd64 terraform-provider-dataproxy_0.1.0_linux_amd64.zip]
+        [dataproxy 1.2.3 darwin arm64 terraform-provider-dataproxy_1.2.3_darwin_arm64.zip]
+    ]
+
+    for case in $cases {
+        assert equal (provider-archive $case.name $case.version $case.os $case.arch) $case.expected
+    }
 }
 
 # Verify that the tag that a dry run prints is returned.

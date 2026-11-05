@@ -127,6 +127,9 @@
         },
         {
           "page": "dev/promote.md"
+        },
+        {
+          "page": "dev/provider.md"
         }
       ]
     },

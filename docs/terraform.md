@@ -98,7 +98,7 @@ devenv --profile terraform tasks run tf:test:int
 
 The task runs `devenv --profile terraform-acc test`. That profile starts the console stack: PostgreSQL, SeaweedFS, Keycloak, PostgREST and the console. It sets `TF_ACC=1` and the `DATAPROXY_*` variables. The provider calls the local PostgREST and gets its token from the local Keycloak with the test client `admin`, whose role is `dp_admin`. The stack needs Podman, as the [tests page](dev/tests.md#the-test-stack) says.
 
-To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `terraform` shell, because the tests call the `terraform` binary.
+To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `terraform-acc` shell, because the tests call OpenTofu.
 
 ```bash
 devenv --profile console up -d
