@@ -78,6 +78,61 @@ LANGUAGE sql STABLE AS $$
     LEFT JOIN members AS m ON s.name = m.schema
 $$;
 
+-- The same configuration by project, for the console export and for Terraform: each
+-- schema under its short name.
+-- A project that has no schema is in it, so an export and an import keep the
+-- projects.
+CREATE OR REPLACE FUNCTION console.export_config() RETURNS jsonb
+LANGUAGE sql STABLE AS $$
+    WITH flat AS (
+        SELECT console.sync_config() -> 'schemas' AS schemas
+    ),
+
+    members AS (
+        SELECT
+            s.project,
+            jsonb_object_agg(s.short_name, f.schemas -> s.name) AS schemas
+        FROM console.schemas AS s
+        CROSS JOIN flat AS f
+        GROUP BY s.project
+    )
+
+    SELECT jsonb_build_object(
+        'projects',
+        coalesce(
+            jsonb_object_agg(
+                p.name,
+                jsonb_build_object('schemas', coalesce(m.schemas, '{}'::jsonb))
+            ),
+            '{}'::jsonb
+        )
+    )
+    FROM console.projects AS p
+    LEFT JOIN members AS m ON p.name = m.project
+$$;
+
+-- The schemas of a document, from both forms: the old `schemas`, which belong to
+-- the project default and are named
+-- by their physical name, and `projects`, where a schema is named by its short name
+-- in its project.
+CREATE OR REPLACE FUNCTION console.import_schemas(document jsonb)
+RETURNS TABLE (project text, short_name text, name text, body jsonb)
+LANGUAGE sql IMMUTABLE AS $$
+    SELECT
+        i.project,
+        i.short_name,
+        CASE WHEN i.project = 'default' THEN i.short_name ELSE i.project || '_' || i.short_name END,
+        i.body
+    FROM (
+        SELECT 'default' AS project, s.key AS short_name, s.value AS body
+        FROM jsonb_each(coalesce(document -> 'schemas', '{}'::jsonb)) AS s
+        UNION ALL
+        SELECT p.key, s.key, s.value
+        FROM jsonb_each(coalesce(document -> 'projects', '{}'::jsonb)) AS p
+        CROSS JOIN LATERAL jsonb_each(coalesce(p.value -> 'schemas', '{}'::jsonb)) AS s
+    ) AS i
+$$;
+
 CREATE OR REPLACE FUNCTION console.import_config(document jsonb) RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -86,34 +141,46 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 
-    INSERT INTO console.schemas (name, source, settings, claim, encrypted)
+    -- The project default exists, and a token may see no row of a project that it already uses, so add only what is new.
+    INSERT INTO console.projects (name)
+    SELECT p.key
+    FROM jsonb_each(coalesce(document -> 'projects', '{}'::jsonb)) AS p
+    WHERE
+        p.key <> 'default'
+        AND NOT EXISTS (SELECT FROM console.projects AS c WHERE c.name = p.key);
+
+    INSERT INTO console.schemas (project, short_name, source, settings, claim, encrypted)
     SELECT
-        s.key,
-        coalesce(s.value #>> '{source,type}', 'bigquery'),
-        s.value #> '{source,settings}',
-        s.value ->> 'claim',
-        coalesce((s.value #>> '{ducklake,encrypted}')::boolean, FALSE)
-    FROM jsonb_each(document -> 'schemas') AS s
+        s.project,
+        s.short_name,
+        coalesce(s.body #>> '{source,type}', 'bigquery'),
+        s.body #> '{source,settings}',
+        s.body ->> 'claim',
+        coalesce((s.body #>> '{ducklake,encrypted}')::boolean, FALSE)
+    FROM console.import_schemas(document) AS s
     ON CONFLICT (name) DO UPDATE
     SET source = excluded.source,
         settings = excluded.settings,
         claim = excluded.claim,
         encrypted = excluded.encrypted;
 
+    -- A project claim expanded at the start of the request, so it does not have the schemas that this import added.
+    PERFORM rbac.load();
+
     INSERT INTO console.tables (
         name, schema, strategy, n, fallback, cache_ttl, partitioning, sort
     )
     SELECT
         t.name,
-        s.key,
+        s.name,
         coalesce(t.strategy, 'full'),
         t.n,
         coalesce(t.fallback, FALSE),
         t.cache_ttl,
         t.ducklake -> 'partitioning',
         nullif(ARRAY(SELECT jsonb_array_elements_text(t.ducklake -> 'sort')), '{}')
-    FROM jsonb_each(document -> 'schemas') AS s
-    CROSS JOIN LATERAL jsonb_to_recordset(s.value -> 'tables') AS t (
+    FROM console.import_schemas(document) AS s
+    CROSS JOIN LATERAL jsonb_to_recordset(s.body -> 'tables') AS t (
         name text, strategy text, n integer, fallback boolean, cache_ttl integer, ducklake jsonb
     )
     ON CONFLICT (name) DO UPDATE
@@ -127,8 +194,8 @@ BEGIN
     DELETE FROM console.rls
     WHERE table_name IN (
         SELECT t.name
-        FROM jsonb_each(document -> 'schemas') AS s
-        CROSS JOIN LATERAL jsonb_to_recordset(s.value -> 'tables') AS t (name text)
+        FROM console.import_schemas(document) AS s
+        CROSS JOIN LATERAL jsonb_to_recordset(s.body -> 'tables') AS t (name text)
     );
 
     INSERT INTO console.rls (table_name, column_name, unit_type)
@@ -136,8 +203,8 @@ BEGIN
         t.name,
         r."column",
         r.unit_type
-    FROM jsonb_each(document -> 'schemas') AS s
-    CROSS JOIN LATERAL jsonb_to_recordset(s.value -> 'tables') AS t (name text, rls jsonb)
+    FROM console.import_schemas(document) AS s
+    CROSS JOIN LATERAL jsonb_to_recordset(s.body -> 'tables') AS t (name text, rls jsonb)
     CROSS JOIN LATERAL jsonb_to_recordset(t.rls) AS r ("column" text, unit_type text);
 END
 $$;
@@ -228,6 +295,8 @@ $$;
 REVOKE ALL ON FUNCTION console.import_preview(jsonb) FROM PUBLIC;
 
 REVOKE ALL ON FUNCTION console.sync_config() FROM PUBLIC;
+REVOKE ALL ON FUNCTION console.export_config() FROM PUBLIC;
+REVOKE ALL ON FUNCTION console.import_schemas(jsonb) FROM PUBLIC;
 REVOKE ALL ON FUNCTION console.import_config(jsonb) FROM PUBLIC;
 
 CREATE OR REPLACE FUNCTION console.scopes() RETURNS jsonb

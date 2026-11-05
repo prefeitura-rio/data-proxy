@@ -95,10 +95,13 @@ check("schemas.jwt_claims", function(case) return schemas.jwt_claims:validate(ca
 		value = { sub = "id", preferred_username = "ana", schemas = { "sales", "hr" } },
 	},
 	{ name = "accepts schemas as a text", valid = true, value = { schemas = "sales,hr" } },
+	{ name = "accepts projects as a list", valid = true, value = { projects = { "sales", "hr:*" } } },
+	{ name = "accepts projects as a text", valid = true, value = { projects = "sales" } },
 	{ name = "accepts a claim that the schema does not name", valid = true, value = { iss = "keycloak" } },
 	{ name = "rejects a sub that is not a text", value = { sub = 1 }, reason = 'field "sub"' },
 	{ name = "rejects schemas that are a number", value = { schemas = 1 }, reason = 'field "schemas"' },
 	{ name = "rejects a list with a number", value = { schemas = { "a", 1 } }, reason = 'field "schemas"' },
+	{ name = "rejects projects that are a number", value = { projects = 1 }, reason = 'field "projects"' },
 })
 
 check("schemas.config rejects", function(case) return schemas.config:validate(text_of(case.changes)) end, {

@@ -9,6 +9,7 @@ viewpoints:
   - name: application
     desc: Application database tables
     tables:
+      - console.projects
       - console.schemas
       - console.tables
       - console.rls

@@ -1,5 +1,13 @@
 use std/assert
-use ../lib.nu [chart-files images-changed latest-helm-tag release-tag]
+use ../lib.nu [
+    chart-files
+    images-changed
+    latest-helm-tag
+    newest-version
+    release-tag
+    valid-chart-version
+    version-of-digest
+]
 
 # Verify that the newest Helm tag wins and that other tags do not count.
 export def "test latest-helm-tag-skips-other-tags" []: nothing -> nothing {
@@ -63,4 +71,53 @@ export def "test images-changed-matches-the-paths-of-each-image" []: nothing -> 
 
         assert equal $ids ($case.expected | sort) $case.name
     }
+}
+
+# Verify which texts a promotion accepts as a chart version.
+export def "test valid-chart-version-accepts-only-a-full-version" []: nothing -> nothing {
+    let cases = [
+        [text expected];
+        ['2.10.0' true]
+        ['0.0.1' true]
+        ['2.x' false]
+        ['v2.10.0' false]
+        ['prod' false]
+        ['2.10' false]
+        ['2.10.0-rc1' false]
+        ['' false]
+    ]
+
+    for case in $cases {
+        assert equal (valid-chart-version $case.text) $case.expected ($case.text | to nuon)
+    }
+}
+
+# Verify that the newest version compares the numbers and not the text, and that other tags do not count.
+export def "test newest-version-compares-numbers" []: nothing -> nothing {
+    let cases = [
+        [name tags expected];
+        ['two digits beat one digit' ['2.9.1' '2.10.0' '2.9.10'] '2.10.0']
+        ['a patch version' ['2.10.0' '2.10.1'] '2.10.1']
+        ['the tag prod does not count' [prod '2.9.0' latest] '2.9.0']
+        ['no version' [prod latest] null]
+        ['no tag' [] null]
+    ]
+
+    for case in $cases {
+        assert equal ($case.tags | newest-version) $case.expected $case.name
+    }
+}
+
+# Verify that the version of a digest is found among the version tags, and that the tag prod is not a version.
+export def "test version-of-digest-finds-the-version-that-a-tag-points-to" []: nothing -> nothing {
+    let tags = [
+        {tag: '2.11.0', digest: 'sha256:a'}
+        {tag: '2.12.0', digest: 'sha256:b'}
+        {tag: prod, digest: 'sha256:a'}
+    ]
+
+    assert equal (version-of-digest $tags 'sha256:a') '2.11.0'
+    assert equal (version-of-digest $tags 'sha256:b') '2.12.0'
+    assert equal (version-of-digest $tags 'sha256:z') null
+    assert equal (version-of-digest [] 'sha256:a') null
 }

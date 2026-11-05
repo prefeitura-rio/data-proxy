@@ -40,6 +40,7 @@
 - Development (dev/index.md)
 - Tests (dev/tests.md)
 - CI and releases (dev/ci.md)
+- Production deploys (dev/promote.md)
 - Operations (operations/index.md)
 - Helm Chart (operations/helm.md)
 - Initialization (operations/initialization.md)
@@ -626,6 +627,14 @@ The tables of the `console` schema contain the configuration (Console), and the 
 
 The schema key is the target PostgreSQL schema. Don't add a schema field to a table entry.
 
+The console exports and imports the same document grouped by project, and the schema key is then the short name. The import also reads the form above, and puts those schemas in the project `default`.
+
+```json
+{ "projects": { "sales": { "schemas": { "orders": { "tables": [] } } } } }
+```
+
+This document makes the schema `sales_orders`. The engine reads `sync_config()`, which lists each schema by its physical name.
+
 ### Table fields
 
 These fields describe one table of a schema in `sync.json`. The table says which fields are required.
@@ -1140,7 +1149,7 @@ A schema is an API that PostgREST serves, a rule that the APIs share, or private
 | One schema for each source schema | API, served | `access_policy`, `access_log`, and the views and functions of the synced tables. |
 | `public`, `duckdb` | Defaults | The goose version table, the extensions, and the objects of `pg_duckdb`. |
 
-A source schema can't have the name `console`, `rbac`, `data_proxy`, `dbos`, `public`, `duckdb` or `information_schema`, and its name can't start with `pg_`. A check on `console.schemas` refuses these names.
+A source schema has a physical name, which is `<project>_<short name>`, or the short name in the project `default`. It can't have the name `console`, `rbac`, `data_proxy`, `dbos`, `public`, `duckdb` or `information_schema`, and its name can't start with `pg_`. A check on `console.schemas` refuses these names.
 
 The `ducklake` database contains one metadata schema for each source schema, with the same name. It's a separate database because the catalog has its own owner, `ops`, and its own read-only login, `duckdb`.
 
@@ -1247,6 +1256,7 @@ The application database `data-proxy` has four groups of tables.
 %% Application database tables
 erDiagram
 
+"console.schemas" }o--|| "console.projects" : ""
 "console.tables" }o--|| "console.schemas" : ""
 "console.rls" }o--|| "console.tables" : ""
 "data_proxy.scope" }o--|| "console.schemas" : ""
@@ -1285,6 +1295,8 @@ erDiagram
   boolean encrypted
   timestamp_with_time_zone updated_at
   text updated_by
+  text project
+  text short_name
 }
 "console.tables" {
   text name
@@ -1316,6 +1328,11 @@ erDiagram
   text key
   jsonb old_row
   jsonb new_row
+}
+"console.projects" {
+  text name
+  timestamp_with_time_zone updated_at
+  text updated_by
 }
 "test.access_policy" {
   text subject
@@ -1642,6 +1659,8 @@ This page defines the terms that the other pages use. Each term has one meaning 
 The word schema has three meanings. A page uses the full phrase if the meaning isn't clear.
 
 - **PostgreSQL schema:** a namespace in the database. PostgREST serves each source schema as a profile, which a request selects with `Accept-Profile`.
+- **Project:** a group of schemas, with its own name. A schema name is unique in its project. The `projects` claim gives access to every schema of a project.
+- **Physical name:** the name of a schema in the database, the API, S3 and the roles. It's `<project>_<short name>`, or the short name in the project `default`.
 - **Configured schema:** an entry under `schemas` in `sync.json`. It has one source, one PostgreSQL schema and one catalog.
 - **JSON schema:** a document that checks the shape of data, such as the `config` schema of the proxy.
 
@@ -1858,6 +1877,8 @@ This page lists the claims that a token needs. A normal end-user token for the e
 
 The `role` claim is one role of `rbac.toml`, and PostgREST switches to the database role of the same name. The role decides what the token may do. A token without `read_api` can't read any synced view. The permissions section lists all of them.
 
+A token can also carry a `projects` claim, such as `"projects": ["sales:*"]`. It gives access to every schema of each project, including a schema that the project gets later. Use `sales` for the schemas of the project, and `sales:*` for every row of those schemas. The database expands the claim into the `schemas` claim for each request, so a token can have both claims. See Permissions.
+
 You configure the exact identity claim per schema. If the schema uses `sub` instead of `preferred_username`, the access policy subject must match the token's `sub` value.
 
 ---
@@ -1896,7 +1917,7 @@ The database checks a permission with a row policy or with a check at the start 
 
 A delete that the row policy hides removes nothing and answers 200 with an empty list.
 
-Every role sees only the schemas in the `schemas` claim, and a token without the claim sees nothing. No role and no token reaches every schema. The database enforces this, not the console:
+Every role sees only the schemas in the `schemas` claim and in the `projects` claim, and a token without them sees nothing. No role and no token reaches every schema. The `projects` claim names projects. When a request starts, `rbac.load()` expands each entry into the schemas that the project has: `<schema>` for `<project>`, and `<schema>:*` for `<project>:*`. A token with a project can add a schema in it, even though the schema doesn't exist yet. The wildcard `*` names every project. The database enforces this, not the console:
 
 - Row-level security filters `schemas`, `tables` and `rls` by the schema of each row. A role with `create_config` writes a row only for a schema in its claim, and the claim can name a schema that doesn't exist yet.
 - The views `tasks`, `logs`, `errors`, `health`, `synced` and `overview` show the rows of the schemas in the claim. A log line without a schema is hidden.
@@ -2507,7 +2528,8 @@ The sync configuration is data in three tables of the `console` schema. The cons
 
 | Table | Contains |
 | --- | --- |
-| `schemas` | One row per synced schema: `name`, `source`, `settings`, `claim`, `encrypted`. |
+| `projects` | One row per project: `name`. A project has schemas. |
+| `schemas` | One row per synced schema: `project`, `short_name`, `name`, `source`, `settings`, `claim`, `encrypted`. |
 | `tables` | One row per source table: `name`, its `schema`, `strategy`, `n`, `fallback`, `cache_ttl`, `partitioning`, `sort`. |
 | `rls` | One row per rule: the `table_name`, the `column_name`, and the `unit_type`. |
 
@@ -2515,26 +2537,29 @@ Every row records `updated_at` and `updated_by`. The database sets both. The nam
 
 Constraints replace a validation step:
 
-- A schema name uses lowercase letters, digits and underscores, and it starts with a letter. It has at most 56 characters, so that the role name `schema_<name>` fits in 63.
+- A project name uses lowercase letters and digits. The project `default` always exists. A project with schemas can't be deleted.
+- A schema has one project. Its `name` is the physical name that the sync, the proxy, S3 and the roles use: `<project>_<short_name>`, or `<short_name>` in `default`. The database builds it from the project and the short name.
+- A physical name uses lowercase letters, digits and underscores, and it starts with a letter. It has at most 56 characters, so that the role name `schema_<name>` fits in 63. Two schemas can't share one.
+- A schema can't change its project or its short name. Delete it and add it again to rename it.
 - A table name is unique in the whole configuration, and unique in its schema by its last part.
 - `n` and `fallback` need the `partitioned` strategy, and `n` must be positive.
 - A table needs a schema that exists, and an `rls` rule needs a schema with a `claim`.
 - A schema can't lose its `claim` while one of its tables has a rule.
 
-The engine still checks the rules that belong to a source, such as the form of a table name, when a sync run starts.
+The engine checks the rules of a source, such as the form of a table name, when a sync run starts.
 
 Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema, its `access_policy` and its views exist. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
 
 ### Remove a table or a schema
 
-Deleting a row in `tables` or `schemas` destroys the data of that table or schema, so `delete_config` is a destructive permission. The database asks for no confirmation, and the console asks the user before it deletes. A sync run for a schema that an editor removes during the run fails.
+Deleting a row in `tables` or `schemas` destroys the data of that table or schema, so `delete_config` is a destructive permission. The database asks for no confirmation, and the console asks the user first. A sync run for a schema that an editor removes during the run fails.
 
-**A table.** A trigger on `tables` queues the workflow `cleanup_tables` when none waits. The sync worker runs it, because dropping a DuckLake table needs DuckDB. For each schema, the workflow drops the DuckLake tables that the configuration no longer lists and deletes their data files in S3. It also deletes the state and the errors of those tables. The daily `maintenance` Job drops the views. Every step can run again, and the orphan cleanup of the DuckLake maintenance deletes files that a stopped run leaves.
+**A table.** A trigger on `tables` queues the workflow `cleanup_tables` when none waits. The sync worker runs it. For each schema, the workflow drops the DuckLake tables that the configuration no longer lists and deletes their data files in S3. It also deletes the state and the errors of those tables. The daily `maintenance` Job drops the views. Every step can run again, and DuckLake maintenance deletes the orphan files of a stopped run.
 
-**A schema.** A trigger on `schemas` queues the workflow `provision_schemas` when none waits. The queue runs one workflow at a time, so a change during a sync run gets the next sync run. The sync worker creates a Job from the suspended `provision` CronJob (Initialization). The Job makes the database match the configuration, and every sync run does the same at its start, which heals a lost event.
+**A schema.** A trigger on `schemas` queues the workflow `provision_schemas` when none waits. The queue runs one workflow at a time, so a change during a sync run gets the next sync run. The sync worker creates a Job from the suspended `provision` CronJob (Initialization). The Job makes the database match the configuration. Every sync run does the same at its start, so a lost event heals.
 
 - **Add:** the Job creates the PostgreSQL schema with `access_policy` and `access_log`, adds it to `pgrst.db_schemas` and tells PostgREST to reload. It takes seconds.
-- **Remove:** the Job stops serving the schema and purges the files in S3. It drops the metadata schema in the catalog database. It deletes the state, the errors and the scope of its tables. It drops the schema of the database last. The next sync run finds an unfinished removal through that schema. Every step can run again.
+- **Remove:** the Job stops serving the schema and purges the files in S3. It drops the metadata schema in the catalog database. It deletes the state, the errors and the scope of its tables. It drops the schema of the database last, so the next sync run finds an unfinished removal. Every step can run again.
 
 ### The configuration endpoint
 
@@ -2657,7 +2682,7 @@ Source: dev/index.md
 
 ## Development
 
-This section helps you set up the repository, run the checks and find your way in the code. Tests says how to run each suite. CI describes the pipeline and the release. Style has the rules for the code and the docs.
+This section helps you set up the repository, run the checks and find your way in the code. Tests says how to run each suite. CI describes the pipeline and the release. Production deploys says how a release reaches production. Style has the rules for the code and the docs.
 
 ### Code map
 
@@ -2925,6 +2950,8 @@ A push that changed only `terraform/` or `docs/` since the last tag makes no rel
 
 The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag, and the next run publishes the same version again. If `main` is protected, add the secret `RELEASE_TOKEN` with a token that may push to it. Run `cog bump --auto --dry-run` to print the next tag without a change.
 
+Staging follows every chart. Production follows the chart tag `prod`, which a reviewer moves. See Production deploys.
+
 Only the last step is specific to GitHub (`gh release create`). `ci.nu` reads `CI_REPOSITORY`, `CI_REGISTRY`, `CI_REGISTRY_USER`, `CI_REGISTRY_TOKEN`, `CI_BOT_NAME`, `CI_BOT_EMAIL` and `CI_OUTPUT_FILE`, and it uses the GitHub Actions values when they're missing.
 
 ### Security scan
@@ -2934,6 +2961,48 @@ Only the last step is specific to GitHub (`gh release create`). `ci.nu` reads `C
 The run on `main` fails at the SonarQube quality gate. The log doesn't name the condition, so read the project dashboard on the SonarQube server. Checkov reports five `CKV_SECRET_6` findings although `.checkov.yaml` skips that check, so the action may not read the file. Checkov also can't render the chart, because `redis.host` has no default.
 
 The branch `main` has no branch protection and no rule set. A required check needs the job names of `ci.yaml`: `Lint and unit tests`, `Sync integration tests`, `Console integration tests` and `Proxy integration tests`.
+
+---
+
+Source: dev/promote.md
+
+## Production deploys
+
+Staging deploys every release. Production runs one chart version that a person approves.
+
+### How the versions move
+
+- The staging HelmRelease follows the range `2.x`, so Flux deploys each new chart within five minutes.
+- The production HelmRelease follows the chart tag `prod` in `ghcr.io/prefeitura-rio/charts/data-proxy`. The tag points to one version, and production stays on it until the tag moves.
+
+Staging runs 2.11.0, and then CI releases 2.12.0 and 2.13.0. Staging now runs 2.13.0, and production still runs 2.11.0. After an approval, production runs 2.13.0. A chart has every change before it, so 2.13.0 includes 2.12.0.
+
+### Approve a deploy
+
+The workflow `promote.yaml` runs after each CI run on `main`. It compares the newest chart with the version of the tag `prod`. When they differ, it starts the job `Promote to production` in the environment `production`, and the job waits for a reviewer.
+
+1. Open the run in GitHub Actions and choose Review deployments.
+2. Check that staging is healthy with the version that you promote.
+3. Approve. The job moves the tag `prod` and writes `prod: 2.11.0 to 2.13.0` in its summary.
+4. Flux deploys the chart to production within five minutes.
+
+Each release makes its own waiting run. An approval of an old run does nothing when a newer chart exists, so approve the newest run and reject the others.
+
+### Roll back or choose a version
+
+Start `promote.yaml` by hand with the input `version`, such as `2.11.0`. The job needs the same approval. A rollback leaves staging alone.
+
+### Commands
+
+| Command | Work |
+| --- | --- |
+| `ci chart prod` | Prints the version that production runs. |
+| `ci chart next` | Writes the version to promote and whether production runs another one. |
+| `ci chart promote <version>` | Moves the tag `prod` to a released version. `--if-latest` skips an old version. |
+
+### Settings
+
+The reviewers are in the GitHub settings of the repository, under Environments and `production`. The infra repository has the production HelmRelease. It reads the tag with an `OCIRepository` whose `ref.tag` is `prod`. CI and releases describes the chart release that comes before a promotion.
 
 ---
 
@@ -3873,19 +3942,21 @@ Source: terraform.md
 
 The `dataproxy` Terraform provider will manage the configuration of Data Proxy as code. It will manage the projects, the schemas, the tables, the row policies and the access policies through the PostgREST API. The provider is a Go module in `terraform/`, and it uses the Terraform Plugin Framework.
 
-The provider is a skeleton now. It has the configuration block, but it has no resources and no data sources. It reads the values of the block and doesn't use them yet.
+The provider has the configuration block and no resources or data sources yet. It gets an access token from the identity provider with the OAuth 2.0 client credentials grant. It fetches a new token 30 seconds before the old one expires, so a long run keeps working with tokens that last 5 minutes.
 
 ### Configuration
 
-The registry address is `registry.terraform.io/prefeitura-rio/dataproxy`, and the type name is `dataproxy`. Every attribute is optional now.
+The registry address is `registry.terraform.io/prefeitura-rio/dataproxy`, and the type name is `dataproxy`. Each attribute has an environment variable. The provider uses the variable when the block doesn't set the attribute. An attribute in the block takes precedence over its variable, also when its value is an empty string.
 
-| Attribute | Type | Content |
-| --- | --- | --- |
-| `endpoint` | string | The base address of the Data Proxy API. |
-| `token_url` | string | The address of the token endpoint of the identity provider. |
-| `client_id` | string | The client ID for the client credentials grant. |
-| `client_secret` | string, sensitive | The client secret for the client credentials grant. Terraform hides it in the output. |
-| `scopes` | list of strings | The scopes to request with the token. |
+| Attribute | Variable | Type | Content |
+| --- | --- | --- | --- |
+| `endpoint` | `DATAPROXY_ENDPOINT` | string, required | The base address of the Data Proxy API. |
+| `token_url` | `DATAPROXY_TOKEN_URL` | string, required | The address of the token endpoint of the identity provider. |
+| `client_id` | `DATAPROXY_CLIENT_ID` | string, required | The client ID for the client credentials grant. |
+| `client_secret` | `DATAPROXY_CLIENT_SECRET` | string, required, sensitive | The client secret for the client credentials grant. Terraform hides it in the output. |
+| `scopes` | `DATAPROXY_SCOPES` | list of strings | The scopes to request with the token. The variable separates them with commas or spaces. |
+
+A required value must come from the block or from its variable. The provider fails with one error for each value that's missing. It doesn't call the identity provider when it starts, so a wrong secret fails at the first request to the API.
 
 ```hcl
 terraform {
@@ -3904,7 +3975,7 @@ provider "dataproxy" {
 }
 ```
 
-Don't write the client secret in a `.tf` file. Give it to Terraform as a variable from your secret store.
+Don't write the client secret in a `.tf` file. Set `DATAPROXY_CLIENT_SECRET`, or give it to Terraform as a variable from your secret store.
 
 ### Build and test
 

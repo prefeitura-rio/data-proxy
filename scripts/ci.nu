@@ -7,9 +7,12 @@ use lib.nu [
     images-changed
     latest-helm-tag
     make-dir
+    newest-version
     read-data
     read-text
     release-tag
+    valid-chart-version
+    version-of-digest
     write-text
 ]
 
@@ -286,6 +289,108 @@ def 'main chart publish' []: nothing -> nothing {
     helm push $package $'oci://($ci.registry)/(ci-repository-owner)/charts' | complete | check-result 'helm push' | ignore
 
     log info 'Published the Helm chart.'
+}
+
+# Return the repository of the chart in the registry, such as ghcr.io/prefeitura-rio/charts/data-proxy.
+def chart-repository []: nothing -> string {
+    $'($ci.registry)/(ci-repository-owner)/charts/data-proxy'
+}
+
+# Log in to the registry for crane, when the run has a token.
+def crane-login []: nothing -> nothing {
+    if ($ci.registry_token | is-empty) {
+        return
+    }
+
+    $ci.registry_token
+    | crane auth login $ci.registry --username $ci.registry_user --password-stdin
+    | complete
+    | check-result 'crane auth login'
+    | ignore
+}
+
+# Return every tag of the chart repository with its digest.
+def chart-tags [repository: string]: nothing -> list<record<tag: string, digest: string>> {
+    crane ls $repository
+    | lines
+    | par-each {|tag| {tag: $tag, digest: (crane digest $'($repository):($tag)' | str trim)} }
+}
+
+# Return the version that a tag of the chart repository points to, or null when the tag does not exist.
+def tag-version [tags: list<record<tag: string, digest: string>>, name: string]: nothing -> oneof<string, nothing> {
+    let digest = $tags | where tag == $name | get --optional 0.digest
+
+    if $digest == null { null } else { version-of-digest $tags $digest }
+}
+
+# Add a line to the summary of the job, or print it outside GitHub Actions.
+def write-summary [line: string]: nothing -> nothing {
+    if ($env.GITHUB_STEP_SUMMARY? | is-empty) {
+        print $line
+    } else {
+        $line + (char nl) | write-text --append $env.GITHUB_STEP_SUMMARY
+    }
+}
+
+# Print the chart version that production runs, which is the version that the tag prod points to.
+def 'main chart prod' []: nothing -> nothing {
+    crane-login
+
+    print (tag-version (chart-tags (chart-repository)) prod | default 'none')
+}
+
+# Find the version to promote and say whether production runs another one. It writes the outputs `version` and `pending`.
+# A run that names a version in the variable VERSION promotes that version. Another run promotes the newest chart.
+def 'main chart next' []: nothing -> nothing {
+    crane-login
+
+    let tags = chart-tags (chart-repository)
+    let requested = $env.VERSION?
+    let version = if ($requested | is-empty) { $tags | get tag | newest-version } else { $requested }
+
+    if $version == null or not (valid-chart-version $version) {
+        fail $'No chart version to promote: ($version)'
+    }
+
+    let current = tag-version $tags prod
+
+    write-output version $version
+    write-output pending (($current != $version) | into string)
+
+    log info $'Production runs ($current | default none). The chart to promote is ($version).'
+}
+
+# Move the tag prod of the chart to a released version. Prod Flux follows that tag.
+def 'main chart promote' [
+    version: string # The chart version, such as 2.13.0.
+    --if-latest # Do nothing when a newer version exists, so an old approval does not undo a newer one.
+]: nothing -> nothing {
+    if not (valid-chart-version $version) {
+        fail $'($version) is not a chart version such as 2.13.0'
+    }
+
+    crane-login
+
+    let repository = chart-repository
+    let tags = chart-tags $repository
+
+    if ($tags | where tag == $version | is-empty) {
+        fail $'The chart ($version) is not in ($repository)'
+    }
+
+    let newest = ($tags | get tag | newest-version)
+
+    if $if_latest and $newest != $version {
+        write-summary $'Skipped: ($version) is not the newest chart. The newest is ($newest).'
+
+        return
+    }
+
+    let current = tag-version $tags prod | default none
+
+    crane tag $'($repository):($version)' prod | complete | check-result 'crane tag' | ignore
+
+    write-summary $'prod: ($current) to ($version)'
 }
 
 # Decide whether a Helm release is needed: a chart file or an image path changed since the last release tag.

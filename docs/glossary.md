@@ -53,6 +53,8 @@ This page defines the terms that the other pages use. Each term has one meaning 
 The word schema has three meanings. A page uses the full phrase if the meaning isn't clear.
 
 - **PostgreSQL schema:** a namespace in the database. PostgREST serves each source schema as a profile, which a request selects with `Accept-Profile`.
+- **Project:** a group of schemas, with its own name. A schema name is unique in its project. The `projects` claim gives access to every schema of a project.
+- **Physical name:** the name of a schema in the database, the API, S3 and the roles. It's `<project>_<short name>`, or the short name in the project `default`.
 - **Configured schema:** an entry under `schemas` in `sync.json`. It has one source, one PostgreSQL schema and one catalog.
 - **JSON schema:** a document that checks the shape of data, such as the `config` schema of the proxy.
 

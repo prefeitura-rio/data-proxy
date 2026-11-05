@@ -8,7 +8,8 @@ The sync configuration is data in three tables of the `console` schema. The cons
 
 | Table | Contains |
 | --- | --- |
-| `schemas` | One row per synced schema: `name`, `source`, `settings`, `claim`, `encrypted`. |
+| `projects` | One row per project: `name`. A project has schemas. |
+| `schemas` | One row per synced schema: `project`, `short_name`, `name`, `source`, `settings`, `claim`, `encrypted`. |
 | `tables` | One row per source table: `name`, its `schema`, `strategy`, `n`, `fallback`, `cache_ttl`, `partitioning`, `sort`. |
 | `rls` | One row per rule: the `table_name`, the `column_name`, and the `unit_type`. |
 
@@ -16,26 +17,29 @@ Every row records `updated_at` and `updated_by`. The database sets both. The nam
 
 Constraints replace a validation step:
 
-- A schema name uses lowercase letters, digits and underscores, and it starts with a letter. It has at most 56 characters, so that the role name `schema_<name>` fits in 63.
+- A project name uses lowercase letters and digits. The project `default` always exists. A project with schemas can't be deleted.
+- A schema has one project. Its `name` is the physical name that the sync, the proxy, S3 and the roles use: `<project>_<short_name>`, or `<short_name>` in `default`. The database builds it from the project and the short name.
+- A physical name uses lowercase letters, digits and underscores, and it starts with a letter. It has at most 56 characters, so that the role name `schema_<name>` fits in 63. Two schemas can't share one.
+- A schema can't change its project or its short name. Delete it and add it again to rename it.
 - A table name is unique in the whole configuration, and unique in its schema by its last part.
 - `n` and `fallback` need the `partitioned` strategy, and `n` must be positive.
 - A table needs a schema that exists, and an `rls` rule needs a schema with a `claim`.
 - A schema can't lose its `claim` while one of its tables has a rule.
 
-The engine still checks the rules that belong to a source, such as the form of a table name, when a sync run starts.
+The engine checks the rules of a source, such as the form of a table name, when a sync run starts.
 
 Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema, its `access_policy` and its views exist. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
 
 ## Remove a table or a schema
 
-Deleting a row in `tables` or `schemas` destroys the data of that table or schema, so `delete_config` is a destructive permission. The database asks for no confirmation, and the console asks the user before it deletes. A sync run for a schema that an editor removes during the run fails.
+Deleting a row in `tables` or `schemas` destroys the data of that table or schema, so `delete_config` is a destructive permission. The database asks for no confirmation, and the console asks the user first. A sync run for a schema that an editor removes during the run fails.
 
-**A table.** A trigger on `tables` queues the workflow `cleanup_tables` when none waits. The sync worker runs it, because dropping a DuckLake table needs DuckDB. For each schema, the workflow drops the DuckLake tables that the configuration no longer lists and deletes their data files in S3. It also deletes the state and the errors of those tables. The daily `maintenance` Job drops the views. Every step can run again, and the orphan cleanup of the DuckLake maintenance deletes files that a stopped run leaves.
+**A table.** A trigger on `tables` queues the workflow `cleanup_tables` when none waits. The sync worker runs it. For each schema, the workflow drops the DuckLake tables that the configuration no longer lists and deletes their data files in S3. It also deletes the state and the errors of those tables. The daily `maintenance` Job drops the views. Every step can run again, and DuckLake maintenance deletes the orphan files of a stopped run.
 
-**A schema.** A trigger on `schemas` queues the workflow `provision_schemas` when none waits. The queue runs one workflow at a time, so a change during a sync run gets the next sync run. The sync worker creates a Job from the suspended `provision` CronJob ([Initialization](../operations/initialization.md#run-a-job-on-demand)). The Job makes the database match the configuration, and every sync run does the same at its start, which heals a lost event.
+**A schema.** A trigger on `schemas` queues the workflow `provision_schemas` when none waits. The queue runs one workflow at a time, so a change during a sync run gets the next sync run. The sync worker creates a Job from the suspended `provision` CronJob ([Initialization](../operations/initialization.md#run-a-job-on-demand)). The Job makes the database match the configuration. Every sync run does the same at its start, so a lost event heals.
 
 - **Add:** the Job creates the PostgreSQL schema with `access_policy` and `access_log`, adds it to `pgrst.db_schemas` and tells PostgREST to reload. It takes seconds.
-- **Remove:** the Job stops serving the schema and purges the files in S3. It drops the metadata schema in the catalog database. It deletes the state, the errors and the scope of its tables. It drops the schema of the database last. The next sync run finds an unfinished removal through that schema. Every step can run again.
+- **Remove:** the Job stops serving the schema and purges the files in S3. It drops the metadata schema in the catalog database. It deletes the state, the errors and the scope of its tables. It drops the schema of the database last, so the next sync run finds an unfinished removal. Every step can run again.
 
 ## The configuration endpoint
 

@@ -33,7 +33,8 @@ devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
 
 - Run the second line for the components that you changed. It starts services.
 - Run the third line after a change to a profile, a task, a package or a `devenv` command in a page.
-- Never commit or push without explicit approval. Stage, summarize, and wait.
+- Without `devenv`, run the commands of [AGENTS.md](./AGENTS.md#without-devenv) for each component that you changed.
+- Never push to `main`. Commit only as the [workflow](./AGENTS.md#workflow) allows.
 
 ## Examples
 

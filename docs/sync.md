@@ -36,6 +36,14 @@ The tables of the `console` schema contain the configuration ([Console](console/
 
 The schema key is the target PostgreSQL schema. Don't add a schema field to a table entry.
 
+The console exports and imports the same document grouped by project, and the schema key is then the short name. The import also reads the form above, and puts those schemas in the project `default`.
+
+```json
+{ "projects": { "sales": { "schemas": { "orders": { "tables": [] } } } } }
+```
+
+This document makes the schema `sales_orders`. The engine reads `sync_config()`, which lists each schema by its physical name.
+
 ## Table fields
 
 These fields describe one table of a schema in `sync.json`. The table says which fields are required.

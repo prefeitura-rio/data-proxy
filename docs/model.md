@@ -14,6 +14,7 @@ This diagram joins the three diagrams below.
 ```mermaid
 %% All database tables
 erDiagram
+"console.schemas" }o--|| "console.projects" : ""
 "console.tables" }o--|| "console.schemas" : ""
 "console.rls" }o--|| "console.tables" : ""
 "data_proxy.scope" }o--|| "console.schemas" : ""
@@ -51,6 +52,8 @@ erDiagram
   boolean encrypted
   timestamp_with_time_zone updated_at
   text updated_by
+  text project
+  text short_name
 }
 "console.tables" {
   text name
@@ -82,6 +85,11 @@ erDiagram
   text key
   jsonb old_row
   jsonb new_row
+}
+"console.projects" {
+  text name
+  timestamp_with_time_zone updated_at
+  text updated_by
 }
 "test.access_policy" {
   text subject
@@ -283,6 +291,7 @@ The application database `data-proxy` has four groups of tables.
 %% Application database tables
 erDiagram
 
+"console.schemas" }o--|| "console.projects" : ""
 "console.tables" }o--|| "console.schemas" : ""
 "console.rls" }o--|| "console.tables" : ""
 "data_proxy.scope" }o--|| "console.schemas" : ""
@@ -321,6 +330,8 @@ erDiagram
   boolean encrypted
   timestamp_with_time_zone updated_at
   text updated_by
+  text project
+  text short_name
 }
 "console.tables" {
   text name
@@ -352,6 +363,11 @@ erDiagram
   text key
   jsonb old_row
   jsonb new_row
+}
+"console.projects" {
+  text name
+  timestamp_with_time_zone updated_at
+  text updated_by
 }
 "test.access_policy" {
   text subject

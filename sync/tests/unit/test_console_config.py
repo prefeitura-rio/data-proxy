@@ -2,6 +2,7 @@ import json
 
 import pytest
 from psycopg.types.json import Jsonb
+from pydantic import JsonValue
 
 from sync.models import PartitionedTable, SyncConfig
 from sync.state import read_sync_config
@@ -14,7 +15,15 @@ from tests.fixtures.console import (
     seed,
 )
 from tests.fixtures.types import Postgres
-from tests.helpers.console import RULES, Document, export, exported, hr_schema, preview
+from tests.helpers.console import (
+    RULES,
+    Document,
+    export,
+    export_config,
+    exported,
+    hr_schema,
+    preview,
+)
 from tests.helpers.core import scalar
 
 INSUFFICIENT = "42501"
@@ -278,6 +287,163 @@ class TestImportConfig:
         )
 
         assert state == CHECK_VIOLATION
+
+
+def member(project: str, short_name: str) -> Document:
+    """Build the export of one schema of a project, with one table that carries the names of both."""
+    table: Document = {"name": f"p.d.{project}_{short_name}", "strategy": "full"}
+
+    return {"claim": "cpf", "source": {"type": "bigquery"}, "tables": [table]}
+
+
+def projects_document(*schemas: tuple[str, str]) -> Document:
+    """Build a document of the projects form from (project, short name) pairs, with an empty project `empty`."""
+    projects: dict[str, dict[str, JsonValue]] = {"empty": {}}
+    for project, short_name in schemas:
+        projects.setdefault(project, {})[short_name] = {
+            "claim": "cpf",
+            "tables": member(project, short_name)["tables"],
+        }
+
+    return {
+        "projects": {name: {"schemas": members} for name, members in projects.items()}
+    }
+
+
+@pytest.mark.postgres
+class TestProjectDocument:
+    """The document has a projects form, and the old schemas form belongs to the project default."""
+
+    async def test_the_projects_form_adds_the_projects_and_names_the_schemas_by_project(
+        self, console_api: Postgres
+    ) -> None:
+        """Make `sales/orders` the schema `sales_orders`, and keep its table under that name."""
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+
+        await console_api.connection.execute(
+            b"SELECT console.import_config(%s)",
+            (Jsonb(projects_document(("sales", "orders"))),),
+        )
+
+        cursor = await console_api.connection.execute(
+            b"SELECT project, short_name, name FROM console.schemas"
+        )
+        assert await cursor.fetchall() == [("sales", "orders", "sales_orders")]
+        assert (
+            await scalar(console_api, "SELECT schema FROM console.tables")
+            == "sales_orders"
+        )
+        assert [
+            row[0]
+            for row in await (
+                await console_api.connection.execute(
+                    b"SELECT name FROM console.projects ORDER BY name"
+                )
+            ).fetchall()
+        ] == ["default", "empty", "sales"]
+
+    async def test_the_schemas_form_belongs_to_default(
+        self, console_api: Postgres
+    ) -> None:
+        """Keep a document of the old form working, with the names that it has."""
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+
+        await console_api.connection.execute(
+            b"SELECT console.import_config(%s)",
+            (Jsonb({"schemas": {"hr": {"claim": "cpf", "tables": []}}}),),
+        )
+
+        cursor = await console_api.connection.execute(
+            b"SELECT project, short_name, name FROM console.schemas"
+        )
+        assert await cursor.fetchall() == [("default", "hr", "hr")]
+
+    async def test_the_export_by_project_imports_without_a_change(
+        self, console_api: Postgres
+    ) -> None:
+        """Make `export_config` and `import_config` the two halves of one round trip, empty projects too."""
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        await console_api.connection.execute(
+            b"SELECT console.import_config(%s)",
+            (
+                Jsonb(
+                    projects_document(
+                        ("sales", "orders"), ("sales", "crm"), ("hr", "staff")
+                    )
+                ),
+            ),
+        )
+
+        document = await export_config(console_api)
+        rows = await preview(console_api, document)
+
+        assert set(document) == {"projects"}
+        assert document["projects"] == {
+            "default": {"schemas": {}},
+            "empty": {"schemas": {}},
+            "hr": {"schemas": {"staff": member("hr", "staff")}},
+            "sales": {
+                "schemas": {
+                    "crm": member("sales", "crm"),
+                    "orders": member("sales", "orders"),
+                }
+            },
+        }
+        assert {action for *_, action in rows} == {"unchanged"}
+
+    async def test_the_flat_export_for_the_sync_keeps_the_names_of_the_schemas(
+        self, console_api: Postgres
+    ) -> None:
+        """Give the engine one name for each schema, with no project in it."""
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        await console_api.connection.execute(
+            b"SELECT console.import_config(%s)",
+            (Jsonb(projects_document(("sales", "orders"))),),
+        )
+
+        schemas = (await export(console_api))["schemas"]
+        assert isinstance(schemas, dict)
+        assert set(schemas) == {"sales_orders"}
+
+    @pytest.mark.parametrize(
+        ("project", "state"),
+        [
+            pytest.param("sales", None, id="a-schema-of-a-project-of-the-claim"),
+            pytest.param("hr", INSUFFICIENT, id="a-schema-of-another-project"),
+        ],
+    )
+    async def test_a_project_token_imports_a_schema_that_did_not_exist(
+        self, console_api: Postgres, project: str, state: str | None
+    ) -> None:
+        """Let the row policies of the tables decide, with the project of the new schema and of its tables."""
+        await console_api.connection.execute(
+            b"INSERT INTO console.projects (name) VALUES ('sales'), ('hr')"
+        )
+        await as_token(
+            console_api, "dp_admin", [], projects=["sales"], database_role=True
+        )
+
+        assert (
+            await refusal(
+                console_api,
+                "SELECT console.import_config(%s)",
+                Jsonb(
+                    {
+                        "projects": {
+                            project: {
+                                "schemas": {
+                                    "ledger": {
+                                        "claim": "cpf",
+                                        "tables": [{"name": "p.d.ledger"}],
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ),
+            )
+            == state
+        )
 
 
 @pytest.mark.postgres
