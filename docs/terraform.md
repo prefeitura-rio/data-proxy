@@ -2,19 +2,21 @@
 
 The `dataproxy` Terraform provider will manage the configuration of Data Proxy as code. It will manage the projects, the schemas, the tables, the row policies and the access policies through the PostgREST API. The provider is a Go module in `terraform/`, and it uses the Terraform Plugin Framework.
 
-The provider is a skeleton now. It has the configuration block, but it has no resources and no data sources. It reads the values of the block and doesn't use them yet.
+The provider has the configuration block and no resources or data sources yet. It gets an access token from the identity provider with the OAuth 2.0 client credentials grant. It fetches a new token 30 seconds before the old one expires, so a long run keeps working with tokens that last 5 minutes.
 
 ## Configuration
 
-The registry address is `registry.terraform.io/prefeitura-rio/dataproxy`, and the type name is `dataproxy`. Every attribute is optional now.
+The registry address is `registry.terraform.io/prefeitura-rio/dataproxy`, and the type name is `dataproxy`. Each attribute has an environment variable. The provider uses the variable when the block doesn't set the attribute. An attribute in the block takes precedence over its variable, also when its value is an empty string.
 
-| Attribute | Type | Content |
-| --- | --- | --- |
-| `endpoint` | string | The base address of the Data Proxy API. |
-| `token_url` | string | The address of the token endpoint of the identity provider. |
-| `client_id` | string | The client ID for the client credentials grant. |
-| `client_secret` | string, sensitive | The client secret for the client credentials grant. Terraform hides it in the output. |
-| `scopes` | list of strings | The scopes to request with the token. |
+| Attribute | Variable | Type | Content |
+| --- | --- | --- | --- |
+| `endpoint` | `DATAPROXY_ENDPOINT` | string, required | The base address of the Data Proxy API. |
+| `token_url` | `DATAPROXY_TOKEN_URL` | string, required | The address of the token endpoint of the identity provider. |
+| `client_id` | `DATAPROXY_CLIENT_ID` | string, required | The client ID for the client credentials grant. |
+| `client_secret` | `DATAPROXY_CLIENT_SECRET` | string, required, sensitive | The client secret for the client credentials grant. Terraform hides it in the output. |
+| `scopes` | `DATAPROXY_SCOPES` | list of strings | The scopes to request with the token. The variable separates them with commas or spaces. |
+
+A required value must come from the block or from its variable. The provider fails with one error for each value that's missing. It doesn't call the identity provider when it starts, so a wrong secret fails at the first request to the API.
 
 ```hcl
 terraform {
@@ -33,7 +35,7 @@ provider "dataproxy" {
 }
 ```
 
-Don't write the client secret in a `.tf` file. Give it to Terraform as a variable from your secret store.
+Don't write the client secret in a `.tf` file. Set `DATAPROXY_CLIENT_SECRET`, or give it to Terraform as a variable from your secret store.
 
 ## Build and test
 
