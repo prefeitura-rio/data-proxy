@@ -163,6 +163,32 @@ func (c *Client) RPC(ctx context.Context, profile, function string, args, out an
 	return c.do(ctx, request{method: http.MethodPost, profile: profile, path: "rpc/" + url.PathEscape(function), body: args, rpc: true}, out)
 }
 
+// GetRPC calls a function that only reads, a STABLE or an IMMUTABLE one, with GET and no arguments, and decodes
+// its result into out. PostgREST finds the function in the schema of Accept-Profile.
+func (c *Client) GetRPC(ctx context.Context, profile, function string, out any) error {
+	if function == "" {
+		return errors.New("the function name is empty")
+	}
+
+	return c.do(ctx, request{method: http.MethodGet, profile: profile, path: "rpc/" + url.PathEscape(function), rpc: true}, out)
+}
+
+// Permissions returns the permissions of the token, the names of rbac.toml such as read_config that the role of
+// its JWT has. It calls console.permissions() with GET /rpc/permissions.
+func (c *Client) Permissions(ctx context.Context) ([]string, error) {
+	var permissions []string
+
+	if err := c.GetRPC(ctx, ConsoleProfile, "permissions", &permissions); err != nil {
+		return nil, fmt.Errorf("read the permissions of the token: %w", err)
+	}
+
+	if permissions == nil {
+		permissions = []string{}
+	}
+
+	return permissions, nil
+}
+
 // request is one call to PostgREST. path is already escaped, except a table name, which do escapes.
 type request struct {
 	method  string
@@ -216,7 +242,7 @@ func (c *Client) do(ctx context.Context, r request, out any) error {
 	case r.write:
 		req.Header.Set("Content-Profile", r.profile)
 		req.Header.Set("Prefer", "return=representation")
-	case r.rpc:
+	case r.rpc && r.method == http.MethodPost:
 		req.Header.Set("Content-Profile", r.profile)
 	default:
 		req.Header.Set("Accept-Profile", r.profile)

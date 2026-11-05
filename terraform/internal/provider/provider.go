@@ -38,8 +38,8 @@ const (
 
 var _ provider.Provider = (*dataProxyProvider)(nil)
 
-// dataProxyProvider is the provider. It has no resources and no data sources yet.
-// Configure gives them a *client.Client in their provider data.
+// dataProxyProvider is the provider. Configure gives its resources and data sources a *client.Client in their
+// provider data.
 type dataProxyProvider struct {
 	version string
 }
@@ -103,7 +103,8 @@ func (p *dataProxyProvider) Schema(_ context.Context, _ provider.SchemaRequest, 
 }
 
 // Configure reads the provider block and the environment, and gives the resources and the data sources a client
-// that fetches and renews its token with the client credentials grant. It doesn't call the identity provider.
+// that fetches and renews its token with the client credentials grant. It fetches a token and reads its
+// permissions, and it fails when the token doesn't work or lacks read_config.
 func (p *dataProxyProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var config providerModel
 
@@ -131,6 +132,19 @@ func (p *dataProxyProvider) Configure(ctx context.Context, req provider.Configur
 	if err != nil {
 		resp.Diagnostics.AddAttributeError(path.Root("endpoint"), "Invalid Data Proxy endpoint", err.Error())
 
+		return
+	}
+
+	permissions, err := apiClient.Permissions(ctx)
+	if err != nil {
+		addAPIError(&resp.Diagnostics, "Couldn't check the Data Proxy token", "", err)
+
+		return
+	}
+
+	resp.Diagnostics.Append(checkReadConfig(values.credentials.ClientID, permissions)...)
+
+	if resp.Diagnostics.HasError() {
 		return
 	}
 
@@ -211,5 +225,5 @@ func (p *dataProxyProvider) Resources(_ context.Context) []func() resource.Resou
 }
 
 func (p *dataProxyProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return nil
+	return []func() datasource.DataSource{newPermissionsDataSource}
 }

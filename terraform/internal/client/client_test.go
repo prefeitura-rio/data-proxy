@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -156,6 +157,28 @@ func TestRequests(t *testing.T) {
 			contentType: "application/json",
 		},
 		{
+			id: "get rpc reads with Accept-Profile and no body",
+			call: func(ctx context.Context, c *Client) error {
+				return c.GetRPC(ctx, ConsoleProfile, "permissions", nil)
+			},
+			method:  http.MethodGet,
+			uri:     "/api/rpc/permissions",
+			headers: map[string]string{"Accept-Profile": "console"},
+			absent:  []string{"Content-Profile", "Prefer", "Content-Type"},
+		},
+		{
+			id: "permissions reads console.permissions with get",
+			call: func(ctx context.Context, c *Client) error {
+				_, err := c.Permissions(ctx)
+
+				return err
+			},
+			method:  http.MethodGet,
+			uri:     "/api/rpc/permissions",
+			headers: map[string]string{"Accept-Profile": "console"},
+			absent:  []string{"Content-Profile", "Prefer", "Content-Type"},
+		},
+		{
 			id: "table name is escaped in the path",
 			call: func(ctx context.Context, c *Client) error {
 				return c.Get(ctx, ConsoleProfile, "a/b", nil, nil)
@@ -241,6 +264,66 @@ func TestAcceptsAnEmptyResponse(t *testing.T) {
 	}
 }
 
+func TestPermissions(t *testing.T) {
+	tests := []struct {
+		id       string
+		status   int
+		response string
+		want     []string
+		wantErr  string
+		kind     error
+	}{
+		{id: "the permissions of the token", status: http.StatusOK, response: `["read_sync","read_config"]`, want: []string{"read_sync", "read_config"}},
+		{id: "no permission", status: http.StatusOK, response: `[]`, want: []string{}},
+		{id: "a null result", status: http.StatusOK, response: `null`, want: []string{}},
+		{
+			id:       "a refused token",
+			status:   http.StatusUnauthorized,
+			response: `{"code":"PGRST301","message":"JWSError JWSInvalidSignature"}`,
+			wantErr:  "read the permissions of the token: postgrest: HTTP 401 PGRST301: JWSError JWSInvalidSignature",
+			kind:     ErrUnauthorized,
+		},
+		{
+			id:       "a result that isn't a list of names",
+			status:   http.StatusOK,
+			response: `{"read_config":true}`,
+			wantErr:  "read the permissions of the token: GET rpc/permissions: decode the response: json: cannot unmarshal object into Go value of type []string",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			c, _ := newServer(t, tt.status, tt.response)
+
+			got, err := c.Permissions(context.Background())
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Permissions: %v", err)
+				}
+
+				if !reflect.DeepEqual(got, tt.want) {
+					t.Errorf("permissions = %q, want %q", got, tt.want)
+				}
+
+				return
+			}
+
+			if err == nil || err.Error() != tt.wantErr {
+				t.Fatalf("error = %v, want %q", err, tt.wantErr)
+			}
+
+			if tt.kind != nil && !errors.Is(err, tt.kind) {
+				t.Errorf("errors.Is(err, %v) = false, want true", tt.kind)
+			}
+
+			if got != nil {
+				t.Errorf("permissions = %q, want nil with an error", got)
+			}
+		})
+	}
+}
+
 func TestGetOne(t *testing.T) {
 	tests := []struct {
 		id       string
@@ -321,6 +404,11 @@ func TestRefusesBeforeTheRequest(t *testing.T) {
 		{
 			id:      "empty function",
 			call:    func(ctx context.Context, c *Client) error { return c.RPC(ctx, ConsoleProfile, "", nil, nil) },
+			wantErr: "the function name is empty",
+		},
+		{
+			id:      "empty function of a get rpc",
+			call:    func(ctx context.Context, c *Client) error { return c.GetRPC(ctx, ConsoleProfile, "", nil) },
 			wantErr: "the function name is empty",
 		},
 		{
