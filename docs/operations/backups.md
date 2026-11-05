@@ -115,5 +115,5 @@ Create a new cluster that imports the old one instead, with `bootstrap.initdb.im
 <!-- nav:start -->
 ---
 
-[Previous: Metrics](./metrics.md) | [Index](./index.md) | [Home](../index.md)
+[Previous: Metrics](./metrics.md) | [Next: Terraform provider](../terraform.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

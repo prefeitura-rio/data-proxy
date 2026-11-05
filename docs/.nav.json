@@ -164,6 +164,9 @@
           "page": "operations/backups.md"
         }
       ]
+    },
+    {
+      "page": "terraform.md"
     }
   ]
 }

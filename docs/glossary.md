@@ -46,6 +46,7 @@ This page defines the terms that the other pages use. Each term has one meaning 
 | Hurl | The tool for the HTTP tests of the proxy. |
 | devenv | The tool for the local environment, on Nix. It starts services and runs tasks. |
 | prek | The tool that runs the Git hooks. |
+| Terraform | The tool that manages infrastructure as code. The `dataproxy` provider lets it manage the configuration of Data Proxy. |
 
 ## Schema
 
