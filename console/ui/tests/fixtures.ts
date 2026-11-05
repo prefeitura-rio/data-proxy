@@ -32,6 +32,17 @@ const REFRESH_SECONDS = '2';
 export const hydrated = (page: Page) => page.locator('html[data-hydrated]').or(page.locator('#username')).waitFor();
 
 /**
+ * The row of a schema in the list of schemas. The first row of each project starts with the name of the project, so the
+ * helper finds the row by the cell of the schema name, not by the start of the row.
+ */
+export const schemaRow = (page: Page, schema: string) =>
+	page
+		.locator('table')
+		.filter({ has: page.getByRole('columnheader', { name: 'Encrypted', exact: true }) })
+		.locator('tbody tr')
+		.filter({ has: page.getByRole('cell', { name: schema, exact: true }) });
+
+/**
  * Run an action that ends with the toast "Saved." and wait for that toast. An older toast has the same text, and an
  * identical toast shows once, so the helper dismisses every toast first. The toast that it finds belongs to the action.
  */

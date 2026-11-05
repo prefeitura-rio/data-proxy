@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { expect, type BrowserContext, type Page } from '@playwright/test';
 import * as v from 'valibot';
 import { Grant } from '../../src/lib/types';
-import { BASE, Given, hydrated, saved, Then, When, type World } from '../fixtures';
+import { BASE, Given, hydrated, saved, schemaRow, Then, When, type World } from '../fixtures';
 import { PASSWORD, sessionFile } from '../session';
 
 /** Read the first bytes of a link. The link is signed for its own host, so the request keeps that host. */
@@ -398,10 +398,7 @@ Then('I am on the sign-in page', async ({ page }) => {
 });
 
 When('I ask to delete the schema {name}', async ({ page }, schema: string) => {
-	await page
-		.getByRole('row', { name: new RegExp(schema) })
-		.getByRole('button', { name: 'Delete' })
-		.click();
+	await schemaRow(page, schema).getByRole('button', { name: 'Delete' }).click();
 });
 
 Then('the confirm button stays disabled until I type {name}', async ({ page }, name: string) => {
@@ -415,7 +412,7 @@ Then('the confirm button stays disabled until I type {name}', async ({ page }, n
 
 When('I add the schema {name}', async ({ page, world }, name: string) => {
 	world.schemas.push(name);
-	await page.getByPlaceholder('name', { exact: true }).first().fill(name);
+	await page.getByPlaceholder('short name', { exact: true }).fill(name);
 	await page.getByRole('button', { name: 'Add schema' }).click();
 	await expect(listOf(page, 'Encrypted').rows.getByRole('cell', { name, exact: true })).toBeVisible();
 });
@@ -468,12 +465,10 @@ Then('I see the message {string}', async ({ page }, message: string) => {
 });
 
 When('I edit the schema {name} with claim {string}', async ({ page }, schema: string, claim: string) => {
-	await row(page, new RegExp(`^${schema} `))
-		.getByRole('button', { name: 'Edit' })
-		.click();
+	await schemaRow(page, schema).getByRole('button', { name: 'Edit' }).click();
 	await page.locator('dialog[open] input[name=claim]').fill(claim);
 	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
-	await expect(row(page, new RegExp(`^${schema} `))).toContainText(claim);
+	await expect(schemaRow(page, schema)).toContainText(claim);
 });
 
 When('I add the table {name} to the schema {name}', async ({ page }, table: string, schema: string) => {
@@ -546,9 +541,7 @@ Then('I see no table {name}', async ({ page }, table: string) => {
 });
 
 When('I delete the schema {name} by typing its name', async ({ page }, schema: string) => {
-	await row(page, new RegExp(`^${schema} `))
-		.getByRole('button', { name: 'Delete' })
-		.click();
+	await schemaRow(page, schema).getByRole('button', { name: 'Delete' }).click();
 	await page.locator('dialog[open] input[name=confirm]').fill(schema);
 	await page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click();
 });
@@ -573,16 +566,22 @@ When('I apply the previewed import', async ({ page }) => {
 });
 
 When('I set the cache TTL of every table in the exported file to {int}', async ({ world }, ttl: number) => {
-	const Document = v.looseObject({
-		schemas: v.record(v.string(), v.looseObject({ tables: v.array(v.looseObject({ name: v.string() })) }))
-	});
+	const Schemas = v.record(v.string(), v.looseObject({ tables: v.array(v.looseObject({ name: v.string() })) }));
+	const Document = v.looseObject({ projects: v.record(v.string(), v.looseObject({ schemas: Schemas })) });
 	const document = v.parse(Document, JSON.parse(await readFile(world.exported, 'utf8')));
-	const changed = {
-		...document,
-		schemas: Object.fromEntries(
-			Object.entries(document.schemas).map(([name, schema]) => [
+	const withTtl = (schemas: v.InferOutput<typeof Schemas>) =>
+		Object.fromEntries(
+			Object.entries(schemas).map(([name, schema]) => [
 				name,
 				{ ...schema, tables: schema.tables.map((table) => ({ ...table, cache_ttl: ttl })) }
+			])
+		);
+	const changed = {
+		...document,
+		projects: Object.fromEntries(
+			Object.entries(document.projects).map(([name, project]) => [
+				name,
+				{ ...project, schemas: withTtl(project.schemas) }
 			])
 		)
 	};

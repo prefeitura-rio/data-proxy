@@ -2,7 +2,7 @@ import { expect, type Page } from '@playwright/test';
 import * as v from 'valibot';
 import { Grant } from '../../src/lib/types';
 import { sql } from '../database';
-import { After, BASE, Given, hydrated, saved, scenario, Then, When } from '../fixtures';
+import { After, BASE, Given, hydrated, saved, scenario, schemaRow, Then, When } from '../fixtures';
 
 const STREAM_READ_MARGIN_MS = 3000;
 
@@ -106,7 +106,7 @@ Then('the grant lists {int} tables', ({ world }, count: number) => {
 });
 
 When('I try to add the schema {string}', async ({ page }, name: string) => {
-	await page.getByPlaceholder('name', { exact: true }).first().fill(name);
+	await page.getByPlaceholder('short name', { exact: true }).fill(name);
 	await page.getByRole('button', { name: 'Add schema' }).click();
 });
 
@@ -150,10 +150,7 @@ Then('the table {name} shows {string}', async ({ page }, table: string, text: st
 });
 
 When('I mark the schema {name} as encrypted', async ({ page }, schema: string) => {
-	await page
-		.getByRole('row', { name: new RegExp(`^${schema} `) })
-		.getByRole('button', { name: 'Edit' })
-		.click();
+	await schemaRow(page, schema).getByRole('button', { name: 'Edit' }).click();
 	await page.locator('dialog[open]').getByLabel('encrypted').check();
 	await saved(page, () => page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click());
 });
@@ -209,16 +206,13 @@ Then('I see an alert', async ({ page }) => {
 });
 
 When('I try to clear the claim of the schema {name}', async ({ page }, schema: string) => {
-	await page
-		.getByRole('row', { name: new RegExp(`^${schema} `) })
-		.getByRole('button', { name: 'Edit' })
-		.click();
+	await schemaRow(page, schema).getByRole('button', { name: 'Edit' }).click();
 	await page.locator('dialog[open] input[name=claim]').fill('');
 	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
 });
 
 Then('the schema {name} still has the claim {string}', async ({ page }, schema: string, claim: string) => {
-	await expect(page.getByRole('row', { name: new RegExp(`^${schema} `) })).toContainText(claim);
+	await expect(schemaRow(page, schema)).toContainText(claim);
 });
 
 When('I preview the import of a file with the text {string}', async ({ page }, text: string) => {
