@@ -469,8 +469,10 @@ func TestConfigure(t *testing.T) {
 			requests: 1,
 		},
 		{
-			id:     "a missing client secret",
-			change: func(attributes map[string]tftypes.Value) { attributes["client_secret"] = tftypes.NewValue(tftypes.String, nil) },
+			id: "a missing client secret",
+			change: func(attributes map[string]tftypes.Value) {
+				attributes["client_secret"] = tftypes.NewValue(tftypes.String, nil)
+			},
 			diags: func(fakeAPI) []diagnostic {
 				return []diagnostic{
 					{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATAPROXY_CLIENT_SECRET environment variable."},
