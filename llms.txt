@@ -40,6 +40,7 @@
 - Development (dev/index.md)
 - Tests (dev/tests.md)
 - CI and releases (dev/ci.md)
+- Production deploys (dev/promote.md)
 - Operations (operations/index.md)
 - Helm Chart (operations/helm.md)
 - Initialization (operations/initialization.md)
@@ -2657,7 +2658,7 @@ Source: dev/index.md
 
 ## Development
 
-This section helps you set up the repository, run the checks and find your way in the code. Tests says how to run each suite. CI describes the pipeline and the release. Style has the rules for the code and the docs.
+This section helps you set up the repository, run the checks and find your way in the code. Tests says how to run each suite. CI describes the pipeline and the release. Production deploys says how a release reaches production. Style has the rules for the code and the docs.
 
 ### Code map
 
@@ -2920,6 +2921,8 @@ CI releases the Helm chart from Conventional Commits with `cog`. The settings ar
 
 The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag, and the next run publishes the same version again. If `main` is protected, add the secret `RELEASE_TOKEN` with a token that may push to it. Run `cog bump --auto --dry-run` to print the next tag without a change.
 
+Staging follows every chart. Production follows the chart tag `prod`, which a reviewer moves. See Production deploys.
+
 Only the last step is specific to GitHub (`gh release create`). `ci.nu` reads `CI_REPOSITORY`, `CI_REGISTRY`, `CI_REGISTRY_USER`, `CI_REGISTRY_TOKEN`, `CI_BOT_NAME`, `CI_BOT_EMAIL` and `CI_OUTPUT_FILE`, and it uses the GitHub Actions values when they're missing.
 
 ### Security scan
@@ -2929,6 +2932,48 @@ Only the last step is specific to GitHub (`gh release create`). `ci.nu` reads `C
 The run on `main` fails at the SonarQube quality gate. The log doesn't name the condition, so read the project dashboard on the SonarQube server. Checkov reports five `CKV_SECRET_6` findings although `.checkov.yaml` skips that check, so the action may not read the file. Checkov also can't render the chart, because `redis.host` has no default.
 
 The branch `main` has no branch protection and no rule set. A required check needs the job names of `ci.yaml`: `Lint and unit tests`, `Sync integration tests`, `Console integration tests` and `Proxy integration tests`.
+
+---
+
+Source: dev/promote.md
+
+## Production deploys
+
+Staging deploys every release. Production runs one chart version that a person approves.
+
+### How the versions move
+
+- The staging HelmRelease follows the range `2.x`, so Flux deploys each new chart within five minutes.
+- The production HelmRelease follows the chart tag `prod` in `ghcr.io/prefeitura-rio/charts/data-proxy`. The tag points to one version, and production stays on it until the tag moves.
+
+Staging runs 2.11.0, and then CI releases 2.12.0 and 2.13.0. Staging now runs 2.13.0, and production still runs 2.11.0. After an approval, production runs 2.13.0. A chart has every change before it, so 2.13.0 includes 2.12.0.
+
+### Approve a deploy
+
+The workflow `promote.yaml` runs after each CI run on `main`. It compares the newest chart with the version of the tag `prod`. When they differ, it starts the job `Promote to production` in the environment `production`, and the job waits for a reviewer.
+
+1. Open the run in GitHub Actions and choose Review deployments.
+2. Check that staging is healthy with the version that you promote.
+3. Approve. The job moves the tag `prod` and writes `prod: 2.11.0 to 2.13.0` in its summary.
+4. Flux deploys the chart to production within five minutes.
+
+Each release makes its own waiting run. An approval of an old run does nothing when a newer chart exists, so approve the newest run and reject the others.
+
+### Roll back or choose a version
+
+Start `promote.yaml` by hand with the input `version`, such as `2.11.0`. The job needs the same approval. A rollback leaves staging alone.
+
+### Commands
+
+| Command | Work |
+| --- | --- |
+| `ci chart prod` | Prints the version that production runs. |
+| `ci chart next` | Writes the version to promote and whether production runs another one. |
+| `ci chart promote <version>` | Moves the tag `prod` to a released version. `--if-latest` skips an old version. |
+
+### Settings
+
+The reviewers are in the GitHub settings of the repository, under Environments and `production`. The infra repository has the production HelmRelease. It reads the tag with an `OCIRepository` whose `ref.tag` is `prod`. CI and releases describes the chart release that comes before a promotion.
 
 ---
 

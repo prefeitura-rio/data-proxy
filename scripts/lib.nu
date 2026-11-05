@@ -349,6 +349,26 @@ export def images-changed [files: list<string>, force_full: bool]: nothing -> li
     $IMAGES | where $force_full or ($files | any {$in =~ $it.change_pattern})
 }
 
+# Return true when a text is a full chart version such as 2.10.0. A range, a prefix or a channel tag is not one.
+export def valid-chart-version [text: string]: nothing -> bool {
+    $text =~ '^\d+\.\d+\.\d+$'
+}
+
+# Return the newest chart version of a list of tags, or null when none is a version. It compares the numbers.
+export def newest-version []: list<string> -> oneof<string, nothing> {
+    where (valid-chart-version $it)
+    | sort-by {|tag| $tag | split row . | each {|part| $part | into int | fill --width 8 --alignment right --character 0 } | str join . }
+    | last --strict 1
+    | get --optional 0
+}
+
+# Return the version tag that has a digest, from rows of tag and digest, or null when none has it.
+export def version-of-digest [tags: list<record<tag: string, digest: string>>, digest: string]: nothing -> oneof<string, nothing> {
+    $tags
+    | where (valid-chart-version $it.tag) and digest == $digest
+    | get --optional 0.tag
+}
+
 # Return the first Helm release tag of a list that is newest first, or null when there is none.
 export def latest-helm-tag []: list<string> -> oneof<string, nothing> {
     where $it =~ ^helm-v | get --optional 0

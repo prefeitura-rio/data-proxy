@@ -1,6 +1,6 @@
 # Development
 
-This section helps you set up the repository, run the checks and find your way in the code. [Tests](tests.md) says how to run each suite. [CI](ci.md) describes the pipeline and the release. [Style](../style.md) has the rules for the code and the docs.
+This section helps you set up the repository, run the checks and find your way in the code. [Tests](tests.md) says how to run each suite. [CI](ci.md) describes the pipeline and the release. [Production deploys](promote.md) says how a release reaches production. [Style](../style.md) has the rules for the code and the docs.
 
 ## Code map
 

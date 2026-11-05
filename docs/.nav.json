@@ -124,6 +124,9 @@
         },
         {
           "page": "dev/ci.md"
+        },
+        {
+          "page": "dev/promote.md"
         }
       ]
     },

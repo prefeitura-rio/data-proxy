@@ -78,6 +78,8 @@ CI releases the Helm chart from Conventional Commits with `cog`. The settings ar
 
 The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag, and the next run publishes the same version again. If `main` is protected, add the secret `RELEASE_TOKEN` with a token that may push to it. Run `cog bump --auto --dry-run` to print the next tag without a change.
 
+Staging follows every chart. Production follows the chart tag `prod`, which a reviewer moves. See [Production deploys](./promote.md).
+
 Only the last step is specific to GitHub (`gh release create`). `ci.nu` reads `CI_REPOSITORY`, `CI_REGISTRY`, `CI_REGISTRY_USER`, `CI_REGISTRY_TOKEN`, `CI_BOT_NAME`, `CI_BOT_EMAIL` and `CI_OUTPUT_FILE`, and it uses the GitHub Actions values when they're missing.
 
 ## Security scan
@@ -91,5 +93,5 @@ The branch `main` has no branch protection and no rule set. A required check nee
 <!-- nav:start -->
 ---
 
-[Previous: Tests](./tests.md) | [Next: Operations](../operations/index.md) | [Index](./index.md) | [Home](../index.md)
+[Previous: Tests](./tests.md) | [Next: Production deploys](./promote.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->
