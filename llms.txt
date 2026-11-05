@@ -2848,7 +2848,7 @@ The workflow `.github/workflows/ci.yaml` checks, tests, builds and releases. A s
 
 The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `nix/`, `k3d/`, `k6/`, `scripts/`, the workflows, the container files, the linter files and the devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
 
-A manual start has two inputs. `force_checks` runs every check and test without the saved task state. `force_full` does the same, builds every image and starts the release job. The release job still needs a release-level commit and a change in the chart.
+A manual start has two inputs. `force_checks` runs every check and test without the saved task state. `force_full` does the same, builds every image and starts the release job. The release job still needs a release-level commit and a chart or image change.
 
 ### Jobs
 
@@ -2894,7 +2894,7 @@ Each job restores the task state of the last green run of `main` before it runs,
 
 ### Images
 
-`ci changes` matches the changed files against the table `IMAGES` in `scripts/lib.nu`. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `18-` to the hash.
+`ci changes` matches the files that changed since the last `helm-v*` tag against the table `IMAGES` in `scripts/lib.nu`. A push to `main` compares with the last tag, so a red run loses no change. A pull request compares with its base. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `18-` to the hash.
 
 | Image | Rebuilds when this changes |
 | --- | --- |
@@ -2912,7 +2912,7 @@ CI releases the Helm chart from Conventional Commits with `cog`. The settings ar
 | Command | Work |
 | --- | --- |
 | `ci version` | Prints the next version, or says that no release is due. It changes nothing. |
-| `ci guard` | Skips the release when no chart file changed since the last tag. |
+| `ci guard` | Skips the release when no chart file and no image path changed since the last tag. |
 | `ci images resolve`, `ci images pin` | Find the newest tag of each image and write the tags in `helm/values.yaml`, so a release never uses `latest`. |
 | `ci release bump` | Runs `cog bump`. It sets the chart version, writes `CHANGELOG.md`, commits and tags. |
 | `ci chart package`, `ci chart publish` | Package the chart and push it to the OCI registry. |
