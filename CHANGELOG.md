@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.13.0 - 2026-11-05
+
+### Features
+
+- **terraform**: release the provider automatically and serve a registry for it (59397e1)
+- **helm**: serve a static Terraform registry from the ingress (a09f66a)
+
+
+- - -
+
 ## helm-v2.12.0 - 2026-11-05
 
 ### Features
