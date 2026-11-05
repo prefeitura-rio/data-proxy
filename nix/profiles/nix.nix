@@ -9,6 +9,7 @@ let
     proxy = 1200;
     sync-unit = 900;
     sync = 1200;
+    terraform = 1300;
     console = 2600;
     model = 2700;
     repo = 2300;

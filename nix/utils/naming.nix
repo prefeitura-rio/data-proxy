@@ -17,6 +17,7 @@ let
     "proxy"
     "console"
     "chart"
+    "tf"
     "pg"
     "pgrest"
     "kc"
