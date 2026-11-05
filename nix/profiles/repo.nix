@@ -134,6 +134,27 @@ in
               "nix/stack/postgres.nix"
             ];
           };
+          "docs:build:llms" = utils.nuTask {
+            description = "Write llms.txt, the docs pages as one plain text file.";
+            exec = "nu scripts/docs.nu llms write";
+            execIfModified = utils.mkInputs (
+              [
+                "scripts/docs.nu"
+              ]
+              ++ docsFiles
+            );
+          };
+          "docs:lint:llms" = utils.nuTask {
+            description = "Check that llms.txt is current.";
+            exec = "nu scripts/docs.nu llms check";
+            execIfModified = utils.mkInputs (
+              [
+                "scripts/docs.nu"
+                "llms.txt"
+              ]
+              ++ docsFiles
+            );
+          };
           "docs:lint:roles" = utils.nuTask {
             description = "Check that the role and permission table in the Roles page is current.";
             exec = "nu scripts/docs.nu check";

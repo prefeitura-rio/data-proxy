@@ -9,9 +9,11 @@ use ../docs.nu [
     length-problems
     link-problems
     links-of
+    llms-page
     page-problems
     problems
     profile-names
+    render-llms
     rules-of
     sentence-problems
     slug
@@ -411,4 +413,69 @@ export def "test profile-names-reads-both-forms" []: nothing -> nothing {
     for case in $cases {
         assert equal (profile-names $case.text) $case.expected $case.name
     }
+}
+
+# Verify what the text of one page keeps and what it drops.
+export def "test llms-page-keeps-text-and-drops-the-rest" []: nothing -> nothing {
+    let cases = [
+        [name text expected];
+        [
+            'a heading goes one level down'
+            "# Title\n\n## Part"
+            "## Title\n\n### Part"
+        ]
+        [
+            'a comment line in a code fence stays'
+            "```nu\n# keep\n```"
+            "```nu\n# keep\n```"
+        ]
+        [
+            'an internal link becomes its label and an external link stays'
+            "See [Serving](./serving.md#read-path) and [site](https://example.com)."
+            "See Serving and [site](https://example.com)."
+        ]
+        [
+            'the navigation block goes'
+            "Text\n\n<!-- nav:start -->\n---\n\n[Home](./index.md)\n<!-- nav:end -->\n"
+            "Text"
+        ]
+        [
+            'a marker comment goes'
+            "<!-- tables:other:start -->\n| a |\n<!-- tables:other:end -->"
+            "| a |"
+        ]
+        [
+            'the All tables section goes and the next section stays'
+            "## All tables\n\nJoins them.\n\n```mermaid\nerDiagram\n```\n\n## Application\n\nText"
+            "### Application\n\nText"
+        ]
+        [
+            'another diagram stays as text'
+            "```mermaid\nflowchart TD\n  a --> b\n```"
+            "```mermaid\nflowchart TD\n  a --> b\n```"
+        ]
+    ]
+
+    for case in $cases {
+        assert equal (llms-page $case.text) $case.expected $case.name
+    }
+}
+
+# Verify the order of the pages, the index and the pages that the file leaves out.
+export def "test render-llms-lists-the-pages-in-order" []: nothing -> nothing {
+    let dir = mktemp --directory --tmpdir
+
+    try { mkdir ($dir | path join a) }
+    "# One\n\nFirst text." | write-text ($dir | path join one.md)
+    "# Two\n\n[One](../one.md) text." | write-text ($dir | path join a two.md)
+
+    let text = render-llms $dir one.md a/two.md
+
+    assert ($text | str starts-with "# Data Proxy\n")
+    assert str contains $text "- One (one.md)\n- Two (a/two.md)\n"
+    assert str contains $text "\n---\n\nSource: one.md\n\n## One\n\nFirst text.\n"
+    assert str contains $text "\n---\n\nSource: a/two.md\n\n## Two\n\nOne text.\n"
+    assert (($text | str index-of "Source: one.md") < ($text | str index-of "Source: a/two.md"))
+
+    remove-path $dir
 }

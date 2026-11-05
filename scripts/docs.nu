@@ -9,6 +9,9 @@ const NAV = 'docs/.nav.json'
 const MKDOCS_NAV = 'mkdocs.nav.yml'
 const NAV_START = '<!-- nav:start -->'
 const NAV_END = '<!-- nav:end -->'
+const LLMS = 'llms.txt'
+const LLMS_SKIP = [style.md]
+const LLMS_SUMMARY = 'Data Proxy serves BigQuery data through PostgreSQL, DuckLake and an OpenResty proxy. This file has the documentation pages as plain text, in reading order. Each page starts after a line of three hyphens, with its source path.'
 const SENTENCE_WORDS = 25
 const PAGE_WORDS = 1000
 const LONG_PAGES = [
@@ -275,6 +278,72 @@ def "main nav check" []: nothing -> nothing {
 
     if ($old | is-not-empty) {
         fail $'These pages have an old navigation block, run `nu scripts/docs.nu nav write`: ($old | str join ", ")'
+    }
+}
+
+# Return a line of a page for the LLM file: one level down for a heading, and the label for an internal link.
+def llms-line [line: string]: nothing -> string {
+    let text = $line | str replace --all --regex '\[([^\]]+)\]\([^)\s:]*\)' '${1}'
+
+    if $text =~ '^#+ ' { $'#($text)' } else { $text }
+}
+
+# Return the text of one page for the LLM file. It drops the navigation block, the marker comments and the
+# "All tables" section, which repeats the other diagrams. Code fences stay as they are.
+export def llms-page [text: string]: nothing -> string {
+    let nav = ['(?s)\n*' $NAV_START '.*?' $NAV_END] | str join
+
+    let kept = [
+        {pattern: $nav, with: ''}
+        {pattern: '(?s)## All tables\n.*?(\n## |\z)', with: '${1}'}
+        {pattern: '(?m)^<!--.*-->\n?', with: ''}
+    ]
+    | reduce --fold $text {|drop, acc| $acc | str replace --all --regex $drop.pattern $drop.with }
+    | str trim
+
+    $kept
+    | lines
+    | reduce --fold {fenced: false, rows: []} {|line, state|
+        if ($line | str starts-with '```') {
+            $state | update fenced { not $in } | update rows { append $line }
+        } else if $state.fenced {
+            $state | update rows { append $line }
+        } else {
+            $state | update rows { append (llms-line $line) }
+        }
+    }
+    | get rows
+    | str join "\n"
+    | str trim
+}
+
+# Return the LLM file: a summary, the index of the pages, and the text of each page.
+export def render-llms [root: path, ...pages: string]: nothing -> string {
+    let index = $pages | each {|page| $"- (title $root $page) \(($page)\)" } | str join "\n"
+
+    let body = $pages
+    | each {|page| $"---\n\nSource: ($page)\n\n(llms-page (read-text ($root | path join $page)))" }
+    | str join "\n\n"
+
+    $"# Data Proxy\n\n> ($LLMS_SUMMARY)\n\n($index)\n\n($body)\n"
+}
+
+# Return the LLM file for the pages of the navigation tree, without the pages that it skips.
+def render-llms-file []: nothing -> string {
+    let pages = load-nav | get page | where $it not-in $LLMS_SKIP | each {|page| $page }
+
+    render-llms $DOCS ...$pages
+}
+
+# Write llms.txt from the docs pages.
+def "main llms write" []: nothing -> nothing {
+    render-llms-file | write-text $LLMS
+}
+
+# Fail when llms.txt differs from the docs pages.
+def "main llms check" []: nothing -> nothing {
+    if (render-llms-file) != (read-text $LLMS) {
+        fail $'($LLMS) is old: run `nu scripts/docs.nu llms write`'
     }
 }
 

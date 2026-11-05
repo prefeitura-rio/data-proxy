@@ -66,7 +66,7 @@ devenv --profile repo tasks run repo:lint repo:test:unit
 | `chart:lint:helm`, `chart:lint:toml` | The chart and `rbac.toml`. |
 | `ci:lint:wf`, `ctr:lint:files`, `nu:lint:scripts` | Workflows, container files and Nushell scripts. |
 | `docs:lint:code` | The style rules that a pattern can check, and the last 50 commit subjects. |
-| `docs:lint:style`, `docs:lint:links`, `docs:lint:nav` | The style page, the links and the page order. |
+| `docs:lint:style`, `docs:lint:links`, `docs:lint:nav`, `docs:lint:llms` | The style page, the links, the page order and `llms.txt`. |
 | `nix:lint:closure`, `nix:lint:cmd` | The profile sizes and the `devenv` commands in the docs. |
 
 The git hooks run when you commit. `eslint`, `prettier`, `lx-fmt`, `ruff` and `ruff-format` fix files, so stage the result and commit again. `ripsecrets` blocks a secret, and `vale` checks the prose of the docs. CI doesn't run Vale. Run `vale <file>` for a quick check.
@@ -95,6 +95,8 @@ No sync worker runs, so a sync run that you start stays `ENQUEUED`. A worker for
 `devenv --profile default up docs` writes the page footers and the sidebar, then serves the wiki. devenv prints the address. The port is 18200, or the next free port when 18200 is busy. The page order is in `docs/.nav.json`.
 
 The diagrams of [Data model](../model.md) come from the database. Run `devenv --profile repo tasks run docs:build:model`. The task starts the databases, writes `docs/diagrams/` and the page, and stops the databases. Commit both after a migration.
+
+`llms.txt` has every page except Style as plain text for an LLM. After a docs change, run `devenv --profile repo tasks run docs:build:llms` and commit the file.
 
 ## Database migrations and the local API
 
