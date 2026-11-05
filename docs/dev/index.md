@@ -46,7 +46,7 @@ The root `devenv.yaml` imports the folders `proxy/`, `sync/`, `console/` and `he
 | `sync`, `proxy`, `console` | One component with its test services, for `devenv test` and `devenv up`. |
 | `integration` | The three `:int` tasks, which start the service profiles. |
 | `chart` | Helm, `cog` and the `ci` script. |
-| `terraform` | Go, `golangci-lint`, Terraform and `tfplugindocs` for `terraform/`. |
+| `terraform` | Go and `golangci-lint` for `terraform/`. `terraform-acc` adds OpenTofu. |
 | `nix` | The checks of the profile sizes and of the commands in the docs. |
 | `base`, `python` | The parts that the other profiles share, in `nix/profiles/shared.nix`. |
 

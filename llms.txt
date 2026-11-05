@@ -2729,7 +2729,7 @@ The root `devenv.yaml` imports the folders `proxy/`, `sync/`, `console/` and `he
 | `sync`, `proxy`, `console` | One component with its test services, for `devenv test` and `devenv up`. |
 | `integration` | The three `:int` tasks, which start the service profiles. |
 | `chart` | Helm, `cog` and the `ci` script. |
-| `terraform` | Go, `golangci-lint`, Terraform and `tfplugindocs` for `terraform/`. |
+| `terraform` | Go and `golangci-lint` for `terraform/`. `terraform-acc` adds OpenTofu. |
 | `nix` | The checks of the profile sizes and of the commands in the docs. |
 | `base`, `python` | The parts that the other profiles share, in `nix/profiles/shared.nix`. |
 
@@ -4069,7 +4069,7 @@ devenv --profile terraform tasks run tf:test:int
 
 The task runs `devenv --profile terraform-acc test`. That profile starts the console stack: PostgreSQL, SeaweedFS, Keycloak, PostgREST and the console. It sets `TF_ACC=1` and the `DATAPROXY_*` variables. The provider calls the local PostgREST and gets its token from the local Keycloak with the test client `admin`, whose role is `dp_admin`. The stack needs Podman, as the tests page says.
 
-To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `terraform` shell, because the tests call the `terraform` binary.
+To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `terraform-acc` shell, because the tests call OpenTofu.
 
 ```bash
 devenv --profile console up -d
