@@ -24,6 +24,7 @@ devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
 | `console/ui/`, `console/notebooks/` | SvelteKit console and the notebook site          |
 | `helm/`                             | The chart, the job scripts and the SQL templates |
 | `k6/`                               | Load and end-to-end tests                        |
+| `terraform/`                        | Go, the Terraform provider of Data Proxy         |
 | `nix/`, `*/devenv.nix`              | The devenv profiles, processes and tasks         |
 | `scripts/`                          | Nushell commands for developers and CI           |
 | `docs/`                             | The documentation                                |
@@ -37,6 +38,7 @@ devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
 | `scripts/*.nu`, `helm/files/scripts/*.nu` | [Nushell](docs/style.md#nushell)                                       |
 | `**/*.nix`, `devenv.*`                    | [Nix](docs/style.md#nix)                                               |
 | `**/*.sql`, `rbac.toml`                   | [SQL](docs/style.md#sql)                                               |
+| `terraform/**`                            | [Go](docs/style.md#go)                                                 |
 | `console/ui/**`                           | [TypeScript](docs/style.md#typescript), [Svelte](docs/style.md#svelte) |
 | `console/notebooks/**`                    | [Notebooks](docs/style.md#notebooks)                                   |
 | `docs/**`, `README.md`                    | [Documentation](docs/style.md#documentation)                           |

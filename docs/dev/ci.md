@@ -76,6 +76,8 @@ CI releases the Helm chart from Conventional Commits with `cog`. The settings ar
 | `ci chart package`, `ci chart publish` | Package the chart and push it to the OCI registry. |
 | `ci release push <tag>`, `ci release notes <tag>` | Push the commit and the tag in one push, and write the release notes. |
 
+A push that changed only `terraform/` or `docs/` since the last tag makes no release, even with a `feat` or a `fix` commit. These paths match no chart file and no image, so `ci changes` skips the `helm` job and `ci guard` skips the release. A later chart release still counts such a commit in its version and its changelog.
+
 The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag, and the next run publishes the same version again. If `main` is protected, add the secret `RELEASE_TOKEN` with a token that may push to it. Run `cog bump --auto --dry-run` to print the next tag without a change.
 
 Only the last step is specific to GitHub (`gh release create`). `ci.nu` reads `CI_REPOSITORY`, `CI_REGISTRY`, `CI_REGISTRY_USER`, `CI_REGISTRY_TOKEN`, `CI_BOT_NAME`, `CI_BOT_EMAIL` and `CI_OUTPUT_FILE`, and it uses the GitHub Actions values when they're missing.

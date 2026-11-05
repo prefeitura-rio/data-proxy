@@ -23,6 +23,7 @@ Each rule is one line: `- **PY-07** The rule. [must, ruff]`.
 | [Nushell](#nushell) | NU | `scripts/*.nu`, `helm/files/scripts/*.nu` |
 | [Nix](#nix) | NIX | The names, the layout, the tasks and the doc comments |
 | [SQL](#sql) | SQL | Templates, migrations and permissions |
+| [Go](#go) | GO | `terraform/**`, the Terraform provider |
 | [TypeScript](#typescript) | TS | `console/ui/src/**/*.ts` and the browser tests |
 | [Svelte](#svelte) | SV | `console/ui/src/**/*.svelte` |
 | [Notebooks](#notebooks) | NB | `console/notebooks/**` |
@@ -590,6 +591,45 @@ Add a permission in these steps:
 
 The `configure-db` job runs `verify-rbac` and fails if the database differs from the file.
 
+## Go
+
+Applies to: `terraform/**`.
+
+The Terraform provider of Data Proxy is a Go module in `terraform/`, with its own `go.mod`. It uses the Terraform Plugin Framework. The [Terraform provider](terraform.md) page says how to build it and use it.
+
+### Code
+
+- **GO-01** Keep the calls to PostgREST in `internal/client`, with no import of the Terraform Plugin Framework. The resources and the data sources call the client. [must, review]
+- **GO-02** Write a doc comment above each package and each exported name. Say what it does, in a full sentence that starts with the name. [must, review]
+- **GO-03** Pass a `context.Context` as the first argument of each function that does I/O. Never store it in a struct. [must, review]
+- **GO-04** Wrap an error with `fmt.Errorf` and `%w`, and say the step that failed, such as `decode the row of %s: %w`. [must, review]
+- **GO-05** Give each kind of error that a caller handles a sentinel value, and check it with `errors.Is`. Don't compare the text of an error. [must, review]
+- **GO-06** Return an error. Never call `panic` or `os.Exit` outside `main.go`. [must, review]
+- **GO-07** Validate an input before the request, such as an empty filter of a `Patch` or a `Delete`, so a bad input never reaches PostgREST. [must, review]
+- **GO-08** Mark a secret attribute of a schema `Sensitive`, and never put a token or a secret in an error or a log. [must, review]
+
+```go
+✅ return fmt.Errorf("decode the row of %s: %w", table, err)
+❌ return errors.New("decode failed: " + err.Error())
+```
+
+### Tooling and tests
+
+- **GO-09** Keep `tf:lint:go` green. It fails when `gofmt` would change a file, and it runs `golangci-lint`. [must, golangci-lint]
+- **GO-10** Keep `tf:test:unit` green. It runs `go test ./...` without `TF_ACC`, so the acceptance tests don't run. [must, devenv]
+- **GO-11** Write a table of cases with an `id` field, and run each case with `t.Run(tt.id, ...)`. [must, review]
+- **GO-12** Test the client against an `httptest` server. Test a delay with a fake clock, never with a real wait. [must, review]
+
+```go
+for _, tt := range tests {
+    t.Run(tt.id, func(t *testing.T) {
+        ...
+    })
+}
+```
+
+See [Git](#git) for the commit types. A change of the provider uses the scope `terraform`, and it never releases the chart (GIT-11).
+
 ## TypeScript
 
 Applies to: `console/ui/src/**/*.ts`, `console/ui/tests/**`.
@@ -775,6 +815,7 @@ Applies to: every commit.
 - **GIT-06** Expect these release levels: a type with `!` bumps major, `feat:` bumps minor, `fix:` bumps patch and all other types create no release. `cog` applies the rules, and `cog.toml` has its settings. [must, cog]
 - **GIT-07** Use `!` only with `feat` or `fix` release commits. Explain the migration in the body. Don't use a `BREAKING CHANGE` footer. [must, cog]
 - **GIT-08** Don't edit `CHANGELOG.md` by hand. The release step writes it from the commits, and it lists only breaking changes, features and fixes. [must, cog]
+- **GIT-11** Expect no chart release from a push that changed only `terraform/` or `docs/` since the last release, even with `feat` or `fix`. `ci changes` and `ci guard` release only for a chart file or an image path. [must, ci]
 
 ```text
 feat(sync)!: require DBOS workflow recovery
