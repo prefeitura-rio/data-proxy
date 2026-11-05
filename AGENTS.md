@@ -15,6 +15,20 @@ devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
 - The first line is the lint and the tests that need no service. The second line starts services, so run only the components that you changed.
 - Run one task with `devenv --profile <profile> tasks run <task>`. The [development page](docs/dev/index.md#run-the-checks) lists the checks.
 
+### Without devenv
+
+When `devenv` or Podman is missing, run the lint and the unit tests of each component that you changed.
+
+```bash
+cd sync && uv run --frozen ruff check src tests && uv run --frozen ruff format --check src tests
+cd sync && uv run --frozen pytest tests/unit -m "not postgres"
+cd console/ui && pnpm install --frozen-lockfile && pnpm test && pnpm lint && pnpm check
+cd terraform && go build ./... && go vet ./... && go test ./...
+```
+
+- These commands are a subset of the `devenv` tasks. The Lua checks, the type checks of `sync/` and the `:int` suites need `devenv`.
+- CI runs every check and the `:int` suites on a pull request that changes a path of the filter in `.github/workflows/ci.yaml`. That run is the proof for the checks that you can't run.
+
 ## Where the code is
 
 | Path                                | Content                                          |
@@ -54,6 +68,8 @@ Read the [style guide](STYLEGUIDE.md) for the list with IDs. These come first:
 
 ## Workflow
 
-- Never commit or push without explicit approval. Stage, summarize, and wait.
+- Never push to `main`. A change reaches `main` only through a reviewed pull request.
+- In an interactive session, never commit or push without explicit approval. Stage, summarize and wait.
+- An autonomous agent commits and pushes to its own work branch, and opens a pull request. The approval applies to the merge into `main`.
 - Use Conventional Commits. The types are `feat`, `fix`, `refactor`, `test`, `docs` and `chore`. Never use `ci` or `perf`. See [Git](docs/style.md#git).
 - Fix a flaky test at its cause, and add a test that reproduces it. Never add a retry.
