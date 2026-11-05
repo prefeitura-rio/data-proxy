@@ -23,6 +23,7 @@
           golangci-lint
           terraform
           terraform-plugin-docs
+          zip
         ];
 
         tasks = {
