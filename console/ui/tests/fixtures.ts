@@ -20,6 +20,8 @@ export type World = {
 	cookies: string;
 	/** The schemas that the scenario added, so its hook deletes them and no others. */
 	schemas: string[];
+	/** The projects that the scenario added, so its hook deletes them and no others. */
+	projects: string[];
 };
 
 /** The refresh interval of the Sync pages in the tests, in seconds. The default of the console is slower. */
@@ -69,7 +71,8 @@ export const test = base.extend<{ world: World }>({
 			runId: '',
 			lifespan: undefined,
 			cookies: '',
-			schemas: []
+			schemas: [],
+			projects: []
 		};
 
 		const violations: string[] = [];
