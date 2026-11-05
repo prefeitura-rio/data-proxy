@@ -1,0 +1,89 @@
+package provider
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	"github.com/prefeitura-rio/data-proxy/terraform/internal/client"
+)
+
+var (
+	_ datasource.DataSource              = (*permissionsDataSource)(nil)
+	_ datasource.DataSourceWithConfigure = (*permissionsDataSource)(nil)
+)
+
+// permissionsDataSource is the dataproxy_permissions data source. It reads the permissions of the token of the
+// provider.
+type permissionsDataSource struct {
+	client *client.Client
+}
+
+// permissionsModel maps the dataproxy_permissions data source.
+type permissionsModel struct {
+	Permissions types.Set `tfsdk:"permissions"`
+}
+
+func newPermissionsDataSource() datasource.DataSource {
+	return &permissionsDataSource{}
+}
+
+func (d *permissionsDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_permissions"
+}
+
+func (d *permissionsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Description: "Reads the permissions of the token of the provider, from GET /rpc/permissions.",
+		Attributes: map[string]schema.Attribute{
+			"permissions": schema.SetAttribute{
+				Description: "The permissions of the token, the names of rbac.toml such as read_config and create_config.",
+				ElementType: types.StringType,
+				Computed:    true,
+			},
+		},
+	}
+}
+
+func (d *permissionsDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	if req.ProviderData == nil {
+		return
+	}
+
+	apiClient, ok := req.ProviderData.(*client.Client)
+	if !ok {
+		resp.Diagnostics.AddError("Unexpected provider data",
+			fmt.Sprintf("The data source wants a *client.Client, and it got %T. Report this bug to the developers of the provider.", req.ProviderData))
+
+		return
+	}
+
+	d.client = apiClient
+}
+
+func (d *permissionsDataSource) Read(ctx context.Context, _ datasource.ReadRequest, resp *datasource.ReadResponse) {
+	if d.client == nil {
+		resp.Diagnostics.AddError("Unconfigured provider", "The data source has no client, because the provider isn't configured.")
+
+		return
+	}
+
+	permissions, err := d.client.Permissions(ctx)
+	if err != nil {
+		addAPIError(&resp.Diagnostics, "Couldn't read the permissions of the token", "", err)
+
+		return
+	}
+
+	set, diagnostics := types.SetValueFrom(ctx, types.StringType, permissions)
+	resp.Diagnostics.Append(diagnostics...)
+
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, permissionsModel{Permissions: set})...)
+}

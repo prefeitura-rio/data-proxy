@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 
@@ -82,8 +84,17 @@ func TestSchemaServedOverProtocol(t *testing.T) {
 		}
 	}
 
-	if len(resp.ResourceSchemas) != 0 || len(resp.DataSourceSchemas) != 0 {
-		t.Errorf("got %d resources and %d data sources, want none", len(resp.ResourceSchemas), len(resp.DataSourceSchemas))
+	if len(resp.ResourceSchemas) != 0 {
+		t.Errorf("got %d resources, want none", len(resp.ResourceSchemas))
+	}
+
+	permissions, ok := resp.DataSourceSchemas["dataproxy_permissions"]
+	if len(resp.DataSourceSchemas) != 1 || !ok {
+		t.Fatalf("data sources = %v, want only dataproxy_permissions", resp.DataSourceSchemas)
+	}
+
+	if attributes := permissions.Block.Attributes; len(attributes) != 1 || attributes[0].Name != "permissions" || !attributes[0].Computed {
+		t.Errorf("attributes of dataproxy_permissions = %v, want only the computed permissions", attributes)
 	}
 }
 
@@ -371,75 +382,231 @@ func configure(t *testing.T, attributes map[string]tftypes.Value) provider.Confi
 	return resp
 }
 
+// apiRequest is what the fake API saw of one request.
+type apiRequest struct {
+	method        string
+	uri           string
+	acceptProfile string
+	authorization string
+}
+
+// fakeAPI is a fake identity provider and a fake PostgREST API. The identity provider answers with tokenStatus
+// and the token jwt-123. The API answers GET /rpc/permissions with status and body.
+type fakeAPI struct {
+	tokenURL string
+	endpoint string
+	requests *[]apiRequest
+}
+
+func newFakeAPI(t *testing.T, tokenStatus, status int, body string) fakeAPI {
+	t.Helper()
+
+	identity := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(tokenStatus)
+
+		response := `{"access_token":"jwt-123","token_type":"Bearer","expires_in":300}`
+		if tokenStatus != http.StatusOK {
+			response = `{"error":"unauthorized_client","error_description":"Invalid client or Invalid client credentials"}`
+		}
+
+		if _, err := w.Write([]byte(response)); err != nil {
+			t.Errorf("write the token response: %v", err)
+		}
+	}))
+	t.Cleanup(identity.Close)
+
+	var requests []apiRequest
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, apiRequest{
+			method:        r.Method,
+			uri:           r.URL.RequestURI(),
+			acceptProfile: r.Header.Get("Accept-Profile"),
+			authorization: r.Header.Get("Authorization"),
+		})
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Errorf("write the API response: %v", err)
+		}
+	}))
+	t.Cleanup(api.Close)
+
+	return fakeAPI{tokenURL: identity.URL + "/token", endpoint: api.URL, requests: &requests}
+}
+
 func TestConfigure(t *testing.T) {
 	text := func(value string) tftypes.Value { return tftypes.NewValue(tftypes.String, value) }
 
-	valid := map[string]tftypes.Value{
-		"endpoint":      text("https://data-proxy.example.com"),
-		"token_url":     text("https://id.example.com/realms/example/protocol/openid-connect/token"),
-		"client_id":     text("terraform"),
-		"client_secret": text("secret-123"),
-		"scopes":        tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{text("openid")}),
-	}
-
-	with := func(name string, value tftypes.Value) map[string]tftypes.Value {
-		changed := maps.Clone(valid)
-		changed[name] = value
-
-		return changed
-	}
+	const adminPermissions = `["read_api","read_config","create_config","edit_config","delete_config"]`
 
 	tests := []struct {
-		id         string
-		attributes map[string]tftypes.Value
-		env        map[string]string
-		diags      []diagnostic
+		id          string
+		tokenStatus int
+		status      int
+		body        string
+		// change edits the attributes of a full provider block that points at the fake API.
+		change func(attributes map[string]tftypes.Value)
+		// env replaces the provider block with the environment that points at the fake API.
+		env      bool
+		diags    func(api fakeAPI) []diagnostic
+		requests int
 	}{
 		{
-			id:         "a full provider block",
-			attributes: valid,
+			id:       "a full provider block",
+			status:   http.StatusOK,
+			body:     adminPermissions,
+			requests: 1,
 		},
 		{
-			id:         "an empty provider block and the environment",
-			attributes: map[string]tftypes.Value{},
-			env:        fullEnv,
+			id:       "an empty provider block and the environment",
+			status:   http.StatusOK,
+			body:     `["read_config"]`,
+			env:      true,
+			requests: 1,
 		},
 		{
-			id:         "a missing client secret",
-			attributes: with("client_secret", tftypes.NewValue(tftypes.String, nil)),
-			diags: []diagnostic{
-				{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATAPROXY_CLIENT_SECRET environment variable."},
+			id:     "a missing client secret",
+			change: func(attributes map[string]tftypes.Value) { attributes["client_secret"] = tftypes.NewValue(tftypes.String, nil) },
+			diags: func(fakeAPI) []diagnostic {
+				return []diagnostic{
+					{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATAPROXY_CLIENT_SECRET environment variable."},
+				}
 			},
 		},
 		{
-			id:         "an endpoint without a scheme",
-			attributes: with("endpoint", text("data-proxy.example.com")),
-			diags: []diagnostic{
-				{path: "endpoint", summary: "Invalid Data Proxy endpoint", detail: `endpoint "data-proxy.example.com": the scheme must be http or https`},
+			id:     "an endpoint without a scheme",
+			change: func(attributes map[string]tftypes.Value) { attributes["endpoint"] = text("data-proxy.example.com") },
+			diags: func(fakeAPI) []diagnostic {
+				return []diagnostic{
+					{path: "endpoint", summary: "Invalid Data Proxy endpoint", detail: `endpoint "data-proxy.example.com": the scheme must be http or https`},
+				}
 			},
 		},
 		{
-			id:         "a token URL without a scheme",
-			attributes: with("token_url", text("id.example.com/token")),
-			diags: []diagnostic{
-				{summary: "Invalid Data Proxy credentials", detail: `token URL "id.example.com/token": the scheme must be http or https`},
+			id:     "a token URL without a scheme",
+			change: func(attributes map[string]tftypes.Value) { attributes["token_url"] = text("id.example.com/token") },
+			diags: func(fakeAPI) []diagnostic {
+				return []diagnostic{
+					{summary: "Invalid Data Proxy credentials", detail: `token URL "id.example.com/token": the scheme must be http or https`},
+				}
 			},
+		},
+		{
+			id:          "the identity provider refuses the secret",
+			tokenStatus: http.StatusUnauthorized,
+			diags: func(api fakeAPI) []diagnostic {
+				return []diagnostic{{
+					summary: "Couldn't check the Data Proxy token",
+					detail: "read the permissions of the token: get the token: fetch a token from " + api.tokenURL +
+						`: oauth2: "unauthorized_client" "Invalid client or Invalid client credentials"`,
+				}}
+			},
+		},
+		{
+			id:     "the API refuses the token",
+			status: http.StatusUnauthorized,
+			body:   `{"code":"PGRST301","message":"JWSError JWSInvalidSignature"}`,
+			diags: func(fakeAPI) []diagnostic {
+				return []diagnostic{{
+					summary: "Couldn't check the Data Proxy token",
+					detail: "The API refused the token. Check that the API trusts the identity provider of token_url. " +
+						"The API answered: read the permissions of the token: postgrest: HTTP 401 PGRST301: JWSError JWSInvalidSignature",
+				}}
+			},
+			requests: 1,
+		},
+		{
+			id:     "a token without read_config",
+			status: http.StatusOK,
+			body:   `["read_policy","create_policy"]`,
+			diags: func(fakeAPI) []diagnostic {
+				return []diagnostic{{
+					summary: "Missing read_config permission",
+					detail: `The token of the client "terraform" lacks the read_config permission, and the provider needs it to read the configuration. ` +
+						"Give the client a role that has read_config, such as dp_console or dp_admin. The token has these permissions: read_policy, create_policy.",
+				}}
+			},
+			requests: 1,
+		},
+		{
+			id:     "a token without permissions",
+			status: http.StatusOK,
+			body:   `[]`,
+			diags: func(fakeAPI) []diagnostic {
+				return []diagnostic{{
+					summary: "Missing read_config permission",
+					detail: `The token of the client "terraform" lacks the read_config permission, and the provider needs it to read the configuration. ` +
+						"Give the client a role that has read_config, such as dp_console or dp_admin. The token has these permissions: none.",
+				}}
+			},
+			requests: 1,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.id, func(t *testing.T) {
+			tokenStatus := tt.tokenStatus
+			if tokenStatus == 0 {
+				tokenStatus = http.StatusOK
+			}
+
+			api := newFakeAPI(t, tokenStatus, tt.status, tt.body)
+
+			env := map[string]string{}
+			attributes := map[string]tftypes.Value{
+				"endpoint":      text(api.endpoint),
+				"token_url":     text(api.tokenURL),
+				"client_id":     text("terraform"),
+				"client_secret": text("secret-123"),
+				"scopes":        tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{text("openid")}),
+			}
+
+			if tt.env {
+				attributes = map[string]tftypes.Value{}
+				env = map[string]string{
+					EnvEndpoint:     api.endpoint,
+					EnvTokenURL:     api.tokenURL,
+					EnvClientID:     "env-client",
+					EnvClientSecret: "env-secret",
+					EnvScopes:       "openid profile",
+				}
+			}
+
+			if tt.change != nil {
+				tt.change(attributes)
+			}
+
 			for _, name := range []string{EnvEndpoint, EnvTokenURL, EnvClientID, EnvClientSecret, EnvScopes} {
-				t.Setenv(name, tt.env[name])
+				t.Setenv(name, env[name])
 			}
 
-			resp := configure(t, tt.attributes)
+			resp := configure(t, attributes)
 
-			if got := diagnosticsOf(resp.Diagnostics); !reflect.DeepEqual(got, tt.diags) {
-				t.Fatalf("diagnostics = %+v, want %+v", got, tt.diags)
-			}
-
+			var want []diagnostic
 			if tt.diags != nil {
+				want = tt.diags(api)
+			}
+
+			if got := diagnosticsOf(resp.Diagnostics); !reflect.DeepEqual(got, want) {
+				t.Fatalf("diagnostics = %+v, want %+v", got, want)
+			}
+
+			if len(*api.requests) != tt.requests {
+				t.Fatalf("the API got %d requests, want %d", len(*api.requests), tt.requests)
+			}
+
+			for _, request := range *api.requests {
+				wantRequest := apiRequest{method: http.MethodGet, uri: "/rpc/permissions", acceptProfile: "console", authorization: "Bearer jwt-123"}
+				if request != wantRequest {
+					t.Errorf("request = %+v, want %+v", request, wantRequest)
+				}
+			}
+
+			if want != nil {
 				if resp.ResourceData != nil || resp.DataSourceData != nil {
 					t.Errorf("provider data = %v and %v, want none after an error", resp.ResourceData, resp.DataSourceData)
 				}
