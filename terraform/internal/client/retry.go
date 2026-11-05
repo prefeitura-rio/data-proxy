@@ -6,28 +6,29 @@ import (
 	"time"
 )
 
-// Backoff sets how RetryNotFound waits between two reads.
+// Backoff sets how RetryNoRow waits between two reads.
 type Backoff struct {
 	// Initial is the wait after the first read.
 	Initial time.Duration
 	// Max limits one wait. Each wait doubles until it reaches Max. Zero means no limit.
 	Max time.Duration
-	// Timeout limits the time of all the reads. RetryNotFound doesn't start a wait that ends after it.
+	// Timeout limits the time of all the reads. RetryNoRow doesn't start a wait that ends after it.
 	Timeout time.Duration
 }
 
 // DefaultBackoff waits 100 ms, then 200 ms, 400 ms, 800 ms and 1 s, for up to 5 s in total.
 var DefaultBackoff = Backoff{Initial: 100 * time.Millisecond, Max: time.Second, Timeout: 5 * time.Second}
 
-// RetryNotFound calls read again while it returns an error that wraps ErrNotFound. The provider reads from a
+// RetryNoRow calls read again while it returns an error that wraps ErrNoRow. The provider reads from a
 // replica (PgDog) behind PostgREST, and the replica can miss a row that the primary wrote a moment ago.
-// RetryNotFound returns the first result that isn't ErrNotFound, the last ErrNotFound after the timeout, or the
+// It doesn't retry ErrNotFound, because an HTTP 404, such as an unknown table, doesn't change with time.
+// RetryNoRow returns the first result that isn't ErrNoRow, the last ErrNoRow after the timeout, or the
 // error of the context.
-func RetryNotFound(ctx context.Context, backoff Backoff, read func(context.Context) error) error {
-	return retryNotFound(ctx, backoff, time.Now, sleep, read)
+func RetryNoRow(ctx context.Context, backoff Backoff, read func(context.Context) error) error {
+	return retryNoRow(ctx, backoff, time.Now, sleep, read)
 }
 
-func retryNotFound(
+func retryNoRow(
 	ctx context.Context,
 	backoff Backoff,
 	now func() time.Time,
@@ -39,7 +40,7 @@ func retryNotFound(
 
 	for {
 		err := read(ctx)
-		if !errors.Is(err, ErrNotFound) {
+		if !errors.Is(err, ErrNoRow) {
 			return err
 		}
 

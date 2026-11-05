@@ -18,9 +18,12 @@ var (
 	ErrForbidden = errors.New("forbidden")
 	// ErrUnauthorized is an HTTP 401 without a SQLSTATE, such as a missing or an expired JWT.
 	ErrUnauthorized = errors.New("unauthorized")
-	// ErrNotFound is an HTTP 404, or no row for GetOne.
+	// ErrNotFound is an HTTP 404, such as a table that PostgREST doesn't know.
 	ErrNotFound = errors.New("not found")
 )
+
+// ErrNoRow is the error of GetOne when no row matches the filters. It isn't an Error: PostgREST answered.
+var ErrNoRow = errors.New("no row")
 
 // Error is an error response of PostgREST.
 type Error struct {

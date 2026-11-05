@@ -246,11 +246,11 @@ func TestGetOne(t *testing.T) {
 		id       string
 		response string
 		want     row
-		notFound bool
+		noRow    bool
 		wantErr  string
 	}{
 		{id: "one row", response: `[{"id":3,"name":"c"}]`, want: row{ID: 3, Name: "c"}},
-		{id: "no row", response: `[]`, notFound: true, wantErr: "postgrest: HTTP 404: no row of projects matches the filters"},
+		{id: "no row", response: `[]`, noRow: true, wantErr: "no row of projects matches the filters: no row"},
 		{id: "two rows", response: `[{"id":1},{"id":2}]`, wantErr: "2 rows of projects match the filters, want one"},
 	}
 
@@ -278,8 +278,12 @@ func TestGetOne(t *testing.T) {
 				t.Fatalf("error = %v, want %q", err, tt.wantErr)
 			}
 
-			if errors.Is(err, ErrNotFound) != tt.notFound {
-				t.Errorf("errors.Is(err, ErrNotFound) = %t, want %t", !tt.notFound, tt.notFound)
+			if errors.Is(err, ErrNoRow) != tt.noRow {
+				t.Errorf("errors.Is(err, ErrNoRow) = %t, want %t", !tt.noRow, tt.noRow)
+			}
+
+			if errors.Is(err, ErrNotFound) {
+				t.Errorf("errors.Is(err, ErrNotFound) = true, want false")
 			}
 		})
 	}
@@ -325,6 +329,27 @@ func TestRefusesBeforeTheRequest(t *testing.T) {
 				return c.Get(ctx, ConsoleProfile, "projects", []Filter{Eq("", "1")}, nil)
 			},
 			wantErr: "filter 0 of projects has an empty column",
+		},
+		{
+			id: "delete filtered on a reserved parameter",
+			call: func(ctx context.Context, c *Client) error {
+				return c.Delete(ctx, ConsoleProfile, "projects", []Filter{Eq("columns", "x")}, nil)
+			},
+			wantErr: `filter 0 of projects: PostgREST reads "columns" as a parameter, not as a column`,
+		},
+		{
+			id: "patch filtered on a reserved parameter after a column",
+			call: func(ctx context.Context, c *Client) error {
+				return c.Patch(ctx, ConsoleProfile, "projects", []Filter{Eq("id", "1"), IsNull("or")}, map[string]int{}, nil)
+			},
+			wantErr: `filter 1 of projects: PostgREST reads "or" as a parameter, not as a column`,
+		},
+		{
+			id: "get filtered on a reserved parameter",
+			call: func(ctx context.Context, c *Client) error {
+				return c.Get(ctx, ConsoleProfile, "projects", []Filter{Eq("select", "*")}, nil)
+			},
+			wantErr: `filter 0 of projects: PostgREST reads "select" as a parameter, not as a column`,
 		},
 		{
 			id:      "token error",
@@ -507,7 +532,7 @@ func TestErrorResponses(t *testing.T) {
 		},
 	}
 
-	kinds := []error{ErrConflict, ErrInvalid, ErrForbidden, ErrUnauthorized, ErrNotFound}
+	kinds := []error{ErrConflict, ErrInvalid, ErrForbidden, ErrUnauthorized, ErrNotFound, ErrNoRow}
 
 	for _, tt := range tests {
 		t.Run(tt.id, func(t *testing.T) {
@@ -563,11 +588,11 @@ func TestRetryReadsTheReplicaAgain(t *testing.T) {
 
 	backoff := Backoff{Initial: time.Millisecond, Max: 2 * time.Millisecond, Timeout: 5 * time.Second}
 
-	err = RetryNotFound(context.Background(), backoff, func(ctx context.Context) error {
+	err = RetryNoRow(context.Background(), backoff, func(ctx context.Context) error {
 		return c.GetOne(ctx, ConsoleProfile, "projects", []Filter{Eq("id", "9")}, &got)
 	})
 	if err != nil {
-		t.Fatalf("RetryNotFound: %v", err)
+		t.Fatalf("RetryNoRow: %v", err)
 	}
 
 	if got != (row{ID: 9, Name: "new"}) {

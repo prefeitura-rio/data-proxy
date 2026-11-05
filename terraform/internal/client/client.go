@@ -24,6 +24,12 @@ const DefaultTimeout = 30 * time.Second
 // maxErrorBody limits how much of an error response the client reads.
 const maxErrorBody = 1 << 20
 
+// reservedParameters are the query parameters of PostgREST. A filter on a column with one of these names would
+// not filter the rows, so a Patch or a Delete would touch the whole table.
+var reservedParameters = map[string]struct{}{
+	"select": {}, "columns": {}, "order": {}, "limit": {}, "offset": {}, "on_conflict": {}, "and": {}, "or": {}, "not": {},
+}
+
 // TokenSource gives the JWT that the client sends in the Authorization header of each request.
 type TokenSource interface {
 	Token(ctx context.Context) (string, error)
@@ -93,7 +99,7 @@ func (c *Client) Get(ctx context.Context, profile, table string, filters []Filte
 }
 
 // GetOne reads the one row of the table that matches every filter, and decodes it into out.
-// It returns an error that wraps ErrNotFound when no row matches, and an error when more than one row matches.
+// It returns an error that wraps ErrNoRow when no row matches, and an error when more than one row matches.
 func (c *Client) GetOne(ctx context.Context, profile, table string, filters []Filter, out any) error {
 	var rows []json.RawMessage
 
@@ -103,7 +109,7 @@ func (c *Client) GetOne(ctx context.Context, profile, table string, filters []Fi
 
 	switch len(rows) {
 	case 0:
-		return &Error{Status: http.StatusNotFound, Message: fmt.Sprintf("no row of %s matches the filters", table), kind: ErrNotFound}
+		return fmt.Errorf("no row of %s matches the filters: %w", table, ErrNoRow)
 	case 1:
 		if out == nil {
 			return nil
@@ -269,6 +275,10 @@ func (c *Client) target(r request) (string, error) {
 	for i, filter := range r.filters {
 		if filter.column == "" {
 			return "", fmt.Errorf("filter %d of %s has an empty column", i, r.path)
+		}
+
+		if _, ok := reservedParameters[filter.column]; ok {
+			return "", fmt.Errorf("filter %d of %s: PostgREST reads %q as a parameter, not as a column", i, r.path, filter.column)
 		}
 
 		if i > 0 {
