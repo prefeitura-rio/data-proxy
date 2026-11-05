@@ -3953,7 +3953,7 @@ The registry address is `registry.terraform.io/prefeitura-rio/dataproxy`, and th
 
 A required value must come from the block or from its variable. The provider fails with one error for each value that's missing.
 
-When it starts, the provider gets a token and calls `GET /rpc/permissions`. It fails when the identity provider refuses the secret, when the API refuses the token, or when the token lacks `read_config`, because every resource and data source reads the configuration. The database checks the write permissions, such as `create_config`, `edit_config` and `delete_config`, on each request. The error of a refused request names the permission that it needed. The roles page lists the permissions of each role.
+When it starts, the provider gets a token and calls `GET /rpc/permissions`. It fails when the identity provider refuses the secret, when the API refuses the token, or when the token lacks `read_config`. The provider needs `read_config`, because every resource and data source reads the configuration. The database checks the write permissions, such as `create_config`, `edit_config` and `delete_config`, on each request. The error of a refused request names the permission that it needed. The roles page lists the permissions of each role.
 
 ```hcl
 terraform {
