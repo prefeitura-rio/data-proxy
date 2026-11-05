@@ -4,6 +4,7 @@ use ../lib.nu [
     images-changed
     latest-helm-tag
     newest-version
+    release-commit
     release-tag
     valid-chart-version
     version-of-digest
@@ -49,6 +50,26 @@ export def "test chart-files-keeps-the-chart-and-drops-the-rest" []: nothing -> 
 
     for case in $cases {
         assert equal ($case.files | chart-files) $case.expected $case.name
+    }
+}
+
+# Verify that a release type counts only with a file outside the provider and the docs, so a provider feat never releases.
+export def "test release-commit-skips-the-provider-and-the-docs" []: nothing -> nothing {
+    let cases = [
+        [name subject files expected];
+        ['a fix of the proxy' 'fix(proxy): keep the cache key' [proxy/src/proxy/cache.lua] true]
+        ['a feat without a scope' 'feat: add a setting' [helm/values.yaml] true]
+        ['a breaking chore' 'chore(nix)!: drop a profile' [nix/profiles/repo.nix] true]
+        ['a feat of the provider' 'feat(terraform): add a resource' [terraform/internal/client/client.go] false]
+        ['a fix of the docs' 'fix(docs): correct a link' [docs/index.md llms.txt] false]
+        ['a feat of the provider and its docs' 'feat(terraform): add a resource' [terraform/main.go docs/terraform.md] false]
+        ['a feat of the provider and a profile' 'feat(terraform): add a task' [terraform/main.go nix/profiles/terraform.nix] true]
+        ['a refactor of the sync' 'refactor(sync): split a step' [sync/src/sync/a.py] false]
+        ['a release commit of the bot' 'chore(version): helm-v2.10.0 [skip ci]' [helm/Chart.yaml] false]
+    ]
+
+    for case in $cases {
+        assert equal (release-commit {subject: $case.subject, files: $case.files}) $case.expected $case.name
     }
 }
 

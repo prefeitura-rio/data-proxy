@@ -2728,7 +2728,7 @@ The root `devenv.yaml` imports the folders `proxy/`, `sync/`, `console/` and `he
 | `sync`, `proxy`, `console` | One component with its test services, for `devenv test` and `devenv up`. |
 | `integration` | The three `:int` tasks, which start the service profiles. |
 | `chart` | Helm, `cog` and the `ci` script. |
-| `terraform` | Go, `golangci-lint`, Terraform and `tfplugindocs`, for the provider in `terraform/`. |
+| `terraform` | Go, `golangci-lint`, Terraform and `tfplugindocs` for `terraform/`. |
 | `nix` | The checks of the profile sizes and of the commands in the docs. |
 | `base`, `python` | The parts that the other profiles share, in `nix/profiles/shared.nix`. |
 
@@ -2749,7 +2749,7 @@ devenv --profile repo tasks run repo:lint repo:test:unit
 | `console:lint:ui`, `nb:lint:ts` | The app and the notebooks: `svelte-check`, ESLint and Prettier. |
 | `chart:lint:helm`, `chart:lint:toml` | The chart and `rbac.toml`. |
 | `ci:lint:wf`, `ctr:lint:files`, `nu:lint:scripts` | Workflows, container files and Nushell scripts. |
-| `tf:lint:go`, `tf:test:unit` | The Terraform provider: `gofmt`, `golangci-lint` and `go test` without the acceptance tests. |
+| `tf:lint:go`, `tf:test:unit` | The provider: `gofmt`, `golangci-lint` and `go test`. |
 | `docs:lint:code` | The style rules that a pattern can check, and the last 50 commit subjects. |
 | `docs:lint:style`, `docs:lint:links`, `docs:lint:nav`, `docs:lint:llms` | The style page, the links, the page order and `llms.txt`. |
 | `nix:lint:closure`, `nix:lint:cmd` | The profile sizes and the `devenv` commands in the docs. |
@@ -2940,13 +2940,13 @@ CI releases the Helm chart from Conventional Commits with `cog`. The settings ar
 | Command | Work |
 | --- | --- |
 | `ci version` | Prints the next version, or says that no release is due. It changes nothing. |
-| `ci guard` | Skips the release when no chart file and no image path changed since the last tag. |
+| `ci guard` | Skips the release when no chart file and no image path changed since the last tag, or when every release commit changed only the provider or the docs. |
 | `ci images resolve`, `ci images pin` | Find the newest tag of each image and write the tags in `helm/values.yaml`, so a release never uses `latest`. |
 | `ci release bump` | Runs `cog bump`. It sets the chart version, writes `CHANGELOG.md`, commits and tags. |
 | `ci chart package`, `ci chart publish` | Package the chart and push it to the OCI registry. |
 | `ci release push <tag>`, `ci release notes <tag>` | Push the commit and the tag in one push, and write the release notes. |
 
-A push that changed only `terraform/` or `docs/` since the last tag makes no release, even with a `feat` or a `fix` commit. These paths match no chart file and no image, so `ci changes` skips the `helm` job and `ci guard` skips the release. A later chart release still counts such a commit in its version and its changelog.
+A commit that changes only `terraform/`, `docs/` or `llms.txt` never releases the chart, even as a `feat` or a `fix`. A later release still counts it in the version and the changelog.
 
 The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag, and the next run publishes the same version again. If `main` is protected, add the secret `RELEASE_TOKEN` with a token that may push to it. Run `cog bump --auto --dry-run` to print the next tag without a change.
 

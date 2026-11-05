@@ -70,13 +70,13 @@ CI releases the Helm chart from Conventional Commits with `cog`. The settings ar
 | Command | Work |
 | --- | --- |
 | `ci version` | Prints the next version, or says that no release is due. It changes nothing. |
-| `ci guard` | Skips the release when no chart file and no image path changed since the last tag. |
+| `ci guard` | Skips the release when no chart file and no image path changed since the last tag, or when every release commit changed only the provider or the docs. |
 | `ci images resolve`, `ci images pin` | Find the newest tag of each image and write the tags in `helm/values.yaml`, so a release never uses `latest`. |
 | `ci release bump` | Runs `cog bump`. It sets the chart version, writes `CHANGELOG.md`, commits and tags. |
 | `ci chart package`, `ci chart publish` | Package the chart and push it to the OCI registry. |
 | `ci release push <tag>`, `ci release notes <tag>` | Push the commit and the tag in one push, and write the release notes. |
 
-A push that changed only `terraform/` or `docs/` since the last tag makes no release, even with a `feat` or a `fix` commit. These paths match no chart file and no image, so `ci changes` skips the `helm` job and `ci guard` skips the release. A later chart release still counts such a commit in its version and its changelog.
+A commit that changes only `terraform/`, `docs/` or `llms.txt` never releases the chart, even as a `feat` or a `fix`. A later release still counts it in the version and the changelog.
 
 The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag, and the next run publishes the same version again. If `main` is protected, add the secret `RELEASE_TOKEN` with a token that may push to it. Run `cog bump --auto --dry-run` to print the next tag without a change.
 

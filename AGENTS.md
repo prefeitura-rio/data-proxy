@@ -23,7 +23,7 @@ When `devenv` or Podman is missing, run the lint and the unit tests of each comp
 cd sync && uv run --frozen ruff check src tests && uv run --frozen ruff format --check src tests && uv run --frozen pyrefly check
 cd sync && uv run --frozen pytest tests/unit -m "not postgres"
 cd console/ui && pnpm install --frozen-lockfile && pnpm test && pnpm lint && pnpm check
-cd terraform && go build ./... && go vet ./... && go test ./...
+cd terraform && test -z "$(gofmt -l .)" && go build ./... && go vet ./... && go test ./...
 ```
 
 - `pytest` reads its settings from the ignored `sync/.env.test`, which `devenv` writes. Without `devenv`, write that file with the keys of the `files` and `env` blocks of `sync/devenv.nix`.

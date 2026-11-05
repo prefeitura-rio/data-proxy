@@ -815,7 +815,7 @@ Applies to: every commit.
 - **GIT-06** Expect these release levels: a type with `!` bumps major, `feat:` bumps minor, `fix:` bumps patch and all other types create no release. `cog` applies the rules, and `cog.toml` has its settings. [must, cog]
 - **GIT-07** Use `!` only with `feat` or `fix` release commits. Explain the migration in the body. Don't use a `BREAKING CHANGE` footer. [must, cog]
 - **GIT-08** Don't edit `CHANGELOG.md` by hand. The release step writes it from the commits, and it lists only breaking changes, features and fixes. [must, cog]
-- **GIT-11** Expect no chart release from a push that changed only `terraform/` or `docs/` since the last release, even with `feat` or `fix`. `ci changes` and `ci guard` release only for a chart file or an image path. [must, ci]
+- **GIT-11** Expect no chart release from a commit that changes only `terraform/`, `docs/` or `llms.txt`, even as a `feat` or a `fix`. `ci guard` skips such a commit. [must, ci]
 
 ```text
 feat(sync)!: require DBOS workflow recovery
