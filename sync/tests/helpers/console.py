@@ -35,6 +35,14 @@ async def export(pg: Postgres) -> Document:
     return document
 
 
+async def export_config(pg: Postgres) -> Document:
+    """Return the configuration that the console exports by project."""
+    document = await scalar(pg, "SELECT console.export_config()")
+    assert isinstance(document, dict)
+
+    return document
+
+
 async def preview(pg: Postgres, document: Document) -> list[tuple[str, str, str, str]]:
     """Return what an import of the document would do, as (object, schema, key, action)."""
     cursor = await pg.connection.execute(

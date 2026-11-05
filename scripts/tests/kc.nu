@@ -1,5 +1,12 @@
 use std/assert
-use ../kc.nu [claims-of partial-import role-names schemas-attribute token-problems]
+use ../kc.nu [
+    claims-of
+    partial-import
+    projects-attribute
+    role-names
+    schemas-attribute
+    token-problems
+]
 
 const RULES = {
     roles: [
@@ -45,7 +52,7 @@ export def "test partial-import-has-one-client-role-for-each-rule-role" []: noth
 }
 
 # Verify the redirect addresses and the mappers of the client.
-export def "test partial-import-sets-the-callback-and-the-three-claims" []: nothing -> nothing {
+export def "test partial-import-sets-the-callback-and-the-claims" []: nothing -> nothing {
     let client = partial-import $RULES {id: data-proxy-console-web, host: api.example.test, audience: data-proxy}
     | get clients
     | first
@@ -53,7 +60,8 @@ export def "test partial-import-sets-the-callback-and-the-three-claims" []: noth
     assert equal $client.redirectUris ['https://api.example.test/console/auth/callback']
     assert equal $client.webOrigins ['https://api.example.test']
     assert equal $client.attributes.'post.logout.redirect.uris' 'https://api.example.test/console/auth/login'
-    assert equal ($client.protocolMappers | get name) [role schemas audience]
+    assert equal ($client.protocolMappers | get name) [role schemas projects audience]
+    assert equal ($client.protocolMappers | where name == projects | first | get config.'claim.name') projects
     assert equal ($client.protocolMappers | where name == audience | first | get config.'included.custom.audience') data-proxy
     assert equal ($client.protocolMappers | where name == role | first | get config.'claim.name') role
 }
@@ -71,7 +79,9 @@ export def "test token-problems-names-each-wrong-claim" []: nothing -> nothing {
         ['unknown role' ($GOOD | update role dp_root) ['role dp_root is not a role of rbac.toml: dp_api, dp_admin']]
         ['two roles' ($GOOD | update role [dp_api dp_admin]) ['role is not one text value']]
         ['list as text' ($GOOD | update role '[dp_admin]') [$LIST_AS_TEXT]]
-        ['no schemas' ($GOOD | update schemas []) ['schemas is missing or empty, so the token reads nothing']]
+        ['no schemas' ($GOOD | update schemas []) ['schemas and projects are missing or empty, so the token reads nothing']]
+        ['projects and no schemas' ($GOOD | update schemas [] | insert projects [sales]) []]
+        ['empty projects and no schemas' ($GOOD | update schemas [] | insert projects []) ['schemas and projects are missing or empty, so the token reads nothing']]
         ['no user name' ($GOOD | reject preferred_username) ['preferred_username is missing']]
     ]
 
@@ -93,6 +103,15 @@ export def "test schemas-attribute-takes-several-values-and-only-admins-edit-it"
     let attribute = schemas-attribute
 
     assert equal $attribute.name schemas
+    assert equal $attribute.multivalued true
+    assert equal $attribute.permissions {view: [admin], edit: [admin]}
+}
+
+# Verify that the attribute of the projects is for admins only and takes several values, like the attribute of the schemas.
+export def "test projects-attribute-takes-several-values-and-only-admins-edit-it" []: nothing -> nothing {
+    let attribute = projects-attribute
+
+    assert equal $attribute.name projects
     assert equal $attribute.multivalued true
     assert equal $attribute.permissions {view: [admin], edit: [admin]}
 }

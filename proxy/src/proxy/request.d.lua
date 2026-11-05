@@ -13,6 +13,7 @@
 ---@field sub string User name taken from the JWT, or anon.
 ---@field scope string|nil The digest of the grants of the user. nil if the configuration does not list the user.
 ---@field schemas string Comma-separated schemas claim of the JWT. Empty if absent.
+---@field projects string Comma-separated projects claim of the JWT. Empty if absent.
 ---@field role string Role claim of the JWT. Empty if absent.
 ---@field profile string Value of the Accept-Profile header. Empty if absent.
 ---@field generation integer Policy generation. A change of the access policy gives every cached answer a new key.
@@ -41,12 +42,14 @@
 ---@field sub string|nil Subject of the token.
 ---@field preferred_username string|nil User name. It is used before sub.
 ---@field schemas string|string[]|nil The schemas of the user, as a text or a list.
+---@field projects string|string[]|nil The projects of the user, as a text or a list.
 ---@field role string|nil The role of the user, one role of rbac.toml.
 
---- The user, the schemas, and the role from a JWT.
+--- The user, the schemas, the projects, and the role from a JWT.
 ---@class JwtIdentity
 ---@field sub string User name. The value is preferred_username, or sub, or anon.
 ---@field schemas string The schemas claim, separated by commas. Empty if the token has no schemas.
+---@field projects string The projects claim, separated by commas. Empty if the token has no projects.
 ---@field role string The role claim. Empty if the token has none.
 
 --- The schema of the payload of a bearer token.

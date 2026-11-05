@@ -1,7 +1,7 @@
 """The console schema, built from the real migrations and templates in the test transaction."""
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Final
@@ -121,28 +121,41 @@ async def as_token(
     role: str,
     schemas: list[str],
     *,
+    projects: Sequence[str] = (),
     user: str = "ana",
     database_role: bool = False,
 ) -> None:
-    """Act as a token: the role and the schemas that rbac reads, and the user name of the claims.
+    """Act as a token: the role, the schemas and the projects that rbac reads, and the user name of the claims.
+
+    The settings are the ones that `rbac.load()` makes, so the projects here don't expand into schemas.
 
     With `database_role`, the connection also switches to the database role of the requests, so
     the row policies of the console tables apply, as they do for PostgREST.
     """
     await act_as_token(pg, role, ",".join(schemas))
+    claim = ",".join(projects)
+    await pg.connection.execute(
+        "SELECT set_config('rbac.projects', %s, false), set_config('app.claim_projects', %s, false)",
+        (f",{claim}," if len(projects) > 0 else "", claim),
+    )
     await pg.connection.execute(
         "SELECT set_config('request.jwt.claims', %s, false)",
         (json.dumps({"preferred_username": user}),),
     )
 
     if database_role:
-        await pg.connection.execute(
-            SQL(
-                "GRANT USAGE ON SCHEMA rbac TO {role}; "
-                "GRANT EXECUTE ON FUNCTION rbac.can(text), rbac.mine(text) TO {role}; "
-                "SET LOCAL ROLE {role}"
-            ).format(role=Identifier(settings.AUTH_USER_ROLE))
-        )
+        await use_database_role(pg)
+
+
+async def use_database_role(pg: Postgres) -> None:
+    """Switch the connection to the database role of the requests, so the row policies of the console apply."""
+    await pg.connection.execute(
+        SQL(
+            "GRANT USAGE ON SCHEMA rbac TO {role}; "
+            "GRANT EXECUTE ON FUNCTION rbac.can(text), rbac.mine(text), rbac.mine(text, text) TO {role}; "
+            "SET LOCAL ROLE {role}"
+        ).format(role=Identifier(settings.AUTH_USER_ROLE))
+    )
 
 
 async def refusal(pg: Postgres, sql: str, *params: object) -> str | None:
@@ -178,12 +191,14 @@ def migration(number: int) -> Path:
     return path
 
 
-async def grant_console(pg: Postgres) -> None:
-    """Give the role of the requests its rights on the console tables that exist now."""
+async def grant_console_reads(pg: Postgres) -> None:
+    """Give the role of the requests the right to read the console tables that exist now, for a test of an old migration."""
     await pg.connection.execute(
-        helm_sql(
-            "grant_console_usage", {"user_role": Identifier(settings.AUTH_USER_ROLE)}
-        ).encode()
+        SQL(
+            "GRANT USAGE ON SCHEMA console TO {role}; "
+            "GRANT SELECT ON ALL TABLES IN SCHEMA console TO {role}; "
+            "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA console TO {role}"
+        ).format(role=Identifier(settings.AUTH_USER_ROLE))
     )
 
 

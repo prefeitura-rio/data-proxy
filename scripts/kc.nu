@@ -6,11 +6,12 @@ use lib.nu [fail read-data]
 # roles from rbac.toml, so the client roles always match the rules. Then do these steps in the realm:
 #
 # 1. Open Realm settings, Action, Partial import, and choose the file. It creates the client `data-proxy-console-web`,
-#    one client role for each role of rbac.toml, and the mappers for `role`, `schemas` and the audience.
+#    one client role for each role of rbac.toml, and the mappers for `role`, `schemas`, `projects` and the audience.
 # 2. Open Clients, data-proxy-console-web, Credentials, and copy the client secret.
-# 3. Give each person one client role of the client, and set the user attribute `schemas` to their schemas. A realm with
-#    the declarative user profile drops an attribute that the profile lacks. `nu scripts/kc.nu user-profile-attribute`
-#    prints the attribute to add in Realm settings, User profile, JSON editor, inside `attributes`.
+# 3. Give each person one client role of the client, and set the user attribute `schemas` to their schemas, or the
+#    attribute `projects` to their projects. A realm with the declarative user profile drops an attribute that the
+#    profile lacks. `nu scripts/kc.nu user-profile-attribute` prints the attributes to add in Realm settings, User
+#    profile, JSON editor, inside `attributes`.
 # 4. If you rename an existing client, set the Client ID of the mapper that makes the `role` claim to the new ID in the
 #    dedicated client scope. The roles and the secret stay with the client.
 # 5. Check a token. Turn on Direct access grants for the client during the check, and turn it off afterwards:
@@ -19,7 +20,7 @@ use lib.nu [fail read-data]
 #    nu scripts/kc.nu check <access_token> --issuer <issuer>
 #
 # `check` fails with a list of the problems. It tests the issuer, the audience `data-proxy`, one role of rbac.toml, a
-# `schemas` claim that isn't empty, and `preferred_username`. Use `--audience` when the gateway expects another audience.
+# `schemas` or `projects` claim that isn't empty, and `preferred_username`. Use `--audience` when the gateway expects another audience.
 
 const RULES = 'helm/files/config/rbac.toml'
 
@@ -43,7 +44,7 @@ def mapper [name: string, kind: string, config: record]: nothing -> record {
 }
 
 # Return the document that Keycloak reads in Realm settings > Action > Partial import. It creates the client of the
-# console with one client role for each role of the rules and the three claims that the data proxy reads.
+# console with one client role for each role of the rules and the claims that the data proxy reads.
 export def partial-import [
     rules: record
     client: record<id: string, host: string, audience: string>
@@ -79,6 +80,13 @@ export def partial-import [
                         multivalued: 'true'
                         'aggregate.attrs': 'false'
                     })
+                    (mapper projects oidc-usermodel-attribute-mapper {
+                        'user.attribute': projects
+                        'claim.name': projects
+                        'jsonType.label': String
+                        multivalued: 'true'
+                        'aggregate.attrs': 'false'
+                    })
                     {
                         name: audience
                         protocol: openid-connect
@@ -101,12 +109,12 @@ export def partial-import [
     }
 }
 
-# Return the attribute that a realm with the declarative user profile needs for the claim `schemas`. Without it Keycloak
-# drops the user attribute, and the mapper puts nothing in the token. Add it to the `attributes` of the user profile.
-export def schemas-attribute []: nothing -> record {
+# Return an attribute that a realm with the declarative user profile needs for a claim. Without it Keycloak drops the
+# user attribute, and the mapper puts nothing in the token.
+def claim-attribute [name: string, display_name: string]: nothing -> record {
     {
-        name: schemas
-        displayName: 'Data proxy schemas'
+        name: $name
+        displayName: $display_name
         validations: {}
         annotations: {}
         permissions: {
@@ -115,6 +123,17 @@ export def schemas-attribute []: nothing -> record {
         }
         multivalued: true
     }
+}
+
+# Return the attribute of the claim `schemas`. Add it to the `attributes` of the user profile.
+export def schemas-attribute []: nothing -> record {
+    claim-attribute schemas 'Data proxy schemas'
+}
+
+# Return the attribute of the claim `projects`. A user with it reads every schema of the projects, also the schemas that
+# come later. Add it to the `attributes` of the user profile.
+export def projects-attribute []: nothing -> record {
+    claim-attribute projects 'Data proxy projects'
 }
 
 # Return a claim as a list, whether the token has one text value or a list of them.
@@ -147,7 +166,7 @@ export def token-problems [
         (if $issuer != $expected.issuer { $'iss is ($issuer | default missing), not ($expected.issuer)' })
         (if $expected.audience not-in (as-list ($claims | get --optional aud)) { $'aud lacks ($expected.audience)' })
         $role_problem
-        (if (as-list ($claims | get --optional schemas)) == [] { 'schemas is missing or empty, so the token reads nothing' })
+        (if (as-list ($claims | get --optional schemas) | append (as-list ($claims | get --optional projects))) == [] { 'schemas and projects are missing or empty, so the token reads nothing' })
         (if ($claims | get --optional preferred_username) in [null ''] { 'preferred_username is missing' })
     ]
     | compact
@@ -181,9 +200,9 @@ def "main client" [
     partial-import (read-data $RULES) {id: $client_id, host: $host, audience: $audience} | to json --indent 2 | print
 }
 
-# Print the attribute to add to the user profile of the realm, as JSON.
+# Print the attributes to add to the user profile of the realm, as JSON.
 def "main user-profile-attribute" []: nothing -> nothing {
-    schemas-attribute | to json --indent 2 | print
+    [(schemas-attribute) (projects-attribute)] | to json --indent 2 | print
 }
 
 # Check the claims of an access token against the roles of rbac.toml. It fails with the list of the problems.

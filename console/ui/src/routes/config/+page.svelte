@@ -10,6 +10,7 @@
 	import HistorySection from './HistorySection.svelte';
 	import ImportPicker from './ImportPicker.svelte';
 	import ImportPreview from './ImportPreview.svelte';
+	import ProjectSection from './ProjectSection.svelte';
 	import RuleSection from './RuleSection.svelte';
 	import SchemaSection from './SchemaSection.svelte';
 	import TableSection from './TableSection.svelte';
@@ -45,6 +46,7 @@
 
 <SectionNav
 	sections={[
+		{ id: 'projects', label: 'Projects' },
 		{ id: 'schemas', label: 'Schemas' },
 		{ id: 'tables', label: 'Tables' },
 		{ id: 'row-rules', label: 'Row rules' },
@@ -58,7 +60,8 @@
 	<ImportPreview changes={form.preview} documentText={form.documentText} />
 {/if}
 
-<SchemaSection schemas={data.schemas} health={data.health} can={data.can} />
+<ProjectSection projects={data.projects} schemas={data.schemas} can={data.can} />
+<SchemaSection projects={data.projects} schemas={data.schemas} health={data.health} can={data.can} />
 <TableSection
 	tables={data.tables}
 	schemas={data.schemas}

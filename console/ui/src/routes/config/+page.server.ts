@@ -2,11 +2,22 @@ import * as v from 'valibot';
 import { error, fail } from '@sveltejs/kit';
 import { list, optional, text, whole } from '#lib/forms.js';
 import { containsFilter, pageOf, rangeQuery } from '#lib/list.js';
+import { schemaPayload } from '#lib/projects.js';
 import { can } from '#lib/permissions.js';
 import { writeMessage } from '#lib/messages.js';
 import { api, need } from '#lib/server/api.js';
 import type { Result } from '#lib/server/postgrest.js';
-import { HistoryRow, Health, ImportChange, RlsRow, SchemaRow, Synced, TableName, TableRow } from '#lib/types.js';
+import {
+	HistoryRow,
+	Health,
+	ImportChange,
+	ProjectRow,
+	RlsRow,
+	SchemaRow,
+	Synced,
+	TableName,
+	TableRow
+} from '#lib/types.js';
 import type { Actions, PageServerLoad } from './$types';
 
 const TABLES_PAGE = 25;
@@ -24,7 +35,8 @@ export const load: PageServerLoad = async ({ locals, parent, url, depends }) => 
 	const client = api(locals.session);
 	const tablesPage = pageOf(url.searchParams, TABLES_PAGE, 'tables_page');
 	const historyPage = pageOf(url.searchParams, HISTORY_PAGE, 'history_page');
-	const [schemas, tableNames, rls, health] = await Promise.all([
+	const [projects, schemas, tableNames, rls, health] = await Promise.all([
+		client.get('/projects?order=name', v.array(ProjectRow)),
 		client.get('/schemas?order=name', v.array(SchemaRow)),
 		client.get('/tables?select=name,schema&order=schema,name', v.array(TableName)),
 		client.get('/rls?order=table_name,column_name', v.array(RlsRow)),
@@ -63,6 +75,7 @@ export const load: PageServerLoad = async ({ locals, parent, url, depends }) => 
 				);
 
 	return {
+		projects: need(projects),
 		schemas: schemaRows,
 		tables: shown.rows,
 		tablesTotal: shown.total,
@@ -108,17 +121,20 @@ function parseJson(text: string): unknown {
 }
 
 export const actions: Actions = {
+	createProject: async ({ locals, request }) => {
+		const form = await request.formData();
+
+		return done(await api(locals.session).post('/projects', { name: text(form, 'name') }));
+	},
+	deleteProject: async ({ locals, request }) => {
+		const name = encodeURIComponent(text(await request.formData(), 'name'));
+
+		return done(await api(locals.session).delete(`/projects?name=eq.${name}`));
+	},
 	createSchema: async ({ locals, request }) => {
 		const form = await request.formData();
 
-		return done(
-			await api(locals.session).post('/schemas', {
-				name: text(form, 'name'),
-				source: text(form, 'source') || 'bigquery',
-				claim: optional(form, 'claim'),
-				encrypted: form.get('encrypted') === 'on'
-			})
-		);
+		return done(await api(locals.session).post('/schemas', schemaPayload(form)));
 	},
 	updateSchema: async ({ locals, request }) => {
 		const form = await request.formData();

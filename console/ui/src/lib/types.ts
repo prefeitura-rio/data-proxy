@@ -106,8 +106,16 @@ export const LogLine = v.object({
 	run_id: v.string()
 });
 
+export const ProjectRow = v.object({
+	name: v.string(),
+	updated_at: v.string(),
+	updated_by: v.string()
+});
+
 export const SchemaRow = v.object({
 	name: v.string(),
+	project: v.string(),
+	short_name: v.string(),
 	source: v.string(),
 	settings: fields,
 	claim: nullableString,
@@ -188,6 +196,7 @@ export type Queue = v.InferOutput<typeof Queue>;
 export type Schedule = v.InferOutput<typeof Schedule>;
 export type ErrorRow = v.InferOutput<typeof ErrorRow>;
 export type LogLine = v.InferOutput<typeof LogLine>;
+export type ProjectRow = v.InferOutput<typeof ProjectRow>;
 export type SchemaRow = v.InferOutput<typeof SchemaRow>;
 export type TableRow = v.InferOutput<typeof TableRow>;
 export type RlsRow = v.InferOutput<typeof RlsRow>;

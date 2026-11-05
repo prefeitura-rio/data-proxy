@@ -213,12 +213,12 @@ function accessCatalog(k8s) {
         [
             "access-relations",
             "SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class AS c INNER JOIN pg_namespace AS n ON c.relnamespace = n.oid WHERE n.nspname = 'console' AND c.relkind IN ('r', 'v')",
-            "config_history,errors,health,logs,overview,queues,rls,runs,schedules,schemas,steps,synced,tables,tasks",
+            "config_history,errors,health,logs,overview,projects,queues,rls,runs,schedules,schemas,steps,synced,tables,tasks",
         ],
         [
             "access-functions",
             "SELECT string_agg(DISTINCT p.proname, ',' ORDER BY p.proname) FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'console' AND p.prorettype <> 'trigger'::regtype",
-            "cancel_run,config,control_run,control_schedule,guard_run,guard_schedule,import_config,import_preview,mine_table,pause_schedule,permissions,resume_run,resume_schedule,retry_run,schedule_schema,scopes,set_schedule,start_scope,start_sync,sync_config,table_files,username",
+            "cancel_run,config,control_run,control_schedule,export_config,guard_run,guard_schedule,import_config,import_preview,import_schemas,mine_table,pause_schedule,permissions,resume_run,resume_schedule,retry_run,schedule_schema,scopes,set_schedule,start_scope,start_sync,sync_config,table_files,username",
         ],
         [
             "access-rbac-functions",
@@ -295,6 +295,113 @@ function claimShapes() {
     expect("a token with an empty schemas claim reads no row", rowsOf(empty).length === 0);
 }
 
+const PROJECT_A = "e2eprojecta";
+const PROJECT_B = "e2eprojectb";
+const PROVISION_TIMEOUT_SECONDS = 90;
+
+/** Deletes the projects of the check and their schemas, each with the client that has the project in its claim. */
+function removeProjects() {
+    consoleCall("DELETE", `/schemas?project=eq.${PROJECT_A}`, "project_user");
+    consoleCall("DELETE", `/projects?name=eq.${PROJECT_A}`, "project_user");
+    consoleCall("DELETE", `/projects?name=eq.${PROJECT_B}`, "project_other");
+}
+
+/**
+ * Verifies the `projects` claim. `project_user` has `e2eprojecta:*` and no schema in its claim, and `project_other` has
+ * `e2eprojectb`. The first token reads every schema of its project, also one that it adds after it got the token. The
+ * second token reads none of them and adds none.
+ */
+function projectClaim() {
+    removeProjects();
+
+    try {
+        const added = [
+            consoleCall("POST", "/projects", "project_user", { name: PROJECT_A }),
+            consoleCall("POST", "/projects", "project_other", { name: PROJECT_B }),
+        ];
+        requirePrecondition(
+            "a token adds the project of its claim",
+            added.every((response) => response.status === 201),
+            {},
+        );
+
+        const first = consoleCall("POST", "/schemas", "project_user", { project: PROJECT_A, short_name: "first" });
+        expect("a project token adds a schema that did not exist when it got its token", first.status === 201);
+        expect(
+            "a schema of a project takes the name of the project and its short name",
+            rowsOf(first)[0]?.name === `${PROJECT_A}_first`,
+        );
+
+        // A read goes to a standby, which may not have the new row yet, so a check waits for it.
+        const listed = () => rowsOf(consoleCall("GET", "/schemas?select=name,project", "project_user"));
+        /** @param {string} name */
+        const lists = (name) => waitUntil(15, () => listed().some((row) => row.name === name), name);
+        expect("a project token reads the schema that it added", lists(`${PROJECT_A}_first`));
+
+        const second = consoleCall("POST", "/schemas", "project_user", { project: PROJECT_A, short_name: "second" });
+        expect("a project token adds a second schema", second.status === 201);
+        expect("a project claim reads a schema that came after", lists(`${PROJECT_A}_second`));
+        expect(
+            "a project token reads the schemas of its project only",
+            listed().length === 2 && listed().every((row) => row.project === PROJECT_A),
+        );
+
+        expect(
+            "a token of another project adds no schema to the project",
+            consoleCall("POST", "/schemas", "project_other", { project: PROJECT_A, short_name: "intruder" }).status ===
+                403,
+        );
+        expect(
+            "a token of another project reads no schema of the project",
+            rowsOf(consoleCall("GET", `/schemas?project=eq.${PROJECT_A}`, "project_other")).length === 0,
+        );
+        expect(
+            "a token of another project reads no row of the project",
+            rowsOf(consoleCall("GET", `/projects?name=eq.${PROJECT_A}`, "project_other")).length === 0,
+        );
+        expect(
+            "a project is not deleted while it has a schema",
+            consoleCall("DELETE", `/projects?name=eq.${PROJECT_A}`, "project_user").status >= 400 &&
+                rowsOf(consoleCall("GET", `/projects?name=eq.${PROJECT_A}`, "project_user")).length === 1,
+        );
+
+        const schema = `${PROJECT_A}_first`;
+        expect(
+            "provision creates the schema of the project",
+            waitUntil(
+                PROVISION_TIMEOUT_SECONDS,
+                () => {
+                    const health = rowsOf(consoleCall("GET", `/health?name=eq.${schema}`, "project_user"))[0];
+
+                    return health?.schema_exists === true && health.access_policy === true;
+                },
+                "provision to create the schema of the project",
+            ),
+        );
+
+        expect(
+            "PostgREST serves the schema of the project to its token",
+            waitUntil(
+                PROVISION_TIMEOUT_SECONDS,
+                () => postgrestCall(schema, "GET", "/access_policy", "project_user").status === 200,
+                "PostgREST to serve the schema of the project",
+            ),
+        );
+
+        const policy = { subject: "project_subject", unit_type: "unit", unit_id: "unit_1" };
+        expect(
+            "a project token writes the access policy of a schema of its project",
+            postgrestCall(schema, "POST", "/access_policy", "project_user", policy).status === 201,
+        );
+        expect(
+            "a token of another project is refused the access policy",
+            [401, 403].includes(postgrestCall(schema, "POST", "/access_policy", "project_other", policy).status),
+        );
+    } finally {
+        removeProjects();
+    }
+}
+
 const UNKNOWN_FUNCTION = "e2e_unknown_permission";
 
 /**
@@ -367,6 +474,7 @@ export const steps = [
     { scenario: "roles", name: "roles", stage: 280, run: () => roles() },
     { scenario: "roles", name: "escalation", stage: 285, run: () => escalation() },
     { scenario: "roles", name: "claimShapes", stage: 286, run: () => claimShapes() },
+    { scenario: "roles", name: "projectClaim", stage: 289, run: () => projectClaim() },
     { scenario: "roles", name: "unknownPermission", stage: 287, run: ({ k8s }) => unknownPermission(k8s) },
     { scenario: "roles", name: "rulesReload", stage: 288, run: ({ k8s }) => rulesReload(k8s) },
     { scenario: "roles", name: "consoleAccess", stage: 290, run: () => consoleAccess() },

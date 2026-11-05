@@ -206,9 +206,11 @@ async def act_as_token(pg: Postgres, role: str, schemas: str) -> None:
                 coalesce((SELECT wrapped FROM rbac.roles WHERE name = %s), ''),
                 false
             ),
-            set_config('rbac.schemas', ',' || %s || ',', false)
+            set_config('rbac.schemas', ',' || %s || ',', false),
+            set_config('app.claim_role', %s, false),
+            set_config('app.claim_schemas', %s, false)
         """,
-        (role, schemas),
+        (role, schemas, role, schemas),
     )
 
 

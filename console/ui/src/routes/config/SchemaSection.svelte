@@ -12,9 +12,11 @@
 	import Table from '#lib/components/Table.svelte';
 	import { Submission } from '#lib/enhance.svelte.js';
 	import type { Can } from '#lib/permissions.js';
-	import type { Health, SchemaRow } from '#lib/types.js';
+	import { DEFAULT_PROJECT, groupByProject, physicalName } from '#lib/projects.js';
+	import type { Health, ProjectRow, SchemaRow } from '#lib/types.js';
 
-	let { schemas, health, can }: { schemas: SchemaRow[]; health: Health[]; can: Can } = $props();
+	let { projects, schemas, health, can }: { projects: ProjectRow[]; schemas: SchemaRow[]; health: Health[]; can: Can } =
+		$props();
 
 	let editing = $state<SchemaRow | null>(null);
 	let removing = $state<SchemaRow | null>(null);
@@ -22,6 +24,10 @@
 	const gone = new SvelteSet<string>();
 
 	const rows = $derived(schemas.filter((schema) => !gone.has(schema.name)));
+	const groups = $derived(groupByProject(projects, rows));
+	let project = $state(DEFAULT_PROJECT);
+	let shortName = $state('');
+	const name = $derived(physicalName(project, shortName.trim()));
 	const create = new Submission();
 	const update = new Submission({
 		inline: true,
@@ -52,56 +58,74 @@
 
 <Section title="Schemas">
 	<Table
-		head={['Name', 'Source', 'Claim', 'Encrypted', 'Health', '']}
+		head={['Project', 'Name', 'Source', 'Claim', 'Encrypted', 'Health', '']}
 		caption="Schemas"
 		count={rows.length}
 		empty="No schema yet."
 	>
-		{#each rows as schema (schema.name)}
-			<tr>
-				<td>{schema.name}</td>
-				<td>{schema.source}</td>
-				<td>{schema.claim ?? ''}</td>
-				<td>
-					{#if schema.encrypted}<span class="badge badge-soft badge-sm badge-warning">yes</span>{:else}no{/if}
-				</td>
-				<td>
-					<span
-						class={[
-							'badge badge-soft badge-sm',
-							statusOf(schema.name) === 'provisioning' ? 'badge-warning' : 'badge-success'
-						]}
-					>
-						{#if statusOf(schema.name) === 'provisioning'}<span
-								class="loading loading-xs loading-spinner"
-								aria-hidden="true"
-							></span>{/if}
-						{statusOf(schema.name)}
-					</span>
-				</td>
-				<td class="whitespace-nowrap">
-					{#if can.edit}<EditButton onclick={() => (editing = schema)} />{/if}
-					{#if can.delete}
-						<DeleteButton
-							onclick={() => {
-								typed = '';
-								removing = schema;
-							}}
-						/>
-					{/if}
-				</td>
-			</tr>
+		{#each groups as group (group.project)}
+			{#each group.schemas as schema, index (schema.name)}
+				<tr>
+					<td>{index === 0 ? group.project : ''}</td>
+					<td>{schema.name}</td>
+					<td>{schema.source}</td>
+					<td>{schema.claim ?? ''}</td>
+					<td>
+						{#if schema.encrypted}<span class="badge badge-soft badge-sm badge-warning">yes</span>{:else}no{/if}
+					</td>
+					<td>
+						<span
+							class={[
+								'badge badge-soft badge-sm',
+								statusOf(schema.name) === 'provisioning' ? 'badge-warning' : 'badge-success'
+							]}
+						>
+							{#if statusOf(schema.name) === 'provisioning'}<span
+									class="loading loading-xs loading-spinner"
+									aria-hidden="true"
+								></span>{/if}
+							{statusOf(schema.name)}
+						</span>
+					</td>
+					<td class="whitespace-nowrap">
+						{#if can.edit}<EditButton onclick={() => (editing = schema)} />{/if}
+						{#if can.delete}
+							<DeleteButton
+								onclick={() => {
+									typed = '';
+									removing = schema;
+								}}
+							/>
+						{/if}
+					</td>
+				</tr>
+			{/each}
 		{/each}
 	</Table>
 
 	{#if can.create}
 		<form method="POST" action="?/createSchema" use:enhance={create.submit} class="toolbar">
-			<Field label="Name" name="name" placeholder="name" required />
+			<label class="flex flex-col gap-1 text-sm">
+				<span class="text-base-content/70">Project</span>
+				<select class="select select-sm" name="project" bind:value={project}>
+					{#each projects as item (item.name)}<option>{item.name}</option>{/each}
+				</select>
+			</label>
+			<Field
+				label="Short name"
+				name="short_name"
+				placeholder="short name"
+				required
+				oninput={(event: Event & { currentTarget: HTMLInputElement }) => (shortName = event.currentTarget.value)}
+			/>
 			<Field label="Source" name="source" placeholder="source (bigquery)" />
 			<Field label="Claim" name="claim" placeholder="claim" />
 			<Check label="encrypted" name="encrypted" />
 			<SubmitButton class="btn-primary btn-sm" pending={create.pending}><Plus size={14} /> Add schema</SubmitButton>
 		</form>
+		<p class="text-sm text-base-content/70">
+			Name in the database and in the API: <code>{shortName.trim() === '' ? '…' : name}</code>
+		</p>
 	{/if}
 </Section>
 

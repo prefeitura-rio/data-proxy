@@ -188,22 +188,30 @@ local function join_claim(claim)
 	return List(claim):join(",")
 end
 
---- Get the identity from the Authorization header: the user, the schemas, and the role.
---- The role decides what PostgREST answers, so two tokens that differ only in it get different keys.
+--- Get the identity from the Authorization header: the user, the schemas, the projects, and the role.
+--- The role decides what PostgREST answers, and so do the schemas and the projects, because the database expands a
+--- project into its schemas. Two tokens that differ only in one of them get different keys.
 --- The anonymous identity is used if the header is not a valid token.
 ---
 --- ```lua
---- request.jwt_identity("Bearer h.eyJzdWIiOiJhbGljZSJ9.s")  --> { sub = "alice", schemas = "", role = "" }
---- request.jwt_identity(nil)                                --> { sub = "anon", schemas = "", role = "" }
+--- request.jwt_identity("Bearer h.eyJzdWIiOiJhbGljZSJ9.s")
+---   --> { sub = "alice", schemas = "", projects = "", role = "" }
+--- request.jwt_identity(nil)
+---   --> { sub = "anon", schemas = "", projects = "", role = "" }
 --- ```
 ---@param header string|nil Value of the Authorization header.
 ---@return JwtIdentity identity The anonymous identity if there is no valid token.
 function request.jwt_identity(header)
 	local claims = decode_jwt_claims(header)
-	if not claims then return { sub = constants.jwt.anonymous_sub, schemas = "", role = "" } end
+	if not claims then return { sub = constants.jwt.anonymous_sub, schemas = "", projects = "", role = "" } end
 
 	local sub = claims.preferred_username or claims.sub or constants.jwt.anonymous_sub
-	return { sub = sub, schemas = join_claim(claims.schemas), role = claims.role or "" }
+	return {
+		sub = sub,
+		schemas = join_claim(claims.schemas),
+		projects = join_claim(claims.projects),
+		role = claims.role or "",
+	}
 end
 
 --- Name the user in the cache key: by its scope, or by its own name if it has no scope.
@@ -227,6 +235,7 @@ function request.cache_identity(parts)
 		parts.args,
 		subject_part(parts),
 		parts.schemas,
+		parts.projects,
 		parts.profile,
 		parts.headers.Range or "",
 		parts.headers.Prefer or "",
@@ -282,6 +291,7 @@ function request.make_context(input, deps)
 		sub = identity.sub,
 		scope = scope_of(deps.config, identity.sub),
 		schemas = identity.schemas,
+		projects = identity.projects,
 		role = identity.role,
 		profile = input.headers_in["Accept-Profile"] or "",
 		generation = input.generation,

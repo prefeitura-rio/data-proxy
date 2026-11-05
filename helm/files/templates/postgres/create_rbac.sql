@@ -37,27 +37,59 @@ BEGIN
 END
 $$;
 
-CREATE OR REPLACE FUNCTION rbac.mine(schema_name text) RETURNS boolean
+-- The one rule for "is it mine": a schema of the schemas claim, or a project of the projects claim.
+-- A projects claim has already expanded into the schemas that exist, so a policy that checks a schema
+-- that does not exist yet, such as an insert, passes the project of the new row as the second argument.
+CREATE OR REPLACE FUNCTION rbac.mine(schema_name text, project_name text) RETURNS boolean
 LANGUAGE sql STABLE PARALLEL SAFE AS $$
     SELECT coalesce(
-        schema_name <> ''
-        AND strpos(schema_name, ',') = 0
-        AND (
-            strpos(
-                coalesce(current_setting('rbac.schemas', TRUE), ''),
-                ',' || schema_name || ','
-            ) > 0
-            OR strpos(
-                coalesce(current_setting('rbac.schemas', TRUE), ''),
-                ',' || schema_name || ':*,'
-            ) > 0
-            OR strpos(
-                coalesce(current_setting('rbac.schemas', TRUE), ''),
-                ',*,'
-            ) > 0
+        (
+            schema_name <> ''
+            AND strpos(schema_name, ',') = 0
+            AND (
+                strpos(
+                    coalesce(current_setting('rbac.schemas', TRUE), ''),
+                    ',' || schema_name || ','
+                ) > 0
+                OR strpos(
+                    coalesce(current_setting('rbac.schemas', TRUE), ''),
+                    ',' || schema_name || ':*,'
+                ) > 0
+                OR strpos(
+                    coalesce(current_setting('rbac.schemas', TRUE), ''),
+                    ',*,'
+                ) > 0
+            )
+        )
+        OR (
+            project_name <> ''
+            AND strpos(project_name, ',') = 0
+            AND (
+                strpos(
+                    coalesce(current_setting('rbac.projects', TRUE), ''),
+                    ',' || project_name || ','
+                ) > 0
+                OR strpos(
+                    coalesce(current_setting('rbac.projects', TRUE), ''),
+                    ',' || project_name || ':*,'
+                ) > 0
+                OR strpos(
+                    coalesce(current_setting('rbac.projects', TRUE), ''),
+                    ',*,'
+                ) > 0
+                OR strpos(
+                    coalesce(current_setting('rbac.schemas', TRUE), ''),
+                    ',*,'
+                ) > 0
+            )
         ),
         FALSE
     )
+$$;
+
+CREATE OR REPLACE FUNCTION rbac.mine(schema_name text) RETURNS boolean
+LANGUAGE sql STABLE PARALLEL SAFE AS $$
+    SELECT rbac.mine(schema_name, NULL)
 $$;
 
 CREATE OR REPLACE FUNCTION rbac.all_rows(schema_name text) RETURNS boolean
@@ -80,28 +112,55 @@ LANGUAGE sql STABLE PARALLEL SAFE AS $$
 $$;
 
 CREATE OR REPLACE FUNCTION rbac.load() RETURNS void
-LANGUAGE sql SECURITY DEFINER
+LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $$
-    SELECT
-        set_config(
-            'rbac.permissions',
-            coalesce(
-                (SELECT wrapped FROM rbac.roles WHERE name = current_setting('app.claim_role', TRUE)),
-                ''
-            ),
-            TRUE
+DECLARE
+    v_schemas text := coalesce(current_setting('app.claim_schemas', TRUE), '');
+    v_projects text := coalesce(current_setting('app.claim_projects', TRUE), '');
+    v_expanded text;
+BEGIN
+    PERFORM set_config(
+        'rbac.permissions',
+        coalesce(
+            (SELECT wrapped FROM rbac.roles WHERE name = current_setting('app.claim_role', TRUE)),
+            ''
         ),
-        set_config(
-            'rbac.schemas',
-            CASE
-                WHEN coalesce(current_setting('app.claim_schemas', TRUE), '') = '' THEN ''
-                ELSE ',' || current_setting('app.claim_schemas', TRUE) || ','
-            END,
-            TRUE
-        )
+        TRUE
+    );
+    PERFORM set_config(
+        'rbac.projects',
+        CASE WHEN v_projects = '' THEN '' ELSE ',' || v_projects || ',' END,
+        TRUE
+    );
+
+    -- A project entry gives the schemas that the project has now: `<project>` gives `<schema>`, and
+    -- `<project>:*` gives `<schema>:*`. The expansion runs for each request, so a schema that comes later is in it.
+    IF v_projects <> '' THEN
+        SELECT string_agg(item, ',' ORDER BY item COLLATE "C")
+        INTO v_expanded
+        FROM (
+            SELECT DISTINCT
+                CASE
+                    WHEN c.entry = '*' THEN '*'
+                    WHEN c.entry LIKE '%:*' THEN s.name || ':*'
+                    ELSE s.name
+                END AS item
+            FROM unnest(string_to_array(v_projects, ',')) AS c (entry)
+            LEFT JOIN console.schemas AS s ON s.project = regexp_replace(c.entry, ':\*$', '')
+            WHERE c.entry = '*' OR s.name IS NOT NULL
+        ) AS items;
+    END IF;
+
+    v_schemas := concat_ws(',', nullif(v_schemas, ''), nullif(v_expanded, ''));
+    PERFORM set_config(
+        'rbac.schemas',
+        CASE WHEN v_schemas = '' THEN '' ELSE ',' || v_schemas || ',' END,
+        TRUE
+    );
+END
 $$;
 
-REVOKE ALL ON FUNCTION rbac.unknown(text), rbac.mine(text), rbac.all_rows(text), rbac.load() FROM PUBLIC;
+REVOKE ALL ON FUNCTION rbac.unknown(text), rbac.mine(text), rbac.mine(text, text), rbac.all_rows(text), rbac.load() FROM PUBLIC;
 
 DO $rbac_load$
 DECLARE
@@ -207,7 +266,7 @@ BEGIN
     FOR role_name IN SELECT name FROM rbac_in_roles LOOP
         EXECUTE format('GRANT USAGE ON SCHEMA rbac TO %I', role_name);
         EXECUTE format(
-            'GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.all_rows(text), rbac.unknown(text) TO %I',
+            'GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.mine(text, text), rbac.all_rows(text), rbac.unknown(text) TO %I',
             role_name
         );
     END LOOP;
@@ -221,4 +280,4 @@ $rbac_load$;
 UPDATE rbac.revision SET value = value + 1;
 
 GRANT USAGE ON SCHEMA rbac TO {{ anonymous_role }};
-GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.all_rows(text), rbac.unknown(text) TO {{ anonymous_role }};
+GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.mine(text, text), rbac.all_rows(text), rbac.unknown(text) TO {{ anonymous_role }};

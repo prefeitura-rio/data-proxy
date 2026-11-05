@@ -627,6 +627,14 @@ The tables of the `console` schema contain the configuration (Console), and the 
 
 The schema key is the target PostgreSQL schema. Don't add a schema field to a table entry.
 
+The console exports and imports the same document grouped by project, and the schema key is then the short name. The import also reads the form above, and puts those schemas in the project `default`.
+
+```json
+{ "projects": { "sales": { "schemas": { "orders": { "tables": [] } } } } }
+```
+
+This document makes the schema `sales_orders`. The engine reads `sync_config()`, which lists each schema by its physical name.
+
 ### Table fields
 
 These fields describe one table of a schema in `sync.json`. The table says which fields are required.
@@ -1141,7 +1149,7 @@ A schema is an API that PostgREST serves, a rule that the APIs share, or private
 | One schema for each source schema | API, served | `access_policy`, `access_log`, and the views and functions of the synced tables. |
 | `public`, `duckdb` | Defaults | The goose version table, the extensions, and the objects of `pg_duckdb`. |
 
-A source schema can't have the name `console`, `rbac`, `data_proxy`, `dbos`, `public`, `duckdb` or `information_schema`, and its name can't start with `pg_`. A check on `console.schemas` refuses these names.
+A source schema has a physical name, which is `<project>_<short name>`, or the short name in the project `default`. It can't have the name `console`, `rbac`, `data_proxy`, `dbos`, `public`, `duckdb` or `information_schema`, and its name can't start with `pg_`. A check on `console.schemas` refuses these names.
 
 The `ducklake` database contains one metadata schema for each source schema, with the same name. It's a separate database because the catalog has its own owner, `ops`, and its own read-only login, `duckdb`.
 
@@ -1248,6 +1256,7 @@ The application database `data-proxy` has four groups of tables.
 %% Application database tables
 erDiagram
 
+"console.schemas" }o--|| "console.projects" : ""
 "console.tables" }o--|| "console.schemas" : ""
 "console.rls" }o--|| "console.tables" : ""
 "data_proxy.scope" }o--|| "console.schemas" : ""
@@ -1286,6 +1295,8 @@ erDiagram
   boolean encrypted
   timestamp_with_time_zone updated_at
   text updated_by
+  text project
+  text short_name
 }
 "console.tables" {
   text name
@@ -1317,6 +1328,11 @@ erDiagram
   text key
   jsonb old_row
   jsonb new_row
+}
+"console.projects" {
+  text name
+  timestamp_with_time_zone updated_at
+  text updated_by
 }
 "test.access_policy" {
   text subject
@@ -1643,6 +1659,8 @@ This page defines the terms that the other pages use. Each term has one meaning 
 The word schema has three meanings. A page uses the full phrase if the meaning isn't clear.
 
 - **PostgreSQL schema:** a namespace in the database. PostgREST serves each source schema as a profile, which a request selects with `Accept-Profile`.
+- **Project:** a group of schemas, with its own name. A schema name is unique in its project. The `projects` claim gives access to every schema of a project.
+- **Physical name:** the name of a schema in the database, the API, S3 and the roles. It's `<project>_<short name>`, or the short name in the project `default`.
 - **Configured schema:** an entry under `schemas` in `sync.json`. It has one source, one PostgreSQL schema and one catalog.
 - **JSON schema:** a document that checks the shape of data, such as the `config` schema of the proxy.
 
@@ -1859,6 +1877,8 @@ This page lists the claims that a token needs. A normal end-user token for the e
 
 The `role` claim is one role of `rbac.toml`, and PostgREST switches to the database role of the same name. The role decides what the token may do. A token without `read_api` can't read any synced view. The permissions section lists all of them.
 
+A token can also carry a `projects` claim, such as `"projects": ["sales:*"]`. It gives access to every schema of each project, including a schema that the project gets later. Use `sales` for the schemas of the project, and `sales:*` for every row of those schemas. The database expands the claim into the `schemas` claim for each request, so a token can have both claims. See Permissions.
+
 You configure the exact identity claim per schema. If the schema uses `sub` instead of `preferred_username`, the access policy subject must match the token's `sub` value.
 
 ---
@@ -1897,7 +1917,7 @@ The database checks a permission with a row policy or with a check at the start 
 
 A delete that the row policy hides removes nothing and answers 200 with an empty list.
 
-Every role sees only the schemas in the `schemas` claim, and a token without the claim sees nothing. No role and no token reaches every schema. The database enforces this, not the console:
+Every role sees only the schemas in the `schemas` claim and in the `projects` claim, and a token without them sees nothing. No role and no token reaches every schema. The `projects` claim names projects. When a request starts, `rbac.load()` expands each entry into the schemas that the project has: `<schema>` for `<project>`, and `<schema>:*` for `<project>:*`. A token with a project can add a schema in it, even though the schema doesn't exist yet. The wildcard `*` names every project. The database enforces this, not the console:
 
 - Row-level security filters `schemas`, `tables` and `rls` by the schema of each row. A role with `create_config` writes a row only for a schema in its claim, and the claim can name a schema that doesn't exist yet.
 - The views `tasks`, `logs`, `errors`, `health`, `synced` and `overview` show the rows of the schemas in the claim. A log line without a schema is hidden.
@@ -2508,7 +2528,8 @@ The sync configuration is data in three tables of the `console` schema. The cons
 
 | Table | Contains |
 | --- | --- |
-| `schemas` | One row per synced schema: `name`, `source`, `settings`, `claim`, `encrypted`. |
+| `projects` | One row per project: `name`. A project has schemas. |
+| `schemas` | One row per synced schema: `project`, `short_name`, `name`, `source`, `settings`, `claim`, `encrypted`. |
 | `tables` | One row per source table: `name`, its `schema`, `strategy`, `n`, `fallback`, `cache_ttl`, `partitioning`, `sort`. |
 | `rls` | One row per rule: the `table_name`, the `column_name`, and the `unit_type`. |
 
@@ -2516,26 +2537,29 @@ Every row records `updated_at` and `updated_by`. The database sets both. The nam
 
 Constraints replace a validation step:
 
-- A schema name uses lowercase letters, digits and underscores, and it starts with a letter. It has at most 56 characters, so that the role name `schema_<name>` fits in 63.
+- A project name uses lowercase letters and digits. The project `default` always exists. A project with schemas can't be deleted.
+- A schema has one project. Its `name` is the physical name that the sync, the proxy, S3 and the roles use: `<project>_<short_name>`, or `<short_name>` in `default`. The database builds it from the project and the short name.
+- A physical name uses lowercase letters, digits and underscores, and it starts with a letter. It has at most 56 characters, so that the role name `schema_<name>` fits in 63. Two schemas can't share one.
+- A schema can't change its project or its short name. Delete it and add it again to rename it.
 - A table name is unique in the whole configuration, and unique in its schema by its last part.
 - `n` and `fallback` need the `partitioned` strategy, and `n` must be positive.
 - A table needs a schema that exists, and an `rls` rule needs a schema with a `claim`.
 - A schema can't lose its `claim` while one of its tables has a rule.
 
-The engine still checks the rules that belong to a source, such as the form of a table name, when a sync run starts.
+The engine checks the rules of a source, such as the form of a table name, when a sync run starts.
 
 Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema, its `access_policy` and its views exist. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
 
 ### Remove a table or a schema
 
-Deleting a row in `tables` or `schemas` destroys the data of that table or schema, so `delete_config` is a destructive permission. The database asks for no confirmation, and the console asks the user before it deletes. A sync run for a schema that an editor removes during the run fails.
+Deleting a row in `tables` or `schemas` destroys the data of that table or schema, so `delete_config` is a destructive permission. The database asks for no confirmation, and the console asks the user first. A sync run for a schema that an editor removes during the run fails.
 
-**A table.** A trigger on `tables` queues the workflow `cleanup_tables` when none waits. The sync worker runs it, because dropping a DuckLake table needs DuckDB. For each schema, the workflow drops the DuckLake tables that the configuration no longer lists and deletes their data files in S3. It also deletes the state and the errors of those tables. The daily `maintenance` Job drops the views. Every step can run again, and the orphan cleanup of the DuckLake maintenance deletes files that a stopped run leaves.
+**A table.** A trigger on `tables` queues the workflow `cleanup_tables` when none waits. The sync worker runs it. For each schema, the workflow drops the DuckLake tables that the configuration no longer lists and deletes their data files in S3. It also deletes the state and the errors of those tables. The daily `maintenance` Job drops the views. Every step can run again, and DuckLake maintenance deletes the orphan files of a stopped run.
 
-**A schema.** A trigger on `schemas` queues the workflow `provision_schemas` when none waits. The queue runs one workflow at a time, so a change during a sync run gets the next sync run. The sync worker creates a Job from the suspended `provision` CronJob (Initialization). The Job makes the database match the configuration, and every sync run does the same at its start, which heals a lost event.
+**A schema.** A trigger on `schemas` queues the workflow `provision_schemas` when none waits. The queue runs one workflow at a time, so a change during a sync run gets the next sync run. The sync worker creates a Job from the suspended `provision` CronJob (Initialization). The Job makes the database match the configuration. Every sync run does the same at its start, so a lost event heals.
 
 - **Add:** the Job creates the PostgreSQL schema with `access_policy` and `access_log`, adds it to `pgrst.db_schemas` and tells PostgREST to reload. It takes seconds.
-- **Remove:** the Job stops serving the schema and purges the files in S3. It drops the metadata schema in the catalog database. It deletes the state, the errors and the scope of its tables. It drops the schema of the database last. The next sync run finds an unfinished removal through that schema. Every step can run again.
+- **Remove:** the Job stops serving the schema and purges the files in S3. It drops the metadata schema in the catalog database. It deletes the state, the errors and the scope of its tables. It drops the schema of the database last, so the next sync run finds an unfinished removal. Every step can run again.
 
 ### The configuration endpoint
 

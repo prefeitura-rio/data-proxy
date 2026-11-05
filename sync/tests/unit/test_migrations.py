@@ -7,7 +7,7 @@ from psycopg import AsyncConnection
 from tests.fixtures.console import (
     add_schema,
     as_token,
-    grant_console,
+    grant_console_reads,
     migrate,
     migration,
     migration_down,
@@ -69,7 +69,7 @@ class TestMigrationsOnExistingData:
     ) -> None:
         """Before it, a token reads every schema. After it, a token reads the schemas of its claim."""
         await migrate(rbac, migrations_until(4))
-        await grant_console(rbac)
+        await grant_console_reads(rbac)
         for name in ("sales", "hr"):
             await add_schema(rbac, name, claim="cpf", provisioned=False)
         await as_token(rbac, "dp_console", ["sales"], database_role=True)
@@ -199,6 +199,25 @@ class TestMigrationsOnExistingData:
         )
         assert await cursor.fetchall() == [("update", "tables", "sales", "p.d.t")]
 
+    async def test_00012_puts_every_schema_in_the_default_project_and_keeps_its_name(
+        self, rbac: Postgres, dbos_schema: str
+    ) -> None:
+        """No physical schema changes its name, so no data moves."""
+        await migrate(rbac, migrations_until(11))
+        await add_schema(rbac, "sales", claim="cpf", provisioned=False)
+        await rbac.connection.execute(
+            b"INSERT INTO console.tables (name, schema) VALUES ('p.d.t', 'sales')"
+        )
+
+        await migrate(rbac, [migration(12)])
+
+        cursor = await rbac.connection.execute(
+            b"SELECT name, project, short_name FROM console.schemas"
+        )
+        assert await cursor.fetchall() == [("sales", "default", "sales")]
+        assert await names(rbac, "SELECT name FROM console.projects") == ["default"]
+        assert await names(rbac, "SELECT schema FROM console.tables") == ["sales"]
+
     @pytest.mark.parametrize(
         ("schedule_name", "expected"),
         [
@@ -232,7 +251,7 @@ class TestMigrationsOnExistingData:
     ) -> None:
         """Before it, a token sees the global schedule. After it, the token sees one schedule for each of its schemas."""
         await migrate(rbac, migrations_until(9))
-        await grant_console(rbac)
+        await grant_console_reads(rbac)
         for name in ("sales", "hr"):
             await add_schema(rbac, name, claim="cpf", provisioned=False)
         for name in ("sync", "sync-sales", "sync-hr"):
@@ -252,7 +271,7 @@ class TestMigrationsOnExistingData:
 
         await rbac.connection.execute(b"RESET ROLE")
         await migrate(rbac, [migration(10)])
-        await grant_console(rbac)
+        await grant_console_reads(rbac)
         await as_token(rbac, "dp_console", ["sales"], database_role=True)
 
         cursor = await rbac.connection.execute(
@@ -296,9 +315,9 @@ class TestMigrationOrder:
         self, rbac: Postgres, dbos_schema: str
     ) -> None:
         """Go back to the start with the Down parts alone."""
-        await migrate(rbac, migrations_until(11))
+        await migrate(rbac, migrations_until(12))
 
-        for number in range(11, 0, -1):
+        for number in range(12, 0, -1):
             down = migration_down(migration(number))
             if len(down.strip()) > 0:
                 await rbac.connection.execute(down.encode())
