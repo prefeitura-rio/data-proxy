@@ -4,14 +4,14 @@
 
 ```mermaid
 %% Role inheritance
-flowchart BT
+flowchart TD
   dp_api["<b>dp_api</b><br/>read_api"]
   dp_policy["<b>dp_policy</b><br/>read_policy<br/>create_policy<br/>edit_policy<br/>delete_policy"]
   dp_console["<b>dp_console</b><br/>read_sync<br/>read_config"]
   dp_admin["<b>dp_admin</b><br/>start_sync<br/>control_sync<br/>create_config<br/>edit_config<br/>delete_config<br/>import_config<br/>read_files<br/>read_ducklake"]
-  dp_console -->|"inherits"| dp_api
-  dp_admin -->|"inherits"| dp_console
-  dp_admin -->|"inherits"| dp_policy
+  dp_api -->|"inherited by"| dp_console
+  dp_console -->|"inherited by"| dp_admin
+  dp_policy -->|"inherited by"| dp_admin
 ```
 
 The table shows the permissions that each role has, with the inherited ones. The task `docs:build:roles` writes it from `rbac.toml`.
@@ -49,10 +49,10 @@ The table shows the permissions that each role has, with the inherited ones. The
 
 The Python tests in `sync/tests/unit/test_templates_roles.py` run the `create_rbac` template on the real test server with the real `rbac.toml`.
 
-They compare `rbac.can()` for every role and permission with a reference that the test computes itself. Hypothesis tests do the same for random rules files and random names. The end-to-end suite in `k6/scenarios/` tests the console with real tokens (`console.js` and `roles.js`) on the k3d cluster. It doesn't run in CI, because it needs the cluster. Run it before you merge a change to a permission, a role, an access policy, a view, or the console schema (`devenv shell -- nu scripts/cluster.nu k6 e2e`).
+They compare `rbac.can()` for every role and permission with a reference that the test computes itself. Hypothesis tests do the same for random rules files and random names. The end-to-end suite in `k6/scenarios/` tests the console with real tokens (`console.js` and `roles.js`) on the k3d cluster. It doesn't run in CI, because it needs the cluster. Run it before you merge a change to a permission, a role, an access policy, a view or the console schema (`devenv shell -- nu scripts/cluster.nu k6 e2e`).
 
 <!-- nav:start -->
 ---
 
-[Previous: Permissions](permissions.md) | [Next: Authorization flow](flow.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Permissions](./permissions.md) | [Next: Authorization flow](./flow.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

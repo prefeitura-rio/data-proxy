@@ -1,0 +1,103 @@
+dsn: ${TBLS_APP_DSN}
+er:
+  format: mermaid
+  hideDef: true
+exclude:
+  - public.*
+  - duckdb.*
+viewpoints:
+  - name: application
+    desc: Application database tables
+    tables:
+      - console.schemas
+      - console.tables
+      - console.rls
+      - console.config_history
+      - data_proxy.*
+      - rbac.*
+      - '*.access_policy'
+      - '*.access_log'
+  - name: workflow
+    desc: DBOS workflow tables
+    tables:
+      - dbos.workflow_status
+      - dbos.operation_outputs
+      - dbos.streams
+      - dbos.queues
+      - dbos.workflow_schedules
+comments:
+  - table: dbos.dbos_migrations
+    tableComment: The DBOS migrations that ran.
+    labels:
+      - DBOS
+  - table: dbos.notifications
+    tableComment: Messages that a workflow sends to another workflow.
+    labels:
+      - DBOS
+  - table: dbos.workflow_events
+    tableComment: The latest value of each event that a workflow sets.
+    labels:
+      - DBOS
+  - table: dbos.workflow_events_history
+    tableComment: Every value that a workflow set for an event.
+    labels:
+      - DBOS
+  - table: dbos.event_dispatch_kv
+    tableComment: State that the DBOS event dispatchers keep between runs.
+    labels:
+      - DBOS
+  - table: dbos.application_versions
+    tableComment: The versions of the application that registered with DBOS.
+    labels:
+      - DBOS
+  - table: dbos.workflow_input
+    tableComment: The input of each workflow.
+    labels:
+      - DBOS
+  - table: dbos.workflow_output
+    tableComment: The output of each workflow.
+    labels:
+      - DBOS
+relations:
+  - table: data_proxy.scope
+    columns:
+      - schema_name
+    parentTable: console.schemas
+    parentColumns:
+      - name
+    def: same name
+  - table: console.config_history
+    columns:
+      - schema_name
+    parentTable: console.schemas
+    parentColumns:
+      - name
+    def: same name
+  - table: data_proxy.scope
+    columns:
+      - workflow_id
+    parentTable: dbos.workflow_status
+    parentColumns:
+      - workflow_uuid
+    def: same value
+  - table: dbos.workflow_status
+    columns:
+      - parent_workflow_id
+    parentTable: dbos.workflow_status
+    parentColumns:
+      - workflow_uuid
+    def: parent run
+  - table: dbos.workflow_status
+    columns:
+      - queue_name
+    parentTable: dbos.queues
+    parentColumns:
+      - name
+    def: same name
+  - table: dbos.workflow_status
+    columns:
+      - schedule_name
+    parentTable: dbos.workflow_schedules
+    parentColumns:
+      - schedule_name
+    def: same name

@@ -48,7 +48,7 @@ The root `devenv.yaml` imports the folders `proxy/`, `sync/`, `console/` and `he
 | `nix` | The checks of the profile sizes and of the commands in the docs. |
 | `base`, `python` | The parts that the other profiles share, in `nix/profiles/shared.nix`. |
 
-A profile fetches every package that its tasks and processes name, so keep each one small. `nix:lint:closure` fails when a profile grows over its limit in `nix/profiles/nix.nix`. The processes of the test stack are in `nix/stack/`, the helpers in `nix/utils/`, and the ports, addresses and test logins in `nix/data.nix`. Task names follow `<component>:<verb>:<target>`, and devenv rejects a name that doesn't.
+A profile fetches every package that its tasks and processes name, so keep each one small. `nix:lint:closure` fails when a profile grows over its limit in `nix/profiles/nix.nix`. The processes of the test stack are in `nix/stack/`, the helpers in `nix/utils/` and the ports, addresses and test logins in `nix/data.nix`. Task names follow `<component>:<verb>:<target>`, and devenv rejects a name that doesn't.
 
 A task skips its work when its input files didn't change since the last green run. To force a run, change an input or delete `.devenv/profiles/<profile>/state/tasks.db`.
 
@@ -79,7 +79,7 @@ Before a release, run the checks that CI can't run. `cluster k6 e2e` tests the w
 devenv --profile console up
 ```
 
-The first start takes about one minute. Add `-d` to run in the background, wait with `devenv processes wait`, and stop with `devenv down`. Open `http://console.localhost:13001/console`, or run `devenv --profile console tasks run console:open:browser`. Sign in as `admin` (role `dp_admin`, schema `test`) with the password `admin`. The tests also use six users with the password `web-test`:
+The first start takes about one minute. Add `-d` to run in the background, wait with `devenv processes wait` and stop with `devenv down`. Open `http://console.localhost:13001/console`, or run `devenv --profile console tasks run console:open:browser`. Sign in as `admin` (role `dp_admin`, schema `test`) with the password `admin`. The tests also use six users with the password `web-test`:
 
 - `web_admin`: role `dp_admin`, schema `test`.
 - `web_viewer`: role `dp_console`.
@@ -94,6 +94,8 @@ No sync worker runs, so a sync run that you start stays `ENQUEUED`. A worker for
 
 `devenv --profile default up docs` writes the page footers and the sidebar, then serves the wiki. devenv prints the address. The port is 18200, or the next free port when 18200 is busy. The page order is in `docs/.nav.json`.
 
+The diagrams of [Data model](../model.md) come from the database. Run `devenv --profile repo tasks run docs:build:model`. The task starts the databases, writes `docs/diagrams/` and the page, and stops the databases. Commit both after a migration.
+
 ## Database migrations and the local API
 
 The header of `scripts/migrate.nu` explains the migrations. Run `migrate up`, `migrate status` or `migrate down` in the console shell with `PG_DATABASE_URL` set. [Using the API](../using.md#try-it-locally) shows how to get a token and call the local API.
@@ -101,5 +103,5 @@ The header of `scripts/migrate.nu` explains the migrations. Run `migrate up`, `m
 <!-- nav:start -->
 ---
 
-[Previous: Style](../style.md) | [Next: Tests](tests.md) | [Home](../index.md)
+[Previous: Style](../style.md) | [Next: Tests](./tests.md) | [Home](../index.md)
 <!-- nav:end -->

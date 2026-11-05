@@ -2,7 +2,7 @@
 
 This page describes the PostgreSQL schemas, the roles, the application tables and the DuckLake storage. [Data model](model.md) has diagrams of the tables.
 
-CloudNativePG (CNPG) creates and maintains the core roles. Init-db installs extensions, creates the internal `data_proxy` schema, creates configured application schemas, and creates access policy metadata.
+CloudNativePG (CNPG) creates and maintains the core roles. Init-db installs extensions, creates the internal `data_proxy` schema, creates configured application schemas and creates access policy metadata.
 
 ## Schemas
 
@@ -17,7 +17,7 @@ A schema is an API that PostgREST serves, a rule that the APIs share, or private
 | One schema for each source schema | API, served | `access_policy`, `access_log`, and the views and functions of the synced tables. |
 | `public`, `duckdb` | Defaults | The goose version table, the extensions, and the objects of `pg_duckdb`. |
 
-A source schema can't have the name `console`, `rbac`, `data_proxy`, `dbos`, `public`, `duckdb`, or `information_schema`, and its name can't start with `pg_`. A check on `console.schemas` refuses these names.
+A source schema can't have the name `console`, `rbac`, `data_proxy`, `dbos`, `public`, `duckdb` or `information_schema`, and its name can't start with `pg_`. A check on `console.schemas` refuses these names.
 
 The `ducklake` database contains one metadata schema for each source schema, with the same name. It's a separate database because the catalog has its own owner, `ops`, and its own read-only login, `duckdb`.
 
@@ -46,7 +46,7 @@ Each configured schema contains metadata and views:
 | `<schema>.<table>_dl_fn(text, text, boolean, text[], text)` | Private `SECURITY DEFINER` helper that reads DuckLake at one snapshot, with the columns and the tail that the request needs. |
 | `<schema>.<table>_bq_fn(text, text)` | Private `SECURITY DEFINER` helper that reads the schema source (BigQuery today) when a partitioned table sets `fallback: true`. |
 
-Internal functions and procedures live in the application schema (`data_proxy` by default): `request_filter`, `render_ducklake_where`, `requested_snapshot`, source routing, access-log triggers, and maintenance procedures. The schema isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as PostgREST RPC endpoints. See [Proxy](proxy/index.md).
+Internal functions and procedures live in the application schema (`data_proxy` by default): `request_filter`, `render_ducklake_where`, `requested_snapshot`, source routing, access-log triggers and maintenance procedures. The schema isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as PostgREST RPC endpoints. See [Proxy](proxy/index.md).
 
 PostgreSQL doesn't contain materialized application data tables. The table views call DuckDB, which reads the catalog of its own PostgreSQL instance and scans Parquet in SeaweedFS.
 
@@ -63,10 +63,10 @@ DBOS sync workers write the catalogs as the `ops` role, through the primary. Str
 
 The catalog contains DuckLake metadata, not PostgreSQL application rows. DuckLake table configuration uses `SET PARTITIONED BY` and `SET SORTED BY` for partition and RLS-related columns.
 
-[Database roles and grants](grants.md) describes the roles, the security and the pushdown of the predicates, and the S3 access.
+[Database roles and grants](grants.md) describes the roles, the security and the pushdown of the predicates and the S3 access.
 
 <!-- nav:start -->
 ---
 
-[Previous: Table settings](proxy/reload.md) | [Next: Database roles and grants](grants.md) | [Home](index.md)
+[Previous: Table settings](proxy/reload.md) | [Next: Database roles and grants](./grants.md) | [Home](./index.md)
 <!-- nav:end -->

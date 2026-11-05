@@ -9,12 +9,12 @@ These pages are for the people who deploy and run Data Proxy. Start with the Hel
 | Expose the API, the console and the notebooks | [Ingress](ingress.md) |
 | See which pods run and how they scale | [Topology](topology.md) and [KEDA Scaling](keda.md) |
 | Harden pods, network and images | [Hardening](hardening.md) |
-| Set an environment variable | [Environment Variables](environment.md) and [Proxy variables](proxy.md) |
+| Set an environment variable | [Environment Variables](environment.md), [Proxy variables](proxy.md) and [Console variables](./console.md) |
 | Watch the system | [Metrics](metrics.md) |
 | Back up and restore the access policy | [Backups](backups.md) |
 
 <!-- nav:start -->
 ---
 
-[Previous: CI and releases](../dev/ci.md) | [Next: Helm Chart](helm.md) | [Home](../index.md)
+[Previous: CI and releases](../dev/ci.md) | [Next: Helm Chart](./helm.md) | [Home](../index.md)
 <!-- nav:end -->

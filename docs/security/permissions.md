@@ -32,8 +32,8 @@ A delete that the row policy hides removes nothing and answers 200 with an empty
 
 Every role sees only the schemas in the `schemas` claim, and a token without the claim sees nothing. No role and no token reaches every schema. The database enforces this, not the console:
 
-- Row-level security filters `schemas`, `tables`, and `rls` by the schema of each row. A role with `create_config` writes a row only for a schema in its claim, and the claim can name a schema that doesn't exist yet.
-- The views `tasks`, `logs`, `errors`, `health`, `synced`, and `overview` show the rows of the schemas in the claim. A log line without a schema is hidden.
+- Row-level security filters `schemas`, `tables` and `rls` by the schema of each row. A role with `create_config` writes a row only for a schema in its claim, and the claim can name a schema that doesn't exist yet.
+- The views `tasks`, `logs`, `errors`, `health`, `synced` and `overview` show the rows of the schemas in the claim. A log line without a schema is hidden.
 - When a sync run starts, the engine records the schemas that it covers, and the schema of each dump task, in `data_proxy.scope`. `data_proxy.sees()` tells the views which workflows a token sees. The views `runs`, `tasks` and `steps` then show only the sync runs and tasks that cover a schema of the user.
 - `GET /rpc/sync_config` returns the schemas of the claim.
 - Queues serve every schema. Any role with `read_sync` reads them, and no token changes a queue. A schedule belongs to one schema, and a token controls the schedules of the schemas in its claim.
@@ -60,5 +60,5 @@ This table lists what a client sees and why. A status can come from the gateway,
 <!-- nav:start -->
 ---
 
-[Previous: Required JWT claims](claims.md) | [Next: Roles](roles.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Required JWT claims](./claims.md) | [Next: Roles](./roles.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

@@ -5,10 +5,12 @@ use ../docs.nu [
     command-problems
     commands-of
     cross-problems
+    footer
     length-problems
     link-problems
     links-of
     page-problems
+    problems
     rules-of
     sentence-problems
     slug
@@ -340,4 +342,55 @@ export def "test length-problems-counts-the-words-of-a-page" []: nothing -> noth
     for case in $cases {
         assert equal (length-problems $case.file $case.text allowed.md) $case.expected $case.name
     }
+}
+
+# Verify that a link to a file in the same folder starts with `./`, so that Marksman finds one target.
+export def "test footer-links-start-with-dot-slash-in-the-same-folder" []: nothing -> nothing {
+    let dir = mktemp --directory --tmpdir
+
+    for page in [index.md a/index.md a/b.md] {
+        try { mkdir ($dir | path join $page | path dirname) }
+        '# Title' | write-text ($dir | path join $page)
+    }
+
+    let entries = [
+        {page: index.md, parent: ''}
+        {page: a/index.md, parent: index.md}
+        {page: a/b.md, parent: a/index.md}
+    ]
+
+    let cases = [
+        [name page expected];
+        ['same folder, a folder and the home page' a/b.md '[Previous: Title](./index.md) | [Index](./index.md) | [Home](../index.md)']
+        ['a folder below' index.md '[Next: Title](a/index.md)']
+        ['the index of a folder' a/index.md '[Previous: Title](../index.md) | [Next: Title](./b.md) | [Home](../index.md)']
+    ]
+
+    for case in $cases {
+        assert equal (footer $dir $entries $case.page) $case.expected $case.name
+    }
+
+    remove-path $dir
+}
+
+# Verify that a parent page links a child with or without `./`.
+export def "test problems-accepts-both-link-forms" []: nothing -> nothing {
+    let dir = mktemp --directory --tmpdir
+
+    let entries = [
+        {page: index.md, parent: ''}
+        {page: one.md, parent: index.md}
+        {page: two.md, parent: index.md}
+        {page: three.md, parent: index.md}
+    ]
+
+    for page in [one.md two.md three.md] {
+        '# Title' | write-text ($dir | path join $page)
+    }
+
+    '[One](./one.md) and [Two](two.md)' | write-text ($dir | path join index.md)
+
+    assert equal (problems $entries $dir) ["index.md doesn't link three.md"]
+
+    remove-path $dir
 }

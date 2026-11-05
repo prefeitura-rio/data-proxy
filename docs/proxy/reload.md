@@ -27,5 +27,5 @@ The admin port has no authentication, so no ingress may route it.
 <!-- nav:start -->
 ---
 
-[Previous: Retries and limits](limits.md) | [Next: Database Schema](../database.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Retries and limits](./limits.md) | [Next: Database Schema](../database.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

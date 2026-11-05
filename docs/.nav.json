@@ -94,15 +94,7 @@
       "page": "console/index.md",
       "children": [
         {
-          "page": "console/app.md",
-          "children": [
-            {
-              "page": "console/feedback.md"
-            }
-          ]
-        },
-        {
-          "page": "console/theme.md"
+          "page": "console/app.md"
         },
         {
           "page": "console/views.md"
@@ -118,9 +110,6 @@
         },
         {
           "page": "console/query.md"
-        },
-        {
-          "page": "console/scope.md"
         }
       ]
     },
@@ -161,6 +150,9 @@
         },
         {
           "page": "operations/proxy.md"
+        },
+        {
+          "page": "operations/console.md"
         },
         {
           "page": "operations/keda.md"

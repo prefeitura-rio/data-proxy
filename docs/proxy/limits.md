@@ -2,7 +2,7 @@
 
 ## Retries
 
-PostgREST fails for a few seconds when PgDog loses a standby. The proxy sends a `GET` or `HEAD` again, up to two times, when PostgREST answers `502`, `503`, or `504`, or doesn't answer. The first retry waits 500 ms and the second waits 1 second.
+PostgREST fails for a few seconds when PgDog loses a standby. The proxy sends a `GET` or `HEAD` again, up to two times, when PostgREST answers `502`, `503` or `504`, or doesn't answer. The first retry waits 500 ms and the second waits 1 second.
 
 The client gets the last answer. A write is never sent again, because a second write could change the data twice.
 
@@ -19,5 +19,5 @@ The proxy waits at most 30 seconds for PostgREST. PostgREST waits at most `postg
 <!-- nav:start -->
 ---
 
-[Previous: Cache](cache.md) | [Next: Table settings](reload.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Cache](./cache.md) | [Next: Table settings](./reload.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

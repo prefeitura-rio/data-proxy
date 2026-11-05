@@ -12,6 +12,7 @@ const NAV_END = '<!-- nav:end -->'
 const SENTENCE_WORDS = 25
 const PAGE_WORDS = 1000
 const LONG_PAGES = [
+    docs/model.md
     docs/style.md
 ]
 
@@ -120,7 +121,9 @@ def relative-link [from: string, to: string]: nothing -> string {
     | take while {|pair| ($pair | uniq | length) == 1 }
     | length
 
-    $base | skip $common | each { '..' } | append ($target | skip $common) | str join '/'
+    let link = $base | skip $common | each { '..' } | append ($target | skip $common) | str join '/'
+
+    if $link =~ '/' { $link } else { ['./' $link] | str join }
 }
 
 # Return a Markdown link.
@@ -150,9 +153,14 @@ export def problems [entries: list<record>, root: path]: nothing -> list<string>
     | each {|entry|
         let parent_file = $root | path join $entry.parent
 
-        let target = ['](' (relative-link $entry.parent $entry.page)] | str join
+        let link = relative-link $entry.parent $entry.page
 
-        if ($parent_file | path exists) and (read-text $parent_file | str index-of $target) < 0 {
+        let targets = [$link ($link | str replace --regex '^\./' '')]
+        | each {|name| ['](' $name] | str join }
+
+        if ($parent_file | path exists) and (
+            $targets | all {|target| (read-text $parent_file | str index-of $target) < 0 }
+        ) {
             $"($entry.parent) doesn't link ($entry.page)"
         }
     }

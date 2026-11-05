@@ -37,7 +37,7 @@ triggers:
       activationTargetQueryValue: "5"
 ```
 
-`connectionFromEnv` reads `DBOS_SYSTEM_DATABASE_URL`. The query counts pending, queued, delayed, and running DBOS workflows for the sync application.
+`connectionFromEnv` reads `DBOS_SYSTEM_DATABASE_URL`. The query counts pending, queued, delayed and running DBOS workflows for the sync application.
 
 ## Orchestrator and dump workers
 
@@ -105,5 +105,5 @@ DBOS deduplicates the scheduled workflow across orchestrator replicas. The sync 
 <!-- nav:start -->
 ---
 
-[Previous: Proxy variables](proxy.md) | [Next: Metrics](metrics.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Console variables](./console.md) | [Next: Metrics](./metrics.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

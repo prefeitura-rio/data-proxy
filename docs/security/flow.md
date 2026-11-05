@@ -4,7 +4,7 @@ This page shows how a token becomes a database role and a row filter, and which 
 
 The proxy puts the role in the cache key, so a token with another role never gets an answer that another token cached.
 
-[Request sequence](../architecture/serving.md#request-sequence) shows the JSON Web Token (JWT) and row-level security (RLS) flow. The gateway checks the token, PostgREST switches to the role of the token, and the database applies the checks.
+[Request sequence](../architecture/serving.md#request-sequence) shows the JSON Web Token (JWT) and row-level security (RLS) flow. The gateway checks the token, PostgREST switches to the role of the token and the database applies the checks.
 
 CloudNativePG (CNPG) manages two roles: `ops` (the owner and a superuser) and `duckdb` (the read-only catalog login). The `configure-db` job creates the rest as `ops`:
 
@@ -16,10 +16,10 @@ CloudNativePG (CNPG) manages two roles: `ops` (the owner and a superuser) and `d
 
 [Database](../grants.md#roles) describes each role and why `ops` is a superuser.
 
-Init-db creates the `data_proxy` schema and its internal functions, procedures, and grants. `data_proxy` isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as RPC endpoints. `data_proxy.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `data_proxy` doesn't grant application table access.
+Init-db creates the `data_proxy` schema and its internal functions, procedures and grants. `data_proxy` isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as RPC endpoints. `data_proxy.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `data_proxy` doesn't grant application table access.
 
 <!-- nav:start -->
 ---
 
-[Previous: Roles](roles.md) | [Next: Schema and row authorization](authorization.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Roles](./roles.md) | [Next: Schema and row authorization](./authorization.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

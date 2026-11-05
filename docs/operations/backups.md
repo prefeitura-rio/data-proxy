@@ -33,7 +33,7 @@ The chart default prefix is:
 backups/access_policy
 ```
 
-Backups contain only access-policy and audit-log data. They don't contain PostgreSQL tables, Parquet files, or the full database.
+Backups contain only access-policy and audit-log data. They don't contain PostgreSQL tables, Parquet files or the full database.
 
 ## Configuration
 
@@ -115,5 +115,5 @@ Create a new cluster that imports the old one instead, with `bootstrap.initdb.im
 <!-- nav:start -->
 ---
 
-[Previous: Metrics](metrics.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Metrics](./metrics.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

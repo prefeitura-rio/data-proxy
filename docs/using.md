@@ -25,6 +25,8 @@ ${BASE_URL}/docs
 
 The page can list table and column names without exposing data. Use its Authorize control with the token value only. The page adds `Bearer `.
 
+The schema selector lists the schemas of the console. A sync worker updates the list after each schema change and at the start of every sync run. Reload the page to see the change, which takes about a minute.
+
 ## Querying
 
 | Need           | Example                                     |
@@ -35,7 +37,7 @@ The page can list table and column names without exposing data. Use its Authoriz
 | List           | `?id=in.(1,2,3)`                            |
 | Order and page | `?order=updated_at.desc&limit=20&offset=40` |
 
-Combine filters with `&`. PostgREST applies them with AND. row-level security (RLS) filters rows in the DuckDB scan. The proxy also pushes the filters, the selected columns, and the `limit` into the scan, so they reduce the data that DuckDB reads. See [Query pushdown](proxy/pushdown.md).
+Combine filters with `&`. PostgREST applies them with AND. row-level security (RLS) filters rows in the DuckDB scan. The proxy also pushes the filters, the selected columns and the `limit` into the scan, so they reduce the data that DuckDB reads. See [Query pushdown](proxy/pushdown.md).
 
 A `select` with `sum()`, `avg()`, `count()`, `min()` or `max()` and a group runs inside DuckDB, so it stays fast on large tables. See [Query pushdown](proxy/pushdown.md#aggregates).
 
@@ -43,7 +45,7 @@ Use `Prefer: count=exact` to request a total. Read the total from `Content-Range
 
 ## DuckLake change feed
 
-Each configured table exposes a read-only RPC named `dl_changes_<table>` in its target schema. PostgreSQL cuts a name at 63 bytes, so the RPC of a table with a very long name has the cut name. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID, and typed row columns.
+Each configured table exposes a read-only RPC named `dl_changes_<table>` in its target schema. PostgreSQL cuts a name at 63 bytes, so the RPC of a table with a very long name has the cut name. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID and typed row columns.
 
 ```bash
 curl \
@@ -70,13 +72,13 @@ Snapshot bounds are inclusive. The feed returns deleted rows as preimages. The s
 
 Read responses include:
 
-| Header                | Values                                                    |
-| --------------------- | --------------------------------------------------------- |
-| `X-Source`            | `ducklake`, `bigquery`, `ducklake+bigquery`               |
-| `X-DuckLake-Snapshot` | The DuckLake snapshot the response was read from          |
-| `X-Cache`             | `HIT`, `MISS`                                             |
+| Header                | Values                                           |
+| --------------------- | ------------------------------------------------ |
+| `X-Source`            | `ducklake`, `<adapter>`, `ducklake+<adapter>`    |
+| `X-DuckLake-Snapshot` | The DuckLake snapshot the response was read from |
+| `X-Cache`             | `HIT`, `MISS`                                    |
 
-`X-Source` lists the sources the request queried, not the sources that returned rows. The value names the source adapter, and `bigquery` is the only adapter today. A response that access control stopped has neither `X-Source` nor `X-DuckLake-Snapshot`. `X-DuckLake-Snapshot` is absent when only the source was queried. Rows from the source are always current, so they carry no snapshot.
+`X-Source` lists the sources the request queried, not the sources that returned rows. `<adapter>` is the name of the source adapter, such as `bigquery`. A response that access control stopped has neither `X-Source` nor `X-DuckLake-Snapshot`. `X-DuckLake-Snapshot` is absent when only the source was queried. Rows from the source are always current, so they carry no snapshot.
 
 A cache hit returns the headers of the answer it stored. Use `X-Cache` to tell a hit from a miss.
 
@@ -127,5 +129,5 @@ The client secret can also come from `KEYCLOAK_CLIENT_SECRET`. `--username` and 
 <!-- nav:start -->
 ---
 
-[Previous: Sync](sync.md) | [Next: Proxy](proxy/index.md) | [Home](index.md)
+[Previous: Sync](./sync.md) | [Next: Proxy](proxy/index.md) | [Home](./index.md)
 <!-- nav:end -->

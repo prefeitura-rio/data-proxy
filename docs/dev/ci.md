@@ -14,7 +14,7 @@ A manual start has two inputs. `force_checks` runs every check and test without 
 %% CI jobs
 flowchart LR
   push["Push, pull request<br/>or manual start"]
-  subgraph checks["Run at the same time"]
+  subgraph checks["Parallel jobs"]
     changes["changes<br/>which images and chart changed"]
     repo["repo<br/>lint and unit tests"]
     sync["test-sync"]
@@ -91,5 +91,5 @@ The branch `main` has no branch protection and no rule set. A required check nee
 <!-- nav:start -->
 ---
 
-[Previous: Tests](tests.md) | [Next: Operations](../operations/index.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Tests](./tests.md) | [Next: Operations](../operations/index.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

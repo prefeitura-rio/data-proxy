@@ -6,7 +6,7 @@ The chart deploys the proxy as OpenResty and connects directly to Redis. Configu
 
 ## Request flow
 
-The proxy checks Redis first, calls PostgREST on a miss, and stores the answer. [Request sequence](../architecture/serving.md#request-sequence) shows the whole read, step by step.
+The proxy checks Redis first, calls PostgREST on a miss and stores the answer. [Request sequence](../architecture/serving.md#request-sequence) shows the whole read, step by step.
 
 ## Choosing the source
 
@@ -22,7 +22,7 @@ An empty DuckLake result never triggers fallback. With `fallback: true`, every r
 
 ## Settings
 
-The Helm Deployment sets the proxy settings as `PROXY_*` environment variables. See [Environment Variables](../operations/proxy.md#openresty-proxy) for each variable, its default, and its meaning.
+The Helm Deployment sets the proxy settings as `PROXY_*` environment variables. See [Environment Variables](../operations/proxy.md#openresty-proxy) for each variable, its default and its meaning.
 
 `helm/files/config/nginx.conf` lists every variable with an `env` directive, because nginx removes the other variables.
 
@@ -30,7 +30,7 @@ Lua code reads settings only through the table that `config.load` returns:
 
 - `main` loads the table once at start-up, in `init_by_lua`, and passes it down.
 - The load collects the text of every variable in one table. It converts and checks that table once with the `config` schema, which also sets the defaults.
-- A missing required variable, a value of the wrong type, or a value outside the limits stops nginx from starting. The error names the setting.
+- A missing required variable, a value of the wrong type or a value outside the limits stops nginx from starting. The error names the setting.
 - The variable is `PROXY_` and the upper-case name of the setting.
 
 `sync.json` sets only the cache time of each table and the paths that are never cached. The proxy checks it with a schema when it starts. The proxy checks other data that it doesn't create in the same way. This data is the entries that it reads from Redis and the claims of a bearer token.
@@ -45,12 +45,12 @@ The schema code works like this:
 ## Pages
 
 - [Query pushdown](pushdown.md) — what the proxy sends to PostgreSQL besides the filter.
-- [Cache](cache.md) — what the proxy stores, the cache key, and the lock.
-- [Retries and limits](limits.md) — retries of a read, the load limit, and the time limits.
+- [Cache](cache.md) — what the proxy stores, the cache key and the lock.
+- [Retries and limits](limits.md) — retries of a read, the load limit and the time limits.
 - [Table settings](reload.md) — how the proxy takes the table settings from the configuration.
 
 <!-- nav:start -->
 ---
 
-[Previous: Using the API](../using.md) | [Next: Query pushdown](pushdown.md) | [Home](../index.md)
+[Previous: Using the API](../using.md) | [Next: Query pushdown](./pushdown.md) | [Home](../index.md)
 <!-- nav:end -->

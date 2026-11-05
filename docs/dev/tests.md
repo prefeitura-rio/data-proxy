@@ -23,7 +23,7 @@ devenv skips a task when none of its input files changed since the last green ru
 
 ## The test stack
 
-Each `:int` task runs `devenv test` for a profile. devenv starts the processes, waits for their `ready` checks and setup tasks, and runs the tests.
+Each `:int` task runs `devenv test` for a profile. devenv starts the processes, waits for their `ready` checks and setup tasks and runs the tests.
 
 | Profile | Processes |
 | --- | --- |
@@ -74,5 +74,5 @@ Each suite prints the lines that no test runs. There is no minimum. Read the rep
 <!-- nav:start -->
 ---
 
-[Previous: Development](index.md) | [Next: CI and releases](ci.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Development](./index.md) | [Next: CI and releases](./ci.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

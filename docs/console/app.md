@@ -60,10 +60,14 @@ The Config page edits a row in a dialog:
 
 The page doesn't edit `partitioning`. Change it with an import of the document.
 
-[Console lists, feedback and tokens](feedback.md) describes the lists, the feedback, the live data and the tokens from the identity provider.
+## Live data
+
+The Sync tab and the page of a sync run reload their data at an interval that the user picks. The choices are off, 2, 5, 10, 30 and 60 seconds. The default is 5 seconds, and the choice stays in the browser. The console polls, because it reads through PostgREST and DBOS sends no notification when a workflow changes its status. The log of a run is the exception, and it streams over server-sent events.
+
+The token of the user needs the claims that [Required JWT claims](../security/claims.md) lists.
 
 <!-- nav:start -->
 ---
 
-[Previous: Console](index.md) | [Next: Console lists, feedback and tokens](feedback.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Console](./index.md) | [Next: Database views](./views.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

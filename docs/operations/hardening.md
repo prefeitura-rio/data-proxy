@@ -64,5 +64,5 @@ cosign verify ghcr.io/prefeitura-rio/data-proxy-sync:<tag> \
 <!-- nav:start -->
 ---
 
-[Previous: Topology](topology.md) | [Next: Environment Variables](environment.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Topology](./topology.md) | [Next: Environment Variables](./environment.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

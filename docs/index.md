@@ -15,8 +15,8 @@ flowchart LR
     store["Data<br/>PostgreSQL and DuckLake"]
   end
   source["Source<br/>BigQuery"]
-  apps -->|"1. get a token"| idp
-  apps -->|"2. query with the token"| api
+  apps -->|"(1) get a token"| idp
+  apps -->|"(2) query with the token"| api
   people -->|"sign in"| console
   people -->|"sign in"| idp
   api -->|"read the rows<br/>that the token allows"| store
@@ -32,7 +32,7 @@ flowchart LR
 | --- | --- |
 | Query the data | [Using the API](using.md) |
 | Understand the parts and how they fit | [Architecture](architecture/index.md) |
-| Add or change a synced table | [Sync](sync.md) and the [Console](console/index.md) |
+| Add or change a synced table | [Sync](./sync.md) and the [Console](console/index.md) |
 | Decide who can read what | [Security](security/index.md) |
 | Install, scale or back up the system | [Operations](operations/index.md) |
 | Change the code | [Development](dev/index.md) and [Style](style.md) |
@@ -44,7 +44,7 @@ flowchart LR
   - [Serving layer](architecture/serving.md) — Answers API reads with the cache, PgDog and DuckLake.
   - [Sync layer](architecture/sync.md) — Copies source tables into DuckLake.
   - [Console layer](architecture/console.md) — The web app, its sign-in and the run control.
-- [Sync](sync.md) — The `sync.json` settings, table strategies, partitions and DuckLake sort keys.
+- [Sync](./sync.md) — The `sync.json` settings, table strategies, partitions and DuckLake sort keys.
 - [Using the API](using.md) — PostgREST profiles, queries and response headers.
 - [Proxy](proxy/index.md) — Routing headers and identity-aware caching.
 - [Database Schema](database.md) — PostgreSQL schemas, tables, access policies and DuckLake storage.

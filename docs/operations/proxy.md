@@ -1,6 +1,6 @@
 # Proxy variables
 
-These variables set the roles of the serving layer, the link from the sync workers to the proxy, and the settings of the OpenResty proxy. [Environment Variables](environment.md) has the variables of the other components.
+These variables set the roles of the serving layer, the link from the sync workers to the proxy and the settings of the OpenResty proxy. [Environment Variables](environment.md) has the variables of the other components.
 
 ## Auth and proxy
 
@@ -13,6 +13,7 @@ These variables set the PostgreSQL roles of the serving layer and the settings t
 | `AUTH_SERVING_ROLE` | `serving` | The login of the serving layer: PostgREST, PgDog and the recovery Deployment. |
 | `PROXY_CACHE_REDIS_DB` | `1` | Redis database for cached proxy responses. |
 | `PROXY_ADMIN_URL` | unset | Address of the reload endpoint of the proxy, for example `http://data-proxy-proxy-admin:8081/reload`. The sync workers resolve its host to every proxy pod and send each one a reload request. Unset: nobody is notified. The chart sets it. |
+| `SWAGGER_SCHEMAS_CONFIGMAP` | unset | Name of the ConfigMap with the schema list of the Swagger UI page. A sync worker writes the schemas of the console into it. The chart sets it when `swaggerUi.enabled` is true. Unset, the worker skips the step. |
 | `PROVISION_CRONJOB` | unset | Name of the suspended `provision` CronJob. A sync worker makes a Job from it when a schema changes and at the start of every sync run. The chart sets it. Unset, the worker skips the step. |
 | `PROVISION_TIMEOUT_SECONDS` | `600` | How long the worker waits for the provision Job. |
 
@@ -22,7 +23,7 @@ The Helm chart sets these variables on the proxy Deployment. The Lua code reads 
 
 It collects the text of the variables in one table. Then it converts and checks that table once with the `config` schema (`proxy/src/proxy/schemas/definitions/config.lua`). A variable that isn't set uses the default of its setting.
 
-A missing required variable, a value of the wrong type, or a value outside the limits stops nginx from starting. The error names the setting. A variable name is `PROXY_` and the upper-case name of the setting. `helm/files/config/nginx.conf` lists every variable with an `env` directive, because nginx removes the other variables.
+A missing required variable, a value of the wrong type or a value outside the limits stops nginx from starting. The error names the setting. A variable name is `PROXY_` and the upper-case name of the setting. `helm/files/config/nginx.conf` lists every variable with an `env` directive, because nginx removes the other variables.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -40,5 +41,5 @@ A missing required variable, a value of the wrong type, or a value outside the l
 <!-- nav:start -->
 ---
 
-[Previous: Environment Variables](environment.md) | [Next: KEDA Scaling](keda.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Environment Variables](./environment.md) | [Next: Console variables](./console.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

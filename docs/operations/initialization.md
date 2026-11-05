@@ -1,6 +1,6 @@
 # Initialization
 
-The chart sets up the database storage, runs the initialization Jobs, and waits until the database is ready.
+The chart sets up the database storage, runs the initialization Jobs and waits until the database is ready.
 
 ## Database storage
 
@@ -48,7 +48,7 @@ sequenceDiagram
 
 The system objects of `configure-db` are:
 
-- the request roles: `anon`, the `dp_*` roles of `rbac.toml`, and the `serving` login
+- the request roles: `anon`, the `dp_*` roles of `rbac.toml` and the `serving` login
 - the `rbac` schema
 - the state, error and scope tables of the engine
 - the pre-request function and its grants
@@ -59,7 +59,7 @@ The system objects of `configure-db` are:
 
 - It first installs the functions and triggers of the console, which need the tables and views of the migrations.
 - It fills an empty configuration once from `sync.config`. Afterward the console controls the configuration.
-- It grants the baseline role (`auth.userRole`, which every `dp_*` role is a member of) its rights on the `console` schema. The rights are wide, and each view, row policy, and function asks for the permission of the token.
+- It grants the baseline role (`auth.userRole`, which every `dp_*` role is a member of) its rights on the `console` schema. The rights are wide, and each view, row policy and function asks for the permission of the token.
 - For each schema in `console.schemas`, it creates the PostgreSQL schema and its access policy, with row policies that ask for `read_policy` and `edit_policy`.
 - It grants the anonymous role the right to call `console.config()`, the one function that the proxy reads.
 - It sets `pgrst.db_schemas` on the `serving` login to the schemas plus `console`, in that order, because the first schema is the default profile of PostgREST.
@@ -96,5 +96,5 @@ The PostgREST Deployment uses an HTTP readiness probe on `/`. It isn't Ready unt
 <!-- nav:start -->
 ---
 
-[Previous: Helm Chart](helm.md) | [Next: Ingress](ingress.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Helm Chart](./helm.md) | [Next: Ingress](./ingress.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

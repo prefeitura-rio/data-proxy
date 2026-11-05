@@ -84,5 +84,5 @@ See [Proxy variables](proxy.md) for the variables of the roles and of the OpenRe
 <!-- nav:start -->
 ---
 
-[Previous: Hardening](hardening.md) | [Next: Proxy variables](proxy.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Hardening](./hardening.md) | [Next: Proxy variables](./proxy.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

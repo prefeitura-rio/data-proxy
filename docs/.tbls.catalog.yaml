@@ -1,0 +1,100 @@
+dsn: ${TBLS_CATALOG_DSN}
+er:
+  format: mermaid
+viewpoints:
+  - name: catalog
+    desc: Catalog database tables
+    tables:
+      - signer.keys
+      - '*.ducklake_metadata'
+      - '*.ducklake_schema'
+      - '*.ducklake_table'
+      - '*.ducklake_data_file'
+      - '*.ducklake_delete_file'
+      - '*.ducklake_sort_info'
+      - '*.ducklake_sort_expression'
+comments:
+  - table: test.ducklake_snapshot
+    tableComment: One row for each snapshot of the catalog.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_snapshot_changes
+    tableComment: The changes that each snapshot made.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_schema_versions
+    tableComment: The schema version of each snapshot.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_view
+    tableComment: The views of the catalog.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_tag
+    tableComment: The tags on a catalog object.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_column_tag
+    tableComment: The tags on a column.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_column
+    tableComment: The columns of each table, by snapshot.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_file_column_stats
+    tableComment: The minimum and the maximum of each column in each data file.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_file_variant_stats
+    tableComment: The statistics of the parts of a variant column in each data file.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_table_stats
+    tableComment: The row count and the file size of each table.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_table_column_stats
+    tableComment: The statistics of each column over the whole table.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_partition_info
+    tableComment: The partition rules of a table.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_partition_column
+    tableComment: The columns of a partition rule.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_file_partition_value
+    tableComment: The partition value of each data file.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_files_scheduled_for_deletion
+    tableComment: The files that a cleanup deletes later.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_inlined_data_tables
+    tableComment: The tables that store rows inside the catalog.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_column_mapping
+    tableComment: Links a file column to a table column when the file has no field IDs.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_name_mapping
+    tableComment: The column names that such a link uses.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_macro
+    tableComment: The SQL macros of the catalog.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_macro_impl
+    tableComment: The bodies of a macro.
+    labels:
+      - DuckLake metadata
+  - table: test.ducklake_macro_parameters
+    tableComment: The parameters of a macro.
+    labels:
+      - DuckLake metadata

@@ -14,6 +14,7 @@ The chart creates these main objects. Each name starts with the release name.
 | `-recovery` | Deployment | Recovers the DBOS workflows that a dead sync pod left behind. |
 | `-console`, `-notebooks` | Deployment | The console and the notebook site. |
 | `-swagger-ui` | Deployment | The Swagger UI of the API. |
+| `-swagger-ui-schemas` | ConfigMap | The schema list of the Swagger UI. A sync worker keeps it current. |
 | `-configure-db`, `-migrate-db`, `-provision` | Job | The install Jobs of [Initialization](initialization.md). `configure-db` and `provision` also have a suspended CronJob of the same name. |
 | `-s3-bootstrap` | Job | Creates the S3 bucket or waits for it. |
 | `-backup`, `-maintenance` | CronJob | The access policy backup and the database maintenance. Maintenance also deletes the DBOS workflows that finished more than `jobs.maintenance.workflowRetentionDays` days ago (90 by default). |
@@ -40,7 +41,7 @@ See [`helm/values.yaml`](../../helm/values.yaml) for all values.
 devenv --profile default tasks run chart:test:unit
 ```
 
-The task runs Helm lint, Helm unit tests, and Kubeconform.
+The task runs Helm lint, Helm unit tests and Kubeconform.
 
 ## Images
 
@@ -48,13 +49,13 @@ The chart pins repository images in `helm/values.yaml`. Released chart values do
 
 ## Proxy
 
-Configure the OpenResty caching proxy under `proxy`. Values include `cacheTtl`, `cacheRedisDb`, `maxCacheBodyBytes`, `maxInflight`, `configUrl`, and `configRefreshSeconds`.
+Configure the OpenResty caching proxy under `proxy`. Values include `cacheTtl`, `cacheRedisDb`, `maxCacheBodyBytes`, `maxInflight`, `configUrl` and `configRefreshSeconds`.
 
 The chart passes these values to the proxy Deployment as `PROXY_*` environment variables. The proxy connects to Redis directly. See [Proxy](../proxy/index.md) for request flow and cache behavior.
 
 ## Serving values
 
-These values tune the serving layer. The defaults are in [`helm/values.yaml`](../../helm/values.yaml). The columns of the tables are the value, its default, and what it does.
+These values tune the serving layer. The defaults are in [`helm/values.yaml`](../../helm/values.yaml). The columns of the tables are the value, its default and what it does.
 
 ### PostgREST
 
@@ -95,12 +96,12 @@ Images and the chart have separate versions. Each push to `main` that changes an
 
 A chart release pins the newest tag of each image in `helm/values.yaml`. A released chart doesn't use `latest` for a repository image.
 
-The chart version comes from the Conventional Commits since the previous release. A `feat` raises the minor version, a `fix` raises the patch version, and a `!` raises the major version. Don't change `helm/Chart.yaml` by hand. See [Chart releases](../dev/ci.md#chart-releases).
+The chart version comes from the Conventional Commits since the previous release. A `feat` raises the minor version, a `fix` raises the patch version and a `!` raises the major version. Don't change `helm/Chart.yaml` by hand. See [Chart releases](../dev/ci.md#chart-releases).
 
 ---
 
 <!-- nav:start -->
 ---
 
-[Previous: Operations](index.md) | [Next: Initialization](initialization.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Operations](./index.md) | [Next: Initialization](./initialization.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

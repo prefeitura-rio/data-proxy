@@ -29,7 +29,7 @@ The token needs one `role` claim with the name of a role of `rbac.toml`.
 
 In Keycloak, do these steps:
 
-1. Create the roles `dp_api`, `dp_policy`, `dp_console`, and `dp_admin` as client roles of one client.
+1. Create the roles `dp_api`, `dp_policy`, `dp_console` and `dp_admin` as client roles of one client.
 2. Give each user or service account one of them.
 3. Add a *User Client Role* mapper to the client scope. The next table gives its settings.
 
@@ -44,7 +44,7 @@ Add a second mapper for the `schemas` claim (a user attribute with several value
 
 A user who needs two roles takes a role that inherits both in `rbac.toml`, because a token has one.
 
-An older Keycloak writes the single client role as the text `[dp_admin]`, even when *Multivalued* is off. PostgREST then finds no role. In that case replace the mapper with a *User Attribute* mapper: the user attribute `role`, the claim name `role`, and the type String. Then give each user the attribute `role` with the name of one role. `nu scripts/kc.nu check` reports this case.
+An older Keycloak writes the single client role as the text `[dp_admin]`, even when *Multivalued* is off. PostgREST then finds no role. In that case replace the mapper with a *User Attribute* mapper: the user attribute `role`, the claim name `role` and the type String. Then give each user the attribute `role` with the name of one role. `nu scripts/kc.nu check` reports this case.
 
 The `k3d` test realm has one client, `idp`, that's set up like this recipe:
 
@@ -73,7 +73,7 @@ The access policy subject must equal the configured identity claim in the end-us
 
 ## Create the console client
 
-`scripts/kc.nu` prints the document for the Keycloak partial import and checks a token. The header of the script has the steps. Print the document with `nu scripts/kc.nu client --host <host> > console-client.json`, import it in the realm, and check a token with `nu scripts/kc.nu check <access_token> --issuer <issuer>`.
+`scripts/kc.nu` prints the document for the Keycloak partial import and checks a token. The header of the script has the steps. Print the document with `nu scripts/kc.nu client --host <host> > console-client.json`, import it in the realm and check a token with `nu scripts/kc.nu check <access_token> --issuer <issuer>`.
 
 ## Use another identity provider
 
@@ -104,5 +104,5 @@ A permission that the SQL asks for and the file lacks ends as an HTTP 500 at run
 <!-- nav:start -->
 ---
 
-[Previous: Requests](requests.md) | [Next: Tokens](tokens.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Requests](./requests.md) | [Next: Tokens](./tokens.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

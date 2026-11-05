@@ -96,7 +96,6 @@ export const RULES = [
     [SQL-04, $SQL, '^\s+\w+\s+(timestamp(?! with)|(big)?serial)\b', '--', [], "Use timestamptz and bigint GENERATED ALWAYS AS IDENTITY for a column."]
     [SQL-24, $SQL, r#'"' \|\| replace\('#, '--', [sync/src/sync/templates/postgres/views/routing/quoting.sql], "Quote a DuckDB identifier with quote_column()."]
     [SQL-29, [...$SQL 'sync/tests/templates/**/*.sql'], '^-- noqa: disable=[A-Z0-9,]*PRS', '', $PARSER_DISABLED, "Make SQLFluff parse the template, or add it to the allowed list with a reason."]
-    [K6-13, ['k6/**/*.js'], '\bconsole\.(log|warn|error|info|debug)\b', '//', [k6/lib/log.js], "Log with info and warn from lib/log.js."]
     [GEN-11, $NU, '^\s{4,}#\s', '', [], "Write no comment inside a function body."]
     [GEN-11, ['console/ui/src/**/*.ts'], '^\t{2,}(//|/\*)', '', [], "Write no comment inside a function body."]
 ]

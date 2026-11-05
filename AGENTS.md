@@ -17,31 +17,30 @@ devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
 
 ## Where the code is
 
-| Path | Content |
-| --- | --- |
-| `proxy/` | OpenResty and Lua, the request path |
-| `sync/` | Python, DBOS workflows, DuckLake sync |
-| `console/ui/`, `console/notebooks/` | SvelteKit console and the notebook site |
-| `helm/` | The chart, the job scripts and the SQL templates |
-| `k6/` | Load and end-to-end tests |
-| `nix/`, `*/devenv.nix` | The devenv profiles, processes and tasks |
-| `scripts/` | Nushell commands for developers and CI |
-| `docs/` | The documentation |
+| Path                                | Content                                          |
+| ----------------------------------- | ------------------------------------------------ |
+| `proxy/`                            | OpenResty and Lua, the request path              |
+| `sync/`                             | Python, DBOS workflows, DuckLake sync            |
+| `console/ui/`, `console/notebooks/` | SvelteKit console and the notebook site          |
+| `helm/`                             | The chart, the job scripts and the SQL templates |
+| `k6/`                               | Load and end-to-end tests                        |
+| `nix/`, `*/devenv.nix`              | The devenv profiles, processes and tasks         |
+| `scripts/`                          | Nushell commands for developers and CI           |
+| `docs/`                             | The documentation                                |
 
 ## Style by file
 
-| Files | Section |
-| --- | --- |
-| `proxy/**` | [Lua](docs/style.md#lua) |
-| `sync/**/*.py` | [Python](docs/style.md#python) |
-| `scripts/*.nu`, `helm/files/scripts/*.nu` | [Nushell](docs/style.md#nushell) |
-| `**/*.nix`, `devenv.*` | [Nix](docs/style.md#nix) |
-| `**/*.sql`, `rbac.toml` | [SQL](docs/style.md#sql) |
-| `console/ui/**` | [TypeScript](docs/style.md#typescript), [Svelte](docs/style.md#svelte) |
-| `console/notebooks/**` | [Notebooks](docs/style.md#notebooks) |
-| `k6/**` | [k6](docs/style.md#k6) |
-| `docs/**`, `README.md` | [Documentation](docs/style.md#documentation) |
-| Any test, any log line | [Tests](docs/style.md#tests), [Logs](docs/style.md#logs) |
+| Files                                     | Section                                                                |
+| ----------------------------------------- | ---------------------------------------------------------------------- |
+| `proxy/**`                                | [Lua](docs/style.md#lua)                                               |
+| `sync/**/*.py`                            | [Python](docs/style.md#python)                                         |
+| `scripts/*.nu`, `helm/files/scripts/*.nu` | [Nushell](docs/style.md#nushell)                                       |
+| `**/*.nix`, `devenv.*`                    | [Nix](docs/style.md#nix)                                               |
+| `**/*.sql`, `rbac.toml`                   | [SQL](docs/style.md#sql)                                               |
+| `console/ui/**`                           | [TypeScript](docs/style.md#typescript), [Svelte](docs/style.md#svelte) |
+| `console/notebooks/**`                    | [Notebooks](docs/style.md#notebooks)                                   |
+| `docs/**`, `README.md`                    | [Documentation](docs/style.md#documentation)                           |
+| Any test, any log line                    | [Tests](docs/style.md#tests), [Logs](docs/style.md#logs)               |
 
 ## Rules that matter most
 

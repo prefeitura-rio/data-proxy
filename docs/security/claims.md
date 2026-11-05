@@ -17,5 +17,5 @@ You configure the exact identity claim per schema. If the schema uses `sub` inst
 <!-- nav:start -->
 ---
 
-[Previous: Security](index.md) | [Next: Permissions](permissions.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Security](./index.md) | [Next: Permissions](./permissions.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

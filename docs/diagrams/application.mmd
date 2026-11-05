@@ -1,0 +1,84 @@
+erDiagram
+
+"console.tables" }o--|| "console.schemas" : ""
+"console.rls" }o--|| "console.tables" : ""
+"data_proxy.scope" }o--|| "console.schemas" : ""
+"console.config_history" }o--|| "console.schemas" : ""
+
+"rbac.revision" {
+  boolean singleton
+  bigint value
+}
+"rbac.roles" {
+  text name
+  text__ permissions
+  text wrapped
+}
+"data_proxy.state" {
+  text table_name
+  jsonb state
+}
+"data_proxy.errors" {
+  bigint id
+  text reason
+  jsonb fields
+  timestamp_with_time_zone recorded_at
+}
+"data_proxy.scope" {
+  text workflow_id
+  text run_id
+  text schema_name
+  text table_name
+}
+"console.schemas" {
+  text name
+  text source
+  jsonb settings
+  text claim
+  boolean encrypted
+  timestamp_with_time_zone updated_at
+  text updated_by
+}
+"console.tables" {
+  text name
+  text schema
+  text strategy
+  integer n
+  boolean fallback
+  integer cache_ttl
+  jsonb partitioning
+  text__ sort
+  timestamp_with_time_zone updated_at
+  text updated_by
+}
+"console.rls" {
+  bigint id
+  text table_name
+  text column_name
+  text unit_type
+  timestamp_with_time_zone updated_at
+  text updated_by
+}
+"console.config_history" {
+  bigint id
+  timestamp_with_time_zone changed_at
+  text changed_by
+  text action
+  text object
+  text schema_name
+  text key
+  jsonb old_row
+  jsonb new_row
+}
+"test.access_policy" {
+  text subject
+  text unit_type
+  text unit_id
+}
+"test.access_log" {
+  text subject
+  text unit_type
+  text unit_id
+  text action
+  timestamp_with_time_zone changed_at
+}

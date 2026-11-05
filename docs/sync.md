@@ -1,6 +1,6 @@
 # Sync
 
-This page is the reference for the sync configuration. The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources, and source tables. The field `source.type` names the source adapter, and `bigquery` is the only adapter today. Each sync run loads the document once, at its start, so a change never reaches a sync run that already started.
+This page is the reference for the sync configuration. The sync configuration is a JSON document that declares PostgreSQL schemas, their ingestion sources and source tables. The field `source.type` names the source adapter, and `bigquery` is the only adapter today. Each sync run loads the document once, at its start, so a change never reaches a sync run that already started.
 
 The tables of the `console` schema contain the configuration ([Console](console/configuration.md#configuration-tables)), and the engine reads it with `console.sync_config()`. An empty configuration means there is nothing to sync.
 
@@ -27,12 +27,12 @@ The tables of the `console` schema contain the configuration ([Console](console/
 
 ## Schema fields
 
-| Field    | Required                | Meaning                                             |
-| -------- | ----------------------- | --------------------------------------------------- |
-| `source` | No | One external source for every table in this schema. Defaults to `{ "type": "bigquery" }`. |
-| `claim`  | When a table uses `rls` | JSON Web Token (JWT) claim matched against `access_policy.subject`.  |
-| `tables` | No                      | Tables in this PostgreSQL schema. Defaults to `[]`. |
-| `ducklake` | No                    | Schema-level DuckLake settings, including `encrypted`. |
+| Field      | Required                | Meaning                                                                                   |
+| ---------- | ----------------------- | ----------------------------------------------------------------------------------------- |
+| `source`   | No                      | One external source for every table in this schema. Defaults to `{ "type": "bigquery" }`. |
+| `claim`    | When a table uses `rls` | JSON Web Token (JWT) claim matched against `access_policy.subject`.                       |
+| `tables`   | No                      | Tables in this PostgreSQL schema. Defaults to `[]`.                                       |
+| `ducklake` | No                      | Schema-level DuckLake settings, including `encrypted`.                                    |
 
 The schema key is the target PostgreSQL schema. Don't add a schema field to a table entry.
 
@@ -40,20 +40,20 @@ The schema key is the target PostgreSQL schema. Don't add a schema field to a ta
 
 These fields describe one table of a schema in `sync.json`. The table says which fields are required.
 
-| Field       | Required | Meaning                                                                               |
-| ----------- | -------- | ------------------------------------------------------------------------------------- |
-| `name`      | Yes      | Reference validated by the schema source. BigQuery uses `project.dataset.table`. |
-| `strategy`  | Yes      | `full` replaces the DuckLake table, and `partitioned` updates physical partitions.        |
-| `n`         | No       | Keep the newest `n` time partitions.                                                  |
-| `fallback` | Partitioned only | Allow the configured source to serve uncovered partitions when it has fallback metadata. Default: `false`. |
-| `cache_ttl` | No       | Proxy cache lifetime in seconds.                                                      |
-| `rls`       | No       | Unit column and unit type pairs. See [Security](security/index.md).                         |
-| `ducklake` | No | Table-level DuckLake settings, including `sort` and `partitioning`. |
-| `ducklake` | No | Table-level DuckLake settings, including custom partition transforms. |
+| Field       | Required         | Meaning                                                                                                    |
+| ----------- | ---------------- | ---------------------------------------------------------------------------------------------------------- |
+| `name`      | Yes              | Reference validated by the schema source. BigQuery uses `project.dataset.table`.                           |
+| `strategy`  | Yes              | `full` replaces the DuckLake table, and `partitioned` updates physical partitions.                         |
+| `n`         | No               | Keep the newest `n` time partitions.                                                                       |
+| `fallback`  | Partitioned only | Allow the configured source to serve uncovered partitions when it has fallback metadata. Default: `false`. |
+| `cache_ttl` | No               | Proxy cache lifetime in seconds.                                                                           |
+| `rls`       | No               | Unit column and unit type pairs. See [Security](security/index.md).                                        |
+| `ducklake`  | No               | Table-level DuckLake settings, including `sort` and `partitioning`.                                        |
+| `ducklake`  | No               | Table-level DuckLake settings, including custom partition transforms.                                      |
 
 ## Pipeline
 
-The scheduled `run_sync` workflow plans the changed tables and partitions, dumps them as scratch Parquet files, and publishes each schema to its DuckLake catalog. Publishing runs in parallel across schemas and in sequence within a schema, so each catalog has one writer. After a publication, the workflow expires old snapshots, merges and rewrites files, and cleans orphaned files. A maintenance error is logged and doesn't stop the sync run. [Sync layer](architecture/sync.md) lists the workflows and shows the sequence.
+The scheduled `run_sync` workflow plans the changed tables and partitions, dumps them as scratch Parquet files and publishes each schema to its DuckLake catalog. Publishing runs in parallel across schemas and in sequence within a schema, so each catalog has one writer. After a publication, the workflow expires old snapshots, merges and rewrites files and cleans orphaned files. A maintenance error is logged and doesn't stop the sync run. [Sync layer](architecture/sync.md) lists the workflows and shows the sequence.
 
 ## DuckLake partitioning and encryption
 
@@ -74,7 +74,7 @@ Changing a table transform triggers a full table rewrite before the writer publi
 
 Before publication, the writer compares each incoming Parquet schema with the existing DuckLake table. It adds new nullable columns and applies only lossless type promotions.
 
-It rejects removed columns, renames, and incompatible type changes before changing the table. Inserts use column names, not column positions. Existing Parquet files aren't rewritten for these schema changes.
+It rejects removed columns, renames and incompatible type changes before changing the table. Inserts use column names, not column positions. Existing Parquet files aren't rewritten for these schema changes.
 
 ## Catalog lifecycle
 
@@ -96,7 +96,7 @@ Set `fallback: true` on a partitioned table to let its configured schema source 
 
 ## Adding a source
 
-A source is responsible for synchronization ingestion. It validates references, creates DuckDB scan expressions, reports modification and partition state, caches external clients, and declares DuckDB extensions.
+A source is responsible for synchronization ingestion. It validates references, creates DuckDB scan expressions, reports modification and partition state, caches external clients and declares DuckDB extensions.
 
 Register the source in `sync/src/sync/sources/registry.py`.
 
@@ -117,7 +117,7 @@ A `full` table creates one dump task. A partitioned table creates one extraction
 
 ## Schema initialization
 
-The provision job creates configured schemas, `access_policy`, `access_log`, row policies, and triggers. It doesn't create application data tables in PostgreSQL. The sync workflow creates the views.
+The provision job creates configured schemas, `access_policy`, `access_log`, row policies and triggers. It doesn't create application data tables in PostgreSQL. The sync workflow creates the views.
 
 Application table names are PostgreSQL views over DuckLake functions.
 
@@ -126,5 +126,5 @@ Application table names are PostgreSQL views over DuckLake functions.
 <!-- nav:start -->
 ---
 
-[Previous: Console layer](architecture/console.md) | [Next: Using the API](using.md) | [Home](index.md)
+[Previous: Console layer](architecture/console.md) | [Next: Using the API](./using.md) | [Home](./index.md)
 <!-- nav:end -->

@@ -32,5 +32,5 @@ The table maps each result of a request to its meaning.
 <!-- nav:start -->
 ---
 
-[Previous: Schema and row authorization](authorization.md) | [Next: Identity provider](identity.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Schema and row authorization](./authorization.md) | [Next: Identity provider](./identity.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

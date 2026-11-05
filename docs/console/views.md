@@ -1,10 +1,10 @@
 # Database views
 
-The console reads the database through views and a few functions. This page lists the views, the views of the logs and of the sync runs, and the HTTP interface.
+The console reads the database through views and a few functions. This page lists the views, the views of the logs and of the sync runs and the HTTP interface.
 
 ## Views
 
-The `console` schema contains the views that the console reads through PostgREST. `console/migrations/00001_create_console_views.sql` creates them, and the migrations `00004_create_status_views.sql`, `00005_scope_by_schema.sql` and `00008_add_run_schemas.sql` add or replace some of them. The `console` scenario of the end-to-end suite (`k6/scenarios/console.js`) tests them.
+The `console` schema contains the views that the console reads through PostgREST. The console migrations create and replace them. The `console` scenario of the end-to-end suite (`k6/scenarios/console.js`) tests them.
 
 | View | Content |
 | --- | --- |
@@ -33,7 +33,7 @@ The console talks to PostgREST only. The `console` scenario in `k6/scenarios/con
 
 - Send `Authorization: Bearer <JWT>` with a `role` claim (one role of `rbac.toml`) and a `schemas` claim that lists the schemas of the user. Send `Accept-Profile: console` on reads and `Content-Profile: console` on writes, because PostgREST also serves the schemas of the synced data. The access tab sends the data schema as the profile.
 - Send `Prefer: return=representation` to get the written row back.
-- Reads are `GET /runs`, `GET /schemas`, and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are read-only: `GET /queues` and `GET /schedules`. The functions are `POST /rpc/start_sync`, `POST /rpc/import_config`, and `GET /rpc/table_files`. `GET /rpc/permissions` tells the console which controls to show.
+- Reads are `GET /runs`, `GET /schemas` and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are read-only: `GET /queues` and `GET /schedules`. The functions are `POST /rpc/start_sync`, `POST /rpc/import_config` and `GET /rpc/table_files`. `GET /rpc/permissions` tells the console which controls to show.
 
 | Status | Meaning |
 | --- | --- |
@@ -47,5 +47,5 @@ The console talks to PostgREST only. The `console` scenario in `k6/scenarios/con
 <!-- nav:start -->
 ---
 
-[Previous: Theme](theme.md) | [Next: Control a run and a schedule](runs.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Application](./app.md) | [Next: Control a run and a schedule](./runs.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

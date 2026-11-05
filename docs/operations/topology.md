@@ -23,7 +23,7 @@ flowchart TD
     rw["Service -rw"]
     sync["Sync workers<br/>KEDA: 3 to 15"]
     console["Console and notebooks"]
-    subgraph cnpg["CNPG cluster<br/>KEDA: 2 to 6 instances"]
+    subgraph cnpg["CNPG: KEDA 2 to 6"]
       primary["Primary"]
       standbys["Standbys"]
       secrets[("DuckDB secrets<br/>shared volume")]
@@ -59,7 +59,7 @@ The lag of a standby works like this:
 - CNPG takes a standby that's more than `cnpg.maxReplicaLag` behind out of the `-ro` Service until it catches up.
 - After a pod change, CNPG updates the standbys first, then switches the primary to a standby (`cnpg.primaryUpdateMethod`).
 - A standby that stops answering leaves the Service within about six seconds.
-- PgDog reads the log position of each database every second. It bans a standby that is more than 16 MiB behind (`ban_replica_lag_bytes`) until the standby catches up. An idle primary has lag 0.
+- PgDog reads the log position of each database every second. It bans a standby that's more than 16 MiB behind (`ban_replica_lag_bytes`) until the standby catches up. An idle primary has lag 0.
 - A pool that can't connect, or that keeps a read waiting for more than 20 seconds (`checkout_timeout`), gets no requests for 10 seconds. The next read goes to the primary.
 
 The PostgREST connection address lists PgDog first and the `-rw` Service second. PostgREST asks for a read/write session for its `LISTEN` connection. PgDog never gives one, so the listener connects to the primary. A `NOTIFY` on the primary then reaches PostgREST.
@@ -97,5 +97,5 @@ Redis has no autoscaler. The proxy needs `redis.host`, and the chart fails to re
 <!-- nav:start -->
 ---
 
-[Previous: Ingress](ingress.md) | [Next: Hardening](hardening.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Ingress](./ingress.md) | [Next: Hardening](./hardening.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

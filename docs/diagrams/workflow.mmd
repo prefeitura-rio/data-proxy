@@ -1,0 +1,100 @@
+erDiagram
+
+"dbos.streams" }o--|| "dbos.workflow_status" : ""
+"dbos.workflow_status" }o--o| "dbos.workflow_status" : ""
+"dbos.workflow_status" }o--o| "dbos.queues" : ""
+"dbos.workflow_status" }o--o| "dbos.workflow_schedules" : ""
+
+"dbos.workflow_status" {
+  text workflow_uuid
+  text status
+  text name
+  text authenticated_user
+  text assumed_role
+  text authenticated_roles
+  text request
+  text output
+  text error
+  text executor_id
+  bigint created_at
+  bigint updated_at
+  text application_version
+  text application_id
+  varchar_255_ class_name
+  varchar_255_ config_name
+  bigint recovery_attempts
+  text queue_name
+  bigint workflow_timeout_ms
+  bigint workflow_deadline_epoch_ms
+  text inputs
+  bigint started_at_epoch_ms
+  text deduplication_id
+  integer priority
+  text queue_partition_key
+  text forked_from
+  text owner_xid
+  text parent_workflow_id
+  text serialization
+  bigint delay_until_epoch_ms
+  boolean was_forked_from
+  boolean rate_limited
+  bigint completed_at
+  jsonb attributes
+  text schedule_name
+  bigint debounce_deadline_epoch_ms
+  boolean is_debounced
+  text application_name
+}
+"dbos.operation_outputs" {
+  text workflow_uuid
+  integer function_id
+  text function_name
+  text output
+  text error
+  text child_workflow_id
+  bigint started_at_epoch_ms
+  bigint completed_at_epoch_ms
+  text serialization
+  text application_name
+  bigint retention_timestamp
+}
+"dbos.streams" {
+  text workflow_uuid
+  text key
+  text value
+  integer offset
+  integer function_id
+  text serialization
+}
+"dbos.workflow_schedules" {
+  text schedule_id
+  text schedule_name
+  text workflow_name
+  text workflow_class_name
+  text schedule
+  text status
+  text context
+  text last_fired_at
+  boolean automatic_backfill
+  text cron_timezone
+  text queue_name
+  text application_name
+}
+"dbos.queues" {
+  text queue_id
+  text name
+  integer concurrency
+  integer worker_concurrency
+  integer rate_limit_max
+  double_precision rate_limit_period_sec
+  boolean priority_enabled
+  boolean partition_queue
+  double_precision polling_interval_sec
+  bigint created_at
+  bigint updated_at
+  text application_name
+  integer partition_concurrency
+  integer partition_worker_concurrency
+  integer partition_rate_limit_max
+  double_precision partition_rate_limit_period_sec
+}

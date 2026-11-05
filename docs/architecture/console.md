@@ -86,5 +86,5 @@ See [Control a run and a schedule](../console/runs.md) for the allowed statuses 
 <!-- nav:start -->
 ---
 
-[Previous: Sync layer](sync.md) | [Next: Sync](../sync.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Sync layer](./sync.md) | [Next: Sync](../sync.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

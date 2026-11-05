@@ -10,12 +10,12 @@ flowchart LR
     vs["VirtualService"]
   end
   jwt["JWT check<br/>ingress.auth.enabled"]
-  subgraph api["API host<br/>data-proxy.dados.rio"]
+  subgraph api["API host"]
     proxy["Proxy to PostgREST<br/>/ and the tables"]
     docs["Swagger UI<br/>/docs"]
     console["Console<br/>/console"]
   end
-  subgraph nb["Notebook host<br/>notebooks.data-proxy.dados.rio"]
+  subgraph nb["Notebook host"]
     site["Notebook site"]
   end
   client --> vs
@@ -48,26 +48,6 @@ Both use the image `console.image`, and the notebooks Deployment starts it with 
 
 The chart makes a read-only identity next to the admin identity of the S3 secret, in the keys `S3_READER_ACCESS_KEY` and `S3_READER_SECRET_KEY`, and in `seaweedfs_s3_config`. `configure-db` creates the signer login, and its password is in the Secret `<release>-signer`.
 
-## Addresses
-
-Each environment has one host for the API, the docs, the console and the notebooks.
-
-| Environment | API | Docs | Console | Notebooks |
-| --- | --- | --- | --- | --- |
-| Production | `data-proxy.dados.rio` | `/docs` | `/console` | `notebooks.data-proxy.dados.rio` |
-| Staging | `staging.data-proxy.dados.rio` | `/docs` | `/console` | `staging-notebooks.data-proxy.dados.rio` |
-
-A wildcard certificate and a wildcard DNS record for `*.data-proxy.dados.rio` cover every name, because each name has one label before `data-proxy.dados.rio`. The production host `data-proxy.dados.rio` has its own DNS record and its own name in the certificate. A table named `docs` or `console` in a schema isn't reachable on the API host.
-
-The client `data-proxy-console-web` of the identity provider needs three addresses for each environment. The redirect address is `<origin>/console/auth/callback`. The post-logout address is `<origin>/console/auth/login`. The web origin is `<origin>`.
-
-Each environment has its own Keycloak realm, and each realm lists only the origin of its environment.
-
-| Realm | Origin |
-| --- | --- |
-| `id-staging.rio.gov.br` | `https://staging.data-proxy.dados.rio` |
-| `id.rio.gov.br` | `https://data-proxy.dados.rio` |
-
 ## Istio ingress
 
 Set `ingress.enabled` to create the VirtualService. Set `ingress.auth.enabled` to create JSON Web Token (JWT) authentication and authorization resources. Create the configured Gateway before installing the chart.
@@ -77,5 +57,5 @@ The values `ingress.retries.attempts`, `perTryTimeout` and `retryOn` set the ret
 <!-- nav:start -->
 ---
 
-[Previous: Initialization](initialization.md) | [Next: Topology](topology.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Initialization](./initialization.md) | [Next: Topology](./topology.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

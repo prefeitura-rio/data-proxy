@@ -78,10 +78,10 @@ Create one confidential client for the service that manages the access policy, a
 }
 ```
 
-The token reads and writes `<schema>.access_policy` for the schemas in its claim. `dp_policy` has only the four policy permissions: `read_policy`, `create_policy`, `edit_policy`, and `delete_policy`. Deleting a row revokes the grant. The database records the change in `test.access_log`.
+The token reads and writes `<schema>.access_policy` for the schemas in its claim. `dp_policy` has only the four policy permissions: `read_policy`, `create_policy`, `edit_policy` and `delete_policy`. Deleting a row revokes the grant. The database records the change in `test.access_log`.
 
 <!-- nav:start -->
 ---
 
-[Previous: Authorization flow](flow.md) | [Next: Requests](requests.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Authorization flow](./flow.md) | [Next: Requests](./requests.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

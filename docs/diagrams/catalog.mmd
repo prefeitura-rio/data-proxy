@@ -1,0 +1,82 @@
+erDiagram
+
+
+"signer.keys" {
+  text schema_name
+  text access_key
+  text secret_sealed
+  timestamp_with_time_zone created_at
+}
+"test.ducklake_metadata" {
+  varchar key
+  varchar value
+  varchar scope
+  bigint scope_id
+}
+"test.ducklake_schema" {
+  bigint schema_id
+  uuid schema_uuid
+  bigint begin_snapshot
+  bigint end_snapshot
+  varchar schema_name
+  varchar path
+  boolean path_is_relative
+}
+"test.ducklake_table" {
+  bigint table_id
+  uuid table_uuid
+  bigint begin_snapshot
+  bigint end_snapshot
+  bigint schema_id
+  varchar table_name
+  varchar path
+  boolean path_is_relative
+}
+"test.ducklake_data_file" {
+  bigint data_file_id
+  bigint table_id
+  bigint begin_snapshot
+  bigint end_snapshot
+  bigint file_order
+  varchar path
+  boolean path_is_relative
+  varchar file_format
+  bigint record_count
+  bigint file_size_bytes
+  bigint footer_size
+  bigint row_id_start
+  bigint partition_id
+  varchar encryption_key
+  bigint mapping_id
+  bigint partial_max
+}
+"test.ducklake_delete_file" {
+  bigint delete_file_id
+  bigint table_id
+  bigint begin_snapshot
+  bigint end_snapshot
+  bigint data_file_id
+  varchar path
+  boolean path_is_relative
+  varchar format
+  bigint delete_count
+  bigint file_size_bytes
+  bigint footer_size
+  varchar encryption_key
+  bigint partial_max
+}
+"test.ducklake_sort_info" {
+  bigint sort_id
+  bigint table_id
+  bigint begin_snapshot
+  bigint end_snapshot
+}
+"test.ducklake_sort_expression" {
+  bigint sort_id
+  bigint table_id
+  bigint sort_key_index
+  varchar expression
+  varchar dialect
+  varchar sort_direction
+  varchar null_order
+}

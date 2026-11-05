@@ -47,5 +47,5 @@ sync:
 <!-- nav:start -->
 ---
 
-[Previous: SQL Templates](../sql.md) | [Next: Required JWT claims](claims.md) | [Home](../index.md)
+[Previous: SQL Templates](../sql.md) | [Next: Required JWT claims](./claims.md) | [Home](../index.md)
 <!-- nav:end -->

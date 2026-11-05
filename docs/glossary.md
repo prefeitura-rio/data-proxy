@@ -74,5 +74,5 @@ The word schema has three meanings. A page uses the full phrase if the meaning i
 <!-- nav:start -->
 ---
 
-[Previous: Data model](model.md) | [Next: Notebooks](notebooks.md) | [Home](index.md)
+[Previous: Data model](./model.md) | [Next: Notebooks](./notebooks.md) | [Home](./index.md)
 <!-- nav:end -->

@@ -1,6 +1,6 @@
 # Serving layer
 
-The serving layer answers API reads. It checks the token, uses the cache, and reads only the rows that the access policy allows.
+The serving layer answers API reads. It checks the token, uses the cache and reads only the rows that the access policy allows.
 
 ## Parts
 
@@ -16,7 +16,7 @@ The serving layer answers API reads. It checks the token, uses the cache, and re
 
 ## Request sequence
 
-The diagram shows one API read, from the JWT check at the gateway to the cached answer. It covers the cache, the role switch, the row-level security checks, the DuckLake scan, and the fallback to the source.
+The diagram shows one API read, from the JWT check at the gateway to the cached answer. It covers the cache, the role switch, the row-level security checks, the DuckLake scan and the fallback to the source.
 
 ```mermaid
 %% API read sequence
@@ -79,7 +79,7 @@ PgDog is a connection pooler between PostgREST and PostgreSQL. It runs `pgdog.re
 | The `LISTEN` connection of PostgREST | The primary | PgDog never gives a read/write session, so PostgREST connects to the `-rw` Service itself. |
 | A read while no standby can serve | The primary | The read still succeeds. |
 
-PgDog pools transactions, so many PostgREST connections share a few PostgreSQL backends. The pool uses the `serving` login. PgDog doesn't measure the lag of a standby. CNPG takes a standby that's behind `cnpg.maxReplicaLag` out of the `-ro` Service. See [Topology](../operations/topology.md) for the failure behavior.
+PgDog pools transactions, so many PostgREST connections share a few PostgreSQL backends. The pool uses the `serving` login. PgDog reads the log position of each standby and sends no read to a standby that's more than 16 MiB behind. CNPG removes the same standby from the `-ro` Service. See [Topology](../operations/topology.md) for the failure behavior.
 
 ## DuckLake read path
 
@@ -105,5 +105,5 @@ The writer writes the Parquet files before it commits the snapshot, so a catalog
 <!-- nav:start -->
 ---
 
-[Previous: Architecture](index.md) | [Next: Sync layer](sync.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Architecture](./index.md) | [Next: Sync layer](./sync.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

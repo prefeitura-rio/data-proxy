@@ -4,7 +4,7 @@ The sync layer copies the tables of the source into DuckLake. It also keeps the 
 
 ## Workflows
 
-Each row of the table names one workflow or step, its work, and its result.
+Each row of the table names one workflow or step, its work and its result.
 
 | Component | Work | Result |
 | --- | --- | --- |
@@ -31,19 +31,19 @@ A dump task writes these lines:
 | `Dump started` | `task_id` |
 | `Extraction started` | `task_id`, `paths` |
 | `Source described` | `task_id`, `columns` |
-| `Partition written` | `task_id`, `path`, `part`, `of`, `rows`, `bytes`, `seconds` |
+| `Partition written` | `task_id`, `path`, `partition_number`, `partition_count`, `rows`, `bytes`, `seconds` |
 | `Extraction attempt failed` | `task_id`, `error`. It's a warning, and each retry of the step writes one. |
 | `Extraction completed`, `Dump completed` | `task_id`, and `status` for the second line. |
 
-A publish writes `Publish started`, `DuckLake commit started`, one `Table published` for each table, and `DuckLake commit completed` with `published_tables`, `failed_paths` and `snapshot_id`.
+A publish writes `Publish started`, `DuckLake commit started`, one `Table published` for each table and `DuckLake commit completed` with `published_tables`, `failed_paths` and `snapshot_id`.
 
 ## Scaling and access
 
-KEDA reads the length of the DBOS queues in the application database and scales the sync workers. The sync ServiceAccount can read pods and CronJobs, and it can create and watch Jobs, in its namespace. It has no other rights. The workflow recovery needs the pod list, and the provision step needs the CronJob and the Jobs.
+KEDA reads the length of the DBOS queues in the application database and scales the sync workers. The sync ServiceAccount can read pods and CronJobs, and it can create and watch Jobs, in its namespace. When the Swagger UI is on, it can also read and patch one ConfigMap, the schema list of that page. It has no other rights. The workflow recovery needs the pod list, the provision step needs the CronJob and the Jobs, and the step `publish_swagger_schemas` needs the ConfigMap.
 
 ## Sync sequence
 
-The diagram shows one sync run, from the start to the cleanup. It covers provisioning, planning, the dump tasks, seeding the views, publishing each schema, and the reload of PostgREST.
+The diagram shows one sync run, from the start to the cleanup. It covers provisioning, planning, the dump tasks, the views, publication and the reload of PostgREST.
 
 ```mermaid
 %% Sync run sequence
@@ -137,5 +137,5 @@ See [DuckLake read path](serving.md#ducklake-read-path) for how a catalog reache
 <!-- nav:start -->
 ---
 
-[Previous: Serving layer](serving.md) | [Next: Console layer](console.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Serving layer](./serving.md) | [Next: Console layer](./console.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

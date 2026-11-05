@@ -18,7 +18,6 @@ Each rule is one line: `- **PY-07** The rule. [must, ruff]`.
 | [Principles](#principles) | GEN | Every file, and the state of the system |
 | [Logs](#logs) | LOG | Every language that logs |
 | [Tests](#tests) | TEST | Every test |
-| [k6](#k6) | K6 | `k6/**` |
 | [Python](#python) | PY | `sync/**/*.py` |
 | [Lua](#lua) | LUA | The proxy modules, the specs, the design, the types and the comments |
 | [Nushell](#nushell) | NU | `scripts/*.nu`, `helm/files/scripts/*.nu` |
@@ -64,8 +63,8 @@ Applies to: all first-party code that logs from a deployment.
 ### Logs in every language
 
 - **LOG-01** Write lifecycle phrases that a person can read: `<Component> <action> <state>: <relevant context>`. [must, review]
-- **LOG-02** Use `debug` for probe detail, `info` for normal lifecycle changes, `warning` for retries or skipped optional work, and `error` only before a terminal error. [must, review]
-- **LOG-03** Never log credentials, tokens, connection strings, request bodies, cache values, SQL values, or query strings. [must, review]
+- **LOG-02** Use `debug` for probe detail, `info` for normal lifecycle changes, `warning` for retries or skipped optional work and `error` only before a terminal error. [must, review]
+- **LOG-03** Never log credentials, tokens, connection strings, request bodies, cache values, SQL values or query strings. [must, review]
 - **LOG-04** Don't use `print` for production logs. A documented machine-output protocol may write to stdout when callers parse it. [must, ruff]
 - **LOG-05** Keep the output of external tools as it is. Don't parse or reformat the output of `rclone`, `psql`, `pg_dump`, `duckdb` or `kubectl`. [must, review]
 
@@ -89,10 +88,9 @@ logger.info("DuckLake commit completed: published_tables=%d", len(published_tabl
 - **LOG-10** Use the fixed messages in `constants.log.messages`, and add the context as `name=value` pairs. [must, review]
 - **LOG-11** Use `log.note` for an event that has no request, such as a timer or the Redis store. [must, review]
 
-### Logs in Nushell and k6
+### Logs in Nushell
 
 - **LOG-12** In Nushell, use `std/log` directly. A command in `scripts/` may use `print` for machine output, such as a CI output line. It may also use `print` for a log stream that it shows to a person. [must, review]
-- **LOG-13** In k6, write log lines with `info` and `warn` from `k6/lib/log.js`, with an event name and `key=value` fields. Never use `console`. [must, review]
 
 ## Tests
 
@@ -130,7 +128,7 @@ Applies to: every test, in `sync/`, `proxy/`, `console/`, `helm/` and `k6/`.
 - **TEST-16** Put feature files in `sync/tests/integration/features/` and step definitions in `sync/tests/integration/steps/`. [must, review]
 - **TEST-17** Assert exact values. Don't use a substring check, except a regex against generated text when an exact assertion is brittle. [must, review]
 - **TEST-18** Don't assert the full contents of a registry that grows. [must, review]
-- **TEST-19** Don't test field storage, defaults, or "no exception was raised." [must, review]
+- **TEST-19** Don't test field storage, defaults or "no exception was raised." [must, review]
 - **TEST-20** Fix a flaky test at its cause, and add a test that reproduces it. Never add a retry. [must, review]
 
 ```python
@@ -152,31 +150,6 @@ A test module that has only tests, and a helper that lives in a module of `helpe
 ✅ sync/tests/unit/test_plan.py     def test_plan_groups_changed_tables(): ...
 ❌ sync/tests/unit/test_plan.py     def build_plan(...)   # a builder in a test module
 ```
-
-## k6
-
-Applies to: `k6/**`.
-
-### Layout
-
-- **K6-01** Put every helper in a module of `k6/lib/`, and let `k6/lib/index.js` re-export it. [must, review]
-- **K6-02** Keep only the steps in a scenario file. Keep only the orchestration and the iteration functions in `load.js`. [must, review]
-- **K6-03** Make one check assert one condition. [must, review]
-- **K6-04** Put a blank line between two statements when one of them spans several lines. [should, review]
-
-### Types
-
-- **K6-05** Write the k6 files as plain JavaScript with JSDoc types, and let `tsc` check them. [must, review]
-- **K6-06** Declare all types in `k6/lib/types.d.ts`: the k6 modules and the shapes of the code. [must, review]
-- **K6-07** Use a shape such as `Step` or `TokenData` in a `@param` without an import. The shapes are global types. [must, review]
-- **K6-08** Write a new type in `types.d.ts`, and give every function parameter a `@param` type. [must, review]
-- **K6-09** Keep `types.d.ts` a script. A top-level `import` or `export` turns it into a module, and the declarations of the k6 modules fail. [must, review]
-- **K6-10** Write `import("k6/http").Response` inside `types.d.ts` when it needs a k6 type. [must, review]
-- **K6-11** Never give a `.d.ts` file the name of a `.js` file in the same folder, because `tsc` then skips the `.js` file. [must, review]
-- **K6-12** Type external data at its source with a type guard such as `isRecord` or `recordsOf` for JSON. [must, review]
-- **K6-13** Don't cast. Read an unknown value with `String`, `Number` or a type guard. [must, code]
-
-See [Logs](#logs) for the log lines of k6 (LOG-13).
 
 ## Python
 
@@ -218,7 +191,7 @@ class PlanningContext:
 
 ### Tooling
 
-- **PY-14** Keep `sync:lint:py` green. It runs `ruff` with `select = ["ALL"]`, `pyrefly` with `preset = "all"`, `complexipy` with a limit of 10 for each function, and `vulture`. [must, ruff+pyrefly]
+- **PY-14** Keep `sync:lint:py` green. It runs `ruff` with `select = ["ALL"]`, `pyrefly` with `preset = "all"`, `complexipy` with a limit of 10 for each function and `vulture`. [must, ruff+pyrefly]
 - **PY-15** Use `cast` once, in `templates.py`, where it marks the text of a repository template as `LiteralString`. [must, pyrefly]
 - **PY-16** Write one long string and not an implicit string concatenation. `E501` is off. [must, ruff]
 
@@ -235,7 +208,7 @@ The proxy is OpenResty and Lua code in `proxy/src/proxy`. It runs in the pinned 
 #### Layout and dependencies
 
 - **LUA-01** Keep one named module for each concern: `cache`, `config`, `constants`, `handler`, `limiter`, `log`, `main`, `parser`, `postgrest`, `redis`, `regex`, `request`, `response`, `schemas`, `settings`, `sync` and `utils`. [must, review]
-- **LUA-02** Write a module in this order: imports, local variables, local functions, classes, and the returned object (the module table, the functions on it, and `return`). [must, review]
+- **LUA-02** Write a module in this order: imports, local variables, local functions, classes and the returned object (the module table, the functions on it and `return`). [must, review]
 - **LUA-03** Put a local variable that needs a local function right after that function. [must, review]
 - **LUA-04** Declare the module table with the other local variables when nothing else needs it later. [should, review]
 - **LUA-05** Name modules `proxy.<name>`. Let `nginx.conf` load only `proxy.main`. [must, review]
@@ -271,7 +244,7 @@ The proxy is OpenResty and Lua code in `proxy/src/proxy`. It runs in the pinned 
 #### Checks
 
 - **LUA-31** Run `devenv --profile proxy tasks run proxy:lint:lua proxy:test:unit` before review. [must, devenv]
-- **LUA-32** Keep `proxy:lint:lua` green: `luacheck` (line length 120, complexity 10) with `lx lint`, and the LuaLS type check at the Hint level with no problems. [must, luacheck+luals]
+- **LUA-32** Keep `proxy:lint:lua` green: `luacheck` (line length 120, complexity 10) with `lx lint` and the LuaLS type check at the Hint level with no problems. [must, luacheck+luals]
 - **LUA-33** Let the git hook run `lx fmt` (StyLua), and use tabs. [must, stylua]
 - **LUA-34** Restore `proxy/lux.lock` with `git checkout -- proxy/lux.lock` after a sync that only reorders it. [should, review]
 - **LUA-35** Start the editor inside the devenv shell, so that LuaLS can read `LPEG_TYPES`. [should, review]
@@ -310,7 +283,7 @@ Applies to: `proxy/src/proxy/**/*.lua`.
 
 #### Penlight
 
-- **LUA-53** Use Penlight for data, strings and classes. Use `pl.List` for arrays, `pl.tablex` for maps and searches (`pairmap`, `find_if`, `foreach`, `update`), and `pl.stringx` for text (`strip`, `startswith`, `split`). [must, review]
+- **LUA-53** Use Penlight for data, strings and classes. Use `pl.List` for arrays, `pl.tablex` for maps and searches (`pairmap`, `find_if`, `foreach`, `update`) and `pl.stringx` for text (`strip`, `startswith`, `split`). [must, review]
 - **LUA-54** Cast every Penlight `require` to its module class: `pl.ClassModule`, `pl.ListClass`, `pl.tablex` and `pl.stringx`. Without the cast, LuaLS types the module from the rock source, which has no annotations. [must, luals]
 - **LUA-55** Make every class with `pl.class`. A module table is a namespace, not a class. [must, review]
 - **LUA-56** Declare the class type in the `.d.lua` file of its module, and derive it from `pl.Class`. Give the constructor an `---@overload` that returns the class type. [must, luals]
@@ -377,7 +350,7 @@ Nushell scripts run the Helm jobs and the local commands.
 
 - **NU-01** Declare input and output types. Don't use `any` when a concrete type exists. [must, review]
 - **NU-02** Use full flag names, such as `open --raw` and `save --force`. [must, nu-lint]
-- **NU-03** Use `where` to filter, `match` to dispatch, and `get --optional` for optional fields. [should, nu-lint]
+- **NU-03** Use `where` to filter, `match` to dispatch and `get --optional` for optional fields. [should, nu-lint]
 - **NU-04** Start a continuation line with the pipe, and put one step on each line. [must, review]
 - **NU-05** Read an optional variable with `$env.NAME? | default value`. [must, review]
 - **NU-06** Use `default {|| $env.NAME }` for a variable that a caller may not need, because `default $env.NAME` fails when the variable isn't set. [must, review]
@@ -487,7 +460,7 @@ Read each file from the top to the bottom. The main part of the file is the last
 2. Constants that the file uses more than once.
 3. Helper functions, each after the values it uses.
 4. Parts that the main block uses more than once, such as a `mkTaskChain` result.
-5. The main block: `profiles.<name>`, `processes`, or `services`.
+5. The main block: `profiles.<name>`, `processes` or `services`.
 
 - **NIX-30** Bind a name in `let` only if the file uses it at least twice. Write a value that the file uses once where it's used. [must, review]
 - **NIX-31** In a profile `module`, keep this order: `imports`, `env`, `packages`, `languages`, `scripts`, `git-hooks`, `tasks`, `enterTest`. [must, review]
@@ -504,7 +477,7 @@ Read each file from the top to the bottom. The main part of the file is the last
 - **NIX-38** Let a task that a process needs use `before`. Let a task that needs a running service use `after` and `wantedBy` with `utils.processTask "<name>"`. [must, review]
 - **NIX-39** Define the `<component>:test:int` tasks in `nix/profiles/integration.nix`, so the job that runs one fetches no tool of another profile. [must, review]
 - **NIX-40** Define a `<component>:test:unit` task in the unit profile of its component. [must, review]
-- **NIX-41** Use `execIfModified` on a build task, on a lint or unit task, and on a suite that starts services, with the input files from `utils.mkInputs`. [must, review]
+- **NIX-41** Use `execIfModified` on a build task, on a lint or unit task and on a suite that starts services, with the input files from `utils.mkInputs`. [must, review]
 - **NIX-42** List files and globs that end in an extension, never a folder or `dir/**`. Use `utils.mkGlobs` for the files of a folder. [must, devenv]
 - **NIX-43** Build a file from variables with the `files` option, and put it in the state folder with `utils.fileEntry`. Use a derivation only when the input is YAML or another format that Nix can't read. [must, review]
 - **NIX-44** Give a task that reads a generated file `after = [ "devenv:files" ]`. [must, review]
@@ -633,7 +606,7 @@ The console is a SvelteKit app in `console/ui/`. The sources of the rules are th
 ### Code
 
 - **TS-05** Use `strict` and `noUncheckedIndexedAccess`. Lint with the typescript-eslint `strictTypeChecked` and `stylisticTypeChecked` configurations. [must, eslint]
-- **TS-06** Don't use `any`, the non-null `!`, or a type assertion. Only `as const` is allowed. [must, eslint]
+- **TS-06** Don't use `any`, the non-null `!` or a type assertion. Only `as const` is allowed. [must, eslint]
 - **TS-07** Type a value where it enters the program, with a valibot schema. Examples are a PostgREST answer, a response of the identity provider, a cookie, a request body, a form field and a message from a frame. [must, review]
 - **TS-08** Derive the type with `v.InferOutput`. `lib/types.ts` has the schemas of the rows, so a column that a view loses fails at the first read, with the field in the message. [should, review]
 - **TS-09** Use `type` for object types. Use `interface` only where a library needs declaration merging, such as `App.Locals` and `Window`. [must, eslint]
@@ -659,9 +632,9 @@ The console is a SvelteKit app in `console/ui/`. The sources of the rules are th
 - **TS-17** Put a scenario that changes data that others read in `tests/features/shared/`. [must, review]
 - **TS-18** Tag a scenario that adds a schema or a table `@new-schema`, write each name with the step parameter `{name}`, and sign in as `web_root`. The parameter adds a random suffix. [must, review]
 - **TS-19** Wait for "Saved." with `saved()`, or wait for the row that the action creates. A toast that an earlier step left on screen matches a later wait for the same text. [must, review]
-- **TS-20** Wait for a condition, never for a time. Use a web-first assertion (`expect(...).toBeVisible()`), `expect.poll`, or the `hydrated` helper. [must, review]
+- **TS-20** Wait for a condition, never for a time. Use a web-first assertion (`expect(...).toBeVisible()`), `expect.poll` or the `hydrated` helper. [must, review]
 - **TS-21** Wait a fixed time only to check that something doesn't happen. [must, review]
-- **TS-22** Write no test for the notebooks (`console/notebooks/`): no unit test, no browser test, and no scenario that opens the notebook. [must, review]
+- **TS-22** Write no test for the notebooks (`console/notebooks/`): no unit test, no browser test and no scenario that opens the notebook. [must, review]
 - **TS-23** Hand state from one step to the next through the typed `world` fixture in `console/ui/tests/fixtures.ts`. Don't attach it to `page`. [must, review]
 
 ## Svelte
@@ -694,7 +667,7 @@ Applies to: `console/ui/src/**/*.svelte`.
 - **SV-14** Ask for a confirmation before a delete (`FormDialog` with `danger`), and hide the row until the answer comes (`begin` of the `Submission`). [must, review]
 - **SV-15** Use `FilterForm` for the filters of a list and `Time` for a time. Don't write a timer in a page. [must, review]
 - **SV-16** Reload live data with `poll(key)` and `depends(key)` from `lib/poll.svelte.ts`. [must, review]
-- **SV-17** Style with Tailwind and DaisyUI classes. Import icons by name from `@lucide/svelte`. [must, review]
+- **SV-17** Style with Tailwind and DaisyUI classes. Use theme colors such as `bg-base-100`, `StatusBadge` for a status, `PageHeader` for a title and `Section` for a block. Import icons by name from `@lucide/svelte`. [must, review]
 
 ## Notebooks
 
@@ -720,21 +693,22 @@ Applies to: `docs/**`, `README.md`, `AGENTS.md`, `STYLEGUIDE.md`.
 - **DOC-04** Use the fixed terms `access policy` (the table), `row policy` (the PostgreSQL rule) and `sync run`. [must, review]
 - **DOC-05** Write `contains`, `stores` or `has`, and not `holds`. Write `immediately`, and not `at once`. Vale enforces the word swaps and the ban on semicolons. [must, vale]
 - **DOC-06** Use contractions in Markdown. The Python and Nushell checks turn that rule off, because messages keep their full forms. [must, vale]
+- **DOC-39** Write a list as `a, b and c`, with no comma before `and` or `or`. Keep the comma when `and` joins two clauses. [should, review]
 - **DOC-07** Rephrase a sentence that Vale flags, such as the acronym for a web address, some adverbs and acronyms in headings. Don't ignore the message. [must, vale]
 - **DOC-08** Use generic examples unless a real value is required. [should, review]
 - **DOC-09** Say "the source" for the product, and name BigQuery only on a page about the BigQuery adapter or for a value that's specific to it. [must, review]
-- **DOC-10** Verify claims against the source, the Helm templates, the tests, or a command that you ran. [must, review]
+- **DOC-10** Verify claims against the source, the Helm templates, the tests or a command that you ran. [must, review]
 
 #### Pages and links
 
 - **DOC-11** Write the documents in `docs/`. The home page is `docs/index.md`, and each folder has an `index.md` that lists its pages. [must, review]
 - **DOC-12** Name a file with one word, and use two words only if one word is unclear. [should, review]
 - **DOC-13** Give each topic one page, and link to it from the other pages. Keep a page near 800 words. `docs:lint:style` fails above 1000, unless the page is on a list in `scripts/docs.nu`. [must, devenv]
-- **DOC-14** Link to another page with a relative Markdown link. Write the path to the `.md` file and the slug of the heading (lower case, spaces as hyphens), as in `[Roles](../security/roles.md#roles)`. Link to a folder with its `index.md`. [must, devenv]
+- **DOC-14** Link to a page with a relative link such as `[Roles](../security/roles.md#roles)`. Write the heading slug in lower case with hyphens. Start a link in the same folder with `./`. Link to a folder with its `index.md`. [must, devenv]
 - **DOC-15** Run `docs:lint:links` after you move a page or a heading. Marksman completes and follows the links in the editor, but it doesn't flag a broken one. [must, devenv]
 - **DOC-16** End every page with the navigation block (Previous, Next, Index and Home) that `docs:build:nav` writes. Don't edit the block by hand. [must, devenv]
 - **DOC-17** Put the page order in `docs/.nav.json`. Add a new page to that file, and link it from its parent page. [must, devenv]
-- **DOC-18** Expect `docs:lint:nav` to fail on a missing page, a page without a link from its parent, or an old navigation block. [must, devenv]
+- **DOC-18** Expect `docs:lint:nav` to fail on a missing page, a page without a link from its parent or an old navigation block. [must, devenv]
 - **DOC-19** Don't write by hand a table that a file already defines. `docs/security/roles.md` has a role table that `docs:build:roles` writes from `rbac.toml`, and `docs:lint:roles` checks it. [must, devenv]
 - **DOC-20** Run `nix:lint:cmd` after you rename a task or a profile. It fails on a `devenv` command in a page that names a profile or a task that doesn't exist. [must, devenv]
 
@@ -754,17 +728,18 @@ Applies to: `docs/**/*.md`.
 - **DOC-24** Give a diagram one owner page, and write it there as a `mermaid` fence. Other pages link to the owner. [must, review]
 - **DOC-25** Give every diagram a short name, and write it as the first line of the fence, in a `%%` comment. Don't add a caption line under it. [must, review]
 - **DOC-26** Draw one context diagram on `docs/index.md` and one overview diagram of the whole system on `docs/architecture/index.md`. [must, review]
-- **DOC-27** Name a node with letters, digits and underscores, and don't use a Mermaid keyword such as `call`, `end`, `class` or `style` as a node name. [must, review]
+- **DOC-27** Name a node with letters, digits and underscores, and don't use a keyword such as `call` or `end` as a name. Don't start a label with `1.`, because Mermaid reads a list. [must, review]
 - **DOC-28** Pick the diagram type from the question that the page answers, as the next table shows. Use a table when a diagram adds nothing. [must, review]
 - **DOC-36** Start a page with one or two sentences that say what the page is for. Show the diagram or the steps next, and put reference tables last. [should, review]
 - **DOC-37** Keep a diagram to about 12 boxes. Split a larger one, or draw the detail on the page of the part. [should, review]
 - **DOC-38** Write a box label as a noun phrase and an edge label as a verb phrase. [should, review]
+- **DOC-40** Keep a `subgraph` title to about 15 characters. The browser wraps a longer title inside the box and draws it over the first node. Put the detail in a node or in the text. [must, review]
 
 | Question | Mermaid type | Example |
 | --- | --- | --- |
 | What happens in order, between parties? | `sequenceDiagram` | `api-read-sequence` |
 | Which path does a request take, and where does it branch? | `flowchart` with `{}` decision nodes | `authorization-checks` |
-| Which states exist, and how does a thing move between them? | `flowchart` with labeled edges | `run-statuses` |
+| Which states exist, and how does a thing move between them? | `stateDiagram-v2` | `run-statuses` |
 | What runs where? | Nested `subgraph` blocks, and `[( )]` for storage | `deployment-topology` |
 | Which parts exist and how do they relate? | Nested `subgraph` blocks and edges | `system-components`, `system-context` |
 | What's in each folder or set? | `flowchart` with nodes and no edges | `repository-code-map` |
@@ -773,10 +748,10 @@ Applies to: `docs/**/*.md`.
 #### How to draw it
 
 - **DOC-29** Write a diagram in Mermaid, in a `mermaid` fence on its owner page. Don't write a diagram in another language, and don't commit an image of it. [must, review]
-- **DOC-30** Keep `all-tables` on `docs/model.md` as one `erDiagram` that repeats the three table sets. Change a table in its own diagram and in `all-tables`. [must, review]
+- **DOC-30** Don't edit a diagram of `docs/model.md`. `docs:build:model` writes it from the database with `tbls`, and you commit `docs/diagrams/` and the page. [must, devenv]
 - **DOC-31** Preview a diagram with `devenv --profile default up docs`. GitHub and the MkDocs script `docs/javascripts/mermaid.js` render each fence in the browser. [should, review]
 - **DOC-33** Set no color in a diagram unless the color carries a meaning, so that GitHub shows it in the theme of the reader. [must, review]
-- **DOC-34** Draw a database diagram with `erDiagram` entities, and take the columns from the SQL files. [must, review]
+- **DOC-34** Add a link that the database has no foreign key for to `docs/.tbls.yaml`, and not to a diagram. [must, review]
 
 ## Git
 
@@ -797,7 +772,7 @@ Applies to: every commit.
 
 ### Releases
 
-- **GIT-06** Expect these release levels: a type with `!` bumps major, `feat:` bumps minor, `fix:` bumps patch, and all other types create no release. `cog` applies the rules, and `cog.toml` has its settings. [must, cog]
+- **GIT-06** Expect these release levels: a type with `!` bumps major, `feat:` bumps minor, `fix:` bumps patch and all other types create no release. `cog` applies the rules, and `cog.toml` has its settings. [must, cog]
 - **GIT-07** Use `!` only with `feat` or `fix` release commits. Explain the migration in the body. Don't use a `BREAKING CHANGE` footer. [must, cog]
 - **GIT-08** Don't edit `CHANGELOG.md` by hand. The release step writes it from the commits, and it lists only breaking changes, features and fixes. [must, cog]
 
@@ -819,5 +794,5 @@ Migration:
 <!-- nav:start -->
 ---
 
-[Previous: Query tab scope](console/scope.md) | [Next: Development](dev/index.md) | [Home](index.md)
+[Previous: Query tab](console/query.md) | [Next: Development](dev/index.md) | [Home](./index.md)
 <!-- nav:end -->

@@ -13,12 +13,12 @@ Use this page when a request fails or returns no rows. [Request outcomes](permis
 | Results differ between requests               | Check `X-Source`, `X-DuckLake-Snapshot`, and `X-Cache`. Every source uses the same JWT and row-level security (RLS) rules. |
 | `/access_policy` appears cached               | It must never be cached. Check nginx configuration and response headers.                                |
 
-See [Using the API](../using.md), [Database Schema](../database.md), and [Proxy](../proxy/index.md) for related details.
+See [Using the API](../using.md), [Database Schema](../database.md) and [Proxy](../proxy/index.md) for related details.
 
 ---
 
 <!-- nav:start -->
 ---
 
-[Previous: Tokens](tokens.md) | [Next: Console](../console/index.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Tokens](./tokens.md) | [Next: Console](../console/index.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

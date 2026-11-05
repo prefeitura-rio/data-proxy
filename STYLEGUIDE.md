@@ -2,7 +2,7 @@
 
 Rules for this repository. Follow an existing pattern before you add a new one.
 
-The rules live in [one page with a section for each area](docs/style.md). Read the section for the files that you change. [AGENTS.md](AGENTS.md) maps each path to its section.
+The rules live in [one page with a section for each area](docs/style.md). Read the section for the files that you change. [AGENTS.md](./AGENTS.md) maps each path to its section.
 
 ## How to read a rule
 

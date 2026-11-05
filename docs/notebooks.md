@@ -53,5 +53,5 @@ The server sends a Content Security Policy. The page can send data only to itsel
 <!-- nav:start -->
 ---
 
-[Previous: Glossary](glossary.md) | [Next: SQL Templates](sql.md) | [Home](index.md)
+[Previous: Glossary](./glossary.md) | [Next: SQL Templates](./sql.md) | [Home](./index.md)
 <!-- nav:end -->

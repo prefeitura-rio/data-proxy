@@ -2,9 +2,9 @@
 
 This page explains what the proxy caches and how it builds the cache key. A token with another role never reads an answer that another token cached.
 
-- The proxy stores only non-empty `GET` answers with status 200. An empty answer can mean three things: access was denied, the data isn't published yet, or the access policy changed. The proxy never stores it.
+- The proxy stores only non-empty `GET` answers with status 200. An empty answer can mean three things: access was denied, the data isn't published yet or the access policy changed. The proxy never stores it.
 - An entry stores the body with `X-Source` and `X-DuckLake-Snapshot`, so a cache hit reports what produced the answer. `X-Cache` tells a hit from a miss.
-- OpenResty doesn't cache ranged, write, oversized, or non-JSON responses. `/access_policy` and its subpaths are never cached.
+- OpenResty doesn't cache ranged, write, oversized or non-JSON responses. `/access_policy` and its subpaths are never cached. The OpenAPI document at `/` isn't cached either, because it changes when PostgREST reloads the schema after the cache flush.
 - Cache reads use the Redis reader endpoint. Cache writes use the Redis writer endpoint.
 - The sync service flushes the cache after each sync run.
 - The key has the parts in the table below, and the table also has the two counters that keep the cache current.
@@ -29,7 +29,7 @@ The document of `console.config()` lists a scope for each subject of the access 
 
 The document has no scopes if a schema reads its rows by another claim than `preferred_username`, because the proxy names a subject by that claim. A change of one grant moves `rbac.revision`, so the next document has new scopes and every answer has a new key. The document grows with the number of subjects, about 60 bytes for each, and the shared dictionary `proxy_settings` has 4 MB for it.
 
-The revision comes from the document, not from Redis. A flush of the cache, a restart of the proxy, and a new proxy pod all leave it right. The proxy finds a change that happened while no proxy ran when it reads the document.
+The revision comes from the document, not from Redis. A flush of the cache, a restart of the proxy and a new proxy pod all leave it right. The proxy finds a change that happened while no proxy ran when it reads the document.
 
 ## The lock
 
@@ -78,5 +78,5 @@ See [Using the API](../using.md#response-source-and-cache) for the response head
 <!-- nav:start -->
 ---
 
-[Previous: Query pushdown](pushdown.md) | [Next: Retries and limits](limits.md) | [Index](index.md) | [Home](../index.md)
+[Previous: Query pushdown](./pushdown.md) | [Next: Retries and limits](./limits.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->
