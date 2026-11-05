@@ -2,6 +2,23 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.12.0 - 2026-11-05
+
+### Features
+
+- **ci**: release the Terraform provider on its own tag (7627704)
+- **ci**: show the versions in the promote job (8688c87)
+
+### Fixes
+
+- **sync**: stop the provision Job from raising UnexpectedJob (#24) (be5cfa1)
+- **terraform**: update the Go dependencies with advisories [DEV-332] (#23) (596ab56)
+- **nix**: run the acceptance tests with OpenTofu (3dbfcd0)
+- **nix**: pick one stdenv in the terraform-acc profile (0622b44)
+
+
+- - -
+
 ## helm-v2.11.0 - 2026-11-05
 
 ### Features
