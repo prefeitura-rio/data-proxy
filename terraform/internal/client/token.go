@@ -13,26 +13,21 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 )
 
-// RenewBefore is how long before its expiry the token source fetches a new token, so that a request never
-// reaches the API with a token that expires on the way.
+// RenewBefore is how long before its expiry the token source fetches a new token.
 const RenewBefore = 30 * time.Second
 
-// ClientCredentials configures the OAuth 2.0 client credentials grant against the identity provider.
-type ClientCredentials struct {
-	// TokenURL is the address of the token endpoint, such as the one of a Keycloak realm.
-	TokenURL string
-	// ClientID is the ID of the confidential client.
-	ClientID string
-	// ClientSecret is the secret of the client.
+// Credentials configures the OAuth 2.0 client credentials grant. Empty Scopes means the default scopes of
+// the client.
+type Credentials struct {
+	TokenURL     string
+	ClientID     string
 	ClientSecret string
-	// Scopes are the scopes to request with the token. Empty means the default scopes of the client.
-	Scopes []string
+	Scopes       []string
 }
 
-// ClientCredentialsSource fetches a token with the client credentials grant, keeps it, and fetches a new one
-// RenewBefore its expiry. The identity provider gives tokens that last 5 minutes, and a Terraform run can take
-// longer. It's safe for concurrent use: one caller fetches, and the others wait for its token.
-type ClientCredentialsSource struct {
+// CredentialsSource keeps a token from the client credentials grant and renews it RenewBefore its expiry.
+// It is safe for concurrent use: one caller fetches, and the others wait for its token.
+type CredentialsSource struct {
 	config *clientcredentials.Config
 	http   *http.Client
 	now    func() time.Time
@@ -42,11 +37,10 @@ type ClientCredentialsSource struct {
 	expiry time.Time
 }
 
-var _ TokenSource = (*ClientCredentialsSource)(nil)
+var _ TokenSource = (*CredentialsSource)(nil)
 
-// NewClientCredentialsSource returns a token source for the credentials.
-// With a nil httpClient, it uses a client with DefaultTimeout.
-func NewClientCredentialsSource(credentials ClientCredentials, httpClient *http.Client) (*ClientCredentialsSource, error) {
+// NewCredentialsSource returns a token source. A nil httpClient means a client with DefaultTimeout.
+func NewCredentialsSource(credentials Credentials, httpClient *http.Client) (*CredentialsSource, error) {
 	parsed, err := url.Parse(credentials.TokenURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse the token URL: %w", err)
@@ -79,12 +73,11 @@ func NewClientCredentialsSource(credentials ClientCredentials, httpClient *http.
 		Scopes:       append([]string(nil), credentials.Scopes...),
 	}
 
-	return &ClientCredentialsSource{config: config, http: httpClient, now: time.Now}, nil
+	return &CredentialsSource{config: config, http: httpClient, now: time.Now}, nil
 }
 
-// Token returns the access token that it keeps, or fetches a new one when the kept token expires within
-// RenewBefore. The context limits the fetch.
-func (s *ClientCredentialsSource) Token(ctx context.Context) (string, error) {
+// Token returns the kept access token, or fetches a new one when it expires within RenewBefore.
+func (s *CredentialsSource) Token(ctx context.Context) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -103,8 +96,8 @@ func (s *ClientCredentialsSource) Token(ctx context.Context) (string, error) {
 	return s.token, nil
 }
 
-// valid reports whether the kept token can still be sent. A token without an expiry never expires.
-func (s *ClientCredentialsSource) valid() bool {
+// valid treats a token without an expiry as one that never expires.
+func (s *CredentialsSource) valid() bool {
 	if s.token == "" {
 		return false
 	}

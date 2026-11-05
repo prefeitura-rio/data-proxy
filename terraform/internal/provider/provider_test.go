@@ -98,7 +98,7 @@ func TestSchemaServedOverProtocol(t *testing.T) {
 	}
 }
 
-// model builds a provider block. A nil string pointer leaves the attribute out, and nil scopes leave the list out.
+// model builds a provider block. A nil string leaves the attribute out, and nil scopes leave the list out.
 func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) providerModel {
 	text := func(value *string) types.String {
 		if value == nil {
@@ -128,6 +128,7 @@ func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) 
 	}
 }
 
+// ptr returns a pointer to the value.
 func ptr(value string) *string {
 	return &value
 }
@@ -139,6 +140,7 @@ type diagnostic struct {
 	detail  string
 }
 
+// diagnosticsOf keeps the path, the summary and the detail of each diagnostic.
 func diagnosticsOf(diagnostics diag.Diagnostics) []diagnostic {
 	var got []diagnostic
 
@@ -155,6 +157,7 @@ func diagnosticsOf(diagnostics diag.Diagnostics) []diagnostic {
 	return got
 }
 
+// fullEnv is an environment that sets every attribute of the provider.
 var fullEnv = map[string]string{
 	EnvEndpoint:     "https://env.example.com",
 	EnvTokenURL:     "https://id.env.example.com/token",
@@ -167,7 +170,7 @@ func TestReadSettings(t *testing.T) {
 	hcl := model(ptr("https://hcl.example.com"), ptr("https://id.hcl.example.com/token"), ptr("hcl-client"), ptr("hcl-secret"), []string{"hcl"})
 	hclSettings := settings{
 		endpoint: "https://hcl.example.com",
-		credentials: client.ClientCredentials{
+		credentials: client.Credentials{
 			TokenURL:     "https://id.hcl.example.com/token",
 			ClientID:     "hcl-client",
 			ClientSecret: "hcl-secret",
@@ -182,24 +185,24 @@ func TestReadSettings(t *testing.T) {
 	unknownScopes.Scopes = types.ListUnknown(types.StringType)
 
 	tests := []struct {
-		id    string
+		name  string
 		model providerModel
 		env   map[string]string
 		want  settings
 		diags []diagnostic
 	}{
 		{
-			id:    "every attribute in the block",
+			name:  "every attribute in the block",
 			model: hcl,
 			want:  hclSettings,
 		},
 		{
-			id:    "every attribute from the environment",
+			name:  "every attribute from the environment",
 			model: model(nil, nil, nil, nil, nil),
 			env:   fullEnv,
 			want: settings{
 				endpoint: "https://env.example.com",
-				credentials: client.ClientCredentials{
+				credentials: client.Credentials{
 					TokenURL:     "https://id.env.example.com/token",
 					ClientID:     "env-client",
 					ClientSecret: "env-secret",
@@ -208,18 +211,18 @@ func TestReadSettings(t *testing.T) {
 			},
 		},
 		{
-			id:    "the block takes precedence over the environment",
+			name:  "the block takes precedence over the environment",
 			model: hcl,
 			env:   fullEnv,
 			want:  hclSettings,
 		},
 		{
-			id:    "the environment fills only what the block leaves out",
+			name:  "the environment fills only what the block leaves out",
 			model: model(ptr("https://hcl.example.com"), nil, ptr("hcl-client"), nil, nil),
 			env:   fullEnv,
 			want: settings{
 				endpoint: "https://hcl.example.com",
-				credentials: client.ClientCredentials{
+				credentials: client.Credentials{
 					TokenURL:     "https://id.env.example.com/token",
 					ClientID:     "hcl-client",
 					ClientSecret: "env-secret",
@@ -228,12 +231,12 @@ func TestReadSettings(t *testing.T) {
 			},
 		},
 		{
-			id:    "an empty scope list in the block takes precedence over the environment",
+			name:  "an empty scope list in the block takes precedence over the environment",
 			model: model(ptr("https://hcl.example.com"), ptr("https://id.hcl.example.com/token"), ptr("hcl-client"), ptr("hcl-secret"), []string{}),
 			env:   fullEnv,
 			want: settings{
 				endpoint: "https://hcl.example.com",
-				credentials: client.ClientCredentials{
+				credentials: client.Credentials{
 					TokenURL:     "https://id.hcl.example.com/token",
 					ClientID:     "hcl-client",
 					ClientSecret: "hcl-secret",
@@ -242,11 +245,11 @@ func TestReadSettings(t *testing.T) {
 			},
 		},
 		{
-			id:    "no scopes anywhere",
+			name:  "no scopes anywhere",
 			model: model(ptr("https://hcl.example.com"), ptr("https://id.hcl.example.com/token"), ptr("hcl-client"), ptr("hcl-secret"), nil),
 			want: settings{
 				endpoint: "https://hcl.example.com",
-				credentials: client.ClientCredentials{
+				credentials: client.Credentials{
 					TokenURL:     "https://id.hcl.example.com/token",
 					ClientID:     "hcl-client",
 					ClientSecret: "hcl-secret",
@@ -255,10 +258,10 @@ func TestReadSettings(t *testing.T) {
 			},
 		},
 		{
-			id:    "every required value missing",
+			name:  "every required value missing",
 			model: model(nil, nil, nil, nil, nil),
 			env:   map[string]string{EnvScopes: "openid"},
-			want:  settings{credentials: client.ClientCredentials{Scopes: []string{"openid"}}},
+			want:  settings{credentials: client.Credentials{Scopes: []string{"openid"}}},
 			diags: []diagnostic{
 				{path: "endpoint", summary: "Missing endpoint", detail: "Set endpoint in the provider block or in the DATAPROXY_ENDPOINT environment variable."},
 				{path: "token_url", summary: "Missing token_url", detail: "Set token_url in the provider block or in the DATAPROXY_TOKEN_URL environment variable."},
@@ -267,12 +270,12 @@ func TestReadSettings(t *testing.T) {
 			},
 		},
 		{
-			id:    "an empty string in the block hides the environment",
+			name:  "an empty string in the block hides the environment",
 			model: model(ptr("https://hcl.example.com"), ptr("https://id.hcl.example.com/token"), ptr("hcl-client"), ptr(""), []string{"hcl"}),
 			env:   fullEnv,
 			want: settings{
 				endpoint: "https://hcl.example.com",
-				credentials: client.ClientCredentials{
+				credentials: client.Credentials{
 					TokenURL: "https://id.hcl.example.com/token",
 					ClientID: "hcl-client",
 					Scopes:   []string{"hcl"},
@@ -283,7 +286,7 @@ func TestReadSettings(t *testing.T) {
 			},
 		},
 		{
-			id:    "an unknown endpoint",
+			name:  "an unknown endpoint",
 			model: unknownEndpoint,
 			env:   fullEnv,
 			want: settings{
@@ -294,12 +297,12 @@ func TestReadSettings(t *testing.T) {
 			},
 		},
 		{
-			id:    "unknown scopes",
+			name:  "unknown scopes",
 			model: unknownScopes,
 			env:   fullEnv,
 			want: settings{
 				endpoint: hclSettings.endpoint,
-				credentials: client.ClientCredentials{
+				credentials: client.Credentials{
 					TokenURL:     "https://id.hcl.example.com/token",
 					ClientID:     "hcl-client",
 					ClientSecret: "hcl-secret",
@@ -312,7 +315,7 @@ func TestReadSettings(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			getenv := func(name string) string { return tt.env[name] }
 
 			got, diagnostics := readSettings(context.Background(), tt.model, getenv)
@@ -330,19 +333,19 @@ func TestReadSettings(t *testing.T) {
 
 func TestSplitScopes(t *testing.T) {
 	tests := []struct {
-		id    string
+		name  string
 		value string
 		want  []string
 	}{
-		{id: "empty", value: "", want: []string{}},
-		{id: "one scope", value: "openid", want: []string{"openid"}},
-		{id: "commas", value: "openid,profile", want: []string{"openid", "profile"}},
-		{id: "spaces", value: "openid profile", want: []string{"openid", "profile"}},
-		{id: "commas, spaces and empty items", value: " openid, ,profile\n email ", want: []string{"openid", "profile", "email"}},
+		{name: "empty", value: "", want: []string{}},
+		{name: "one scope", value: "openid", want: []string{"openid"}},
+		{name: "commas", value: "openid,profile", want: []string{"openid", "profile"}},
+		{name: "spaces", value: "openid profile", want: []string{"openid", "profile"}},
+		{name: "commas, spaces and empty items", value: " openid, ,profile\n email ", want: []string{"openid", "profile", "email"}},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			if got := splitScopes(tt.value); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("splitScopes(%q) = %q, want %q", tt.value, got, tt.want)
 			}
@@ -391,14 +394,15 @@ type apiRequest struct {
 	authorization  string
 }
 
-// fakeAPI is a fake identity provider and a fake PostgREST API. The identity provider answers with tokenStatus
-// and the token jwt-123. The API answers GET /rpc/permissions with status and body.
+// fakeAPI holds the addresses of a fake identity provider and a fake PostgREST API, and the requests that the API saw.
 type fakeAPI struct {
 	tokenURL string
 	endpoint string
 	requests *[]apiRequest
 }
 
+// newFakeAPI starts a fake identity provider and a fake PostgREST API. The identity provider answers with
+// tokenStatus and the token jwt-123, and the API answers GET /rpc/permissions with the status and the body.
 func newFakeAPI(t *testing.T, tokenStatus, status int, body string) fakeAPI {
 	t.Helper()
 
@@ -446,32 +450,30 @@ func TestConfigure(t *testing.T) {
 	const adminPermissions = `["read_api","read_config","create_config","edit_config","delete_config"]`
 
 	tests := []struct {
-		id          string
+		name        string
 		tokenStatus int
 		status      int
 		body        string
-		// change edits the attributes of a full provider block that points at the fake API.
-		change func(attributes map[string]tftypes.Value)
-		// env replaces the provider block with the environment that points at the fake API.
-		env      bool
-		diags    func(api fakeAPI) []diagnostic
-		requests int
+		change      func(attributes map[string]tftypes.Value)
+		env         bool
+		diags       func(api fakeAPI) []diagnostic
+		requests    int
 	}{
 		{
-			id:       "a full provider block",
+			name:     "a full provider block",
 			status:   http.StatusOK,
 			body:     adminPermissions,
 			requests: 1,
 		},
 		{
-			id:       "an empty provider block and the environment",
+			name:     "an empty provider block and the environment",
 			status:   http.StatusOK,
 			body:     `["read_config"]`,
 			env:      true,
 			requests: 1,
 		},
 		{
-			id: "a missing client secret",
+			name: "a missing client secret",
 			change: func(attributes map[string]tftypes.Value) {
 				attributes["client_secret"] = tftypes.NewValue(tftypes.String, nil)
 			},
@@ -482,7 +484,7 @@ func TestConfigure(t *testing.T) {
 			},
 		},
 		{
-			id:     "an endpoint without a scheme",
+			name:   "an endpoint without a scheme",
 			change: func(attributes map[string]tftypes.Value) { attributes["endpoint"] = text("data-proxy.example.com") },
 			diags: func(fakeAPI) []diagnostic {
 				return []diagnostic{
@@ -491,7 +493,7 @@ func TestConfigure(t *testing.T) {
 			},
 		},
 		{
-			id:     "a token URL without a scheme",
+			name:   "a token URL without a scheme",
 			change: func(attributes map[string]tftypes.Value) { attributes["token_url"] = text("id.example.com/token") },
 			diags: func(fakeAPI) []diagnostic {
 				return []diagnostic{
@@ -500,7 +502,7 @@ func TestConfigure(t *testing.T) {
 			},
 		},
 		{
-			id:          "the identity provider refuses the secret",
+			name:        "the identity provider refuses the secret",
 			tokenStatus: http.StatusUnauthorized,
 			diags: func(api fakeAPI) []diagnostic {
 				return []diagnostic{{
@@ -511,7 +513,7 @@ func TestConfigure(t *testing.T) {
 			},
 		},
 		{
-			id:     "the API refuses the token",
+			name:   "the API refuses the token",
 			status: http.StatusUnauthorized,
 			body:   `{"code":"PGRST301","message":"JWSError JWSInvalidSignature"}`,
 			diags: func(fakeAPI) []diagnostic {
@@ -524,7 +526,7 @@ func TestConfigure(t *testing.T) {
 			requests: 1,
 		},
 		{
-			id:     "a token without read_config",
+			name:   "a token without read_config",
 			status: http.StatusOK,
 			body:   `["read_policy","create_policy"]`,
 			diags: func(fakeAPI) []diagnostic {
@@ -537,7 +539,7 @@ func TestConfigure(t *testing.T) {
 			requests: 1,
 		},
 		{
-			id:     "a token without permissions",
+			name:   "a token without permissions",
 			status: http.StatusOK,
 			body:   `[]`,
 			diags: func(fakeAPI) []diagnostic {
@@ -552,7 +554,7 @@ func TestConfigure(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			tokenStatus := tt.tokenStatus
 			if tokenStatus == 0 {
 				tokenStatus = http.StatusOK

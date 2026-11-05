@@ -12,11 +12,13 @@ import (
 	"time"
 )
 
+// staticToken is a TokenSource that returns a fixed token and error.
 type staticToken struct {
 	token string
 	err   error
 }
 
+// Token returns the token and the error that the test set.
 func (s staticToken) Token(context.Context) (string, error) {
 	return s.token, s.err
 }
@@ -29,7 +31,8 @@ type captured struct {
 	body    string
 }
 
-// newServer starts a server that records each request and answers with the status and the body.
+// newServer starts a server that records each request and answers with the status and the body, and returns a
+// client for it.
 func newServer(t *testing.T, status int, response string) (*Client, *[]captured) {
 	t.Helper()
 
@@ -60,6 +63,7 @@ func newServer(t *testing.T, status int, response string) (*Client, *[]captured)
 	return c, &requests
 }
 
+// row is the shape of the rows that the test server returns.
 type row struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
@@ -67,7 +71,7 @@ type row struct {
 
 func TestRequests(t *testing.T) {
 	tests := []struct {
-		id          string
+		name        string
 		call        func(context.Context, *Client) error
 		method      string
 		uri         string
@@ -77,7 +81,7 @@ func TestRequests(t *testing.T) {
 		contentType string
 	}{
 		{
-			id: "get reads with Accept-Profile",
+			name: "get reads with Accept-Profile",
 			call: func(ctx context.Context, c *Client) error {
 				var rows []row
 
@@ -89,7 +93,7 @@ func TestRequests(t *testing.T) {
 			absent:  []string{"Content-Profile", "Prefer", "Content-Type"},
 		},
 		{
-			id: "get sends the profile of a data schema",
+			name: "get sends the profile of a data schema",
 			call: func(ctx context.Context, c *Client) error {
 				return c.Get(ctx, "alpha", "access_policies", nil, nil)
 			},
@@ -99,7 +103,7 @@ func TestRequests(t *testing.T) {
 			absent:  []string{"Content-Profile", "Prefer"},
 		},
 		{
-			id: "insert writes with Content-Profile and return=representation",
+			name: "insert writes with Content-Profile and return=representation",
 			call: func(ctx context.Context, c *Client) error {
 				return c.Insert(ctx, ConsoleProfile, "projects", row{ID: 1, Name: "a"}, nil)
 			},
@@ -111,7 +115,7 @@ func TestRequests(t *testing.T) {
 			contentType: "application/json",
 		},
 		{
-			id: "patch writes to the filtered rows",
+			name: "patch writes to the filtered rows",
 			call: func(ctx context.Context, c *Client) error {
 				return c.Patch(ctx, "alpha", "access_policies", []Filter{Eq("id", "7")}, map[string]string{"name": "b"}, nil)
 			},
@@ -123,7 +127,7 @@ func TestRequests(t *testing.T) {
 			contentType: "application/json",
 		},
 		{
-			id: "delete removes the filtered rows without a body",
+			name: "delete removes the filtered rows without a body",
 			call: func(ctx context.Context, c *Client) error {
 				return c.Delete(ctx, ConsoleProfile, "projects", []Filter{Eq("id", "7"), IsNull("parent_id")}, nil)
 			},
@@ -133,7 +137,7 @@ func TestRequests(t *testing.T) {
 			absent:  []string{"Accept-Profile", "Content-Type"},
 		},
 		{
-			id: "rpc posts the arguments with Content-Profile",
+			name: "rpc posts the arguments with Content-Profile",
 			call: func(ctx context.Context, c *Client) error {
 				return c.RPC(ctx, ConsoleProfile, "grant_role", map[string]string{"role": "viewer"}, nil)
 			},
@@ -145,7 +149,7 @@ func TestRequests(t *testing.T) {
 			contentType: "application/json",
 		},
 		{
-			id: "rpc without arguments posts an empty object",
+			name: "rpc without arguments posts an empty object",
 			call: func(ctx context.Context, c *Client) error {
 				return c.RPC(ctx, ConsoleProfile, "config", nil, nil)
 			},
@@ -157,7 +161,7 @@ func TestRequests(t *testing.T) {
 			contentType: "application/json",
 		},
 		{
-			id: "get rpc reads with Accept-Profile and no body",
+			name: "get rpc reads with Accept-Profile and no body",
 			call: func(ctx context.Context, c *Client) error {
 				return c.GetRPC(ctx, ConsoleProfile, "permissions", nil)
 			},
@@ -167,7 +171,7 @@ func TestRequests(t *testing.T) {
 			absent:  []string{"Content-Profile", "Prefer", "Content-Type"},
 		},
 		{
-			id: "permissions reads console.permissions with get",
+			name: "permissions reads console.permissions with get",
 			call: func(ctx context.Context, c *Client) error {
 				_, err := c.Permissions(ctx)
 
@@ -179,7 +183,7 @@ func TestRequests(t *testing.T) {
 			absent:  []string{"Content-Profile", "Prefer", "Content-Type"},
 		},
 		{
-			id: "table name is escaped in the path",
+			name: "table name is escaped in the path",
 			call: func(ctx context.Context, c *Client) error {
 				return c.Get(ctx, ConsoleProfile, "a/b", nil, nil)
 			},
@@ -190,7 +194,7 @@ func TestRequests(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			c, requests := newServer(t, http.StatusOK, `[]`)
 
 			if err := tt.call(context.Background(), c); err != nil {
@@ -266,25 +270,25 @@ func TestAcceptsAnEmptyResponse(t *testing.T) {
 
 func TestPermissions(t *testing.T) {
 	tests := []struct {
-		id       string
+		name     string
 		status   int
 		response string
 		want     []string
 		wantErr  string
 		kind     error
 	}{
-		{id: "the permissions of the token", status: http.StatusOK, response: `["read_sync","read_config"]`, want: []string{"read_sync", "read_config"}},
-		{id: "no permission", status: http.StatusOK, response: `[]`, want: []string{}},
-		{id: "a null result", status: http.StatusOK, response: `null`, want: []string{}},
+		{name: "the permissions of the token", status: http.StatusOK, response: `["read_sync","read_config"]`, want: []string{"read_sync", "read_config"}},
+		{name: "no permission", status: http.StatusOK, response: `[]`, want: []string{}},
+		{name: "a null result", status: http.StatusOK, response: `null`, want: []string{}},
 		{
-			id:       "a refused token",
+			name:     "a refused token",
 			status:   http.StatusUnauthorized,
 			response: `{"code":"PGRST301","message":"JWSError JWSInvalidSignature"}`,
 			wantErr:  "read the permissions of the token: postgrest: HTTP 401 PGRST301: JWSError JWSInvalidSignature",
 			kind:     ErrUnauthorized,
 		},
 		{
-			id:       "a result that isn't a list of names",
+			name:     "a result that isn't a list of names",
 			status:   http.StatusOK,
 			response: `{"read_config":true}`,
 			wantErr:  "read the permissions of the token: GET rpc/permissions: decode the response: json: cannot unmarshal object into Go value of type []string",
@@ -292,7 +296,7 @@ func TestPermissions(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			c, _ := newServer(t, tt.status, tt.response)
 
 			got, err := c.Permissions(context.Background())
@@ -326,19 +330,19 @@ func TestPermissions(t *testing.T) {
 
 func TestGetOne(t *testing.T) {
 	tests := []struct {
-		id       string
+		name     string
 		response string
 		want     row
 		noRow    bool
 		wantErr  string
 	}{
-		{id: "one row", response: `[{"id":3,"name":"c"}]`, want: row{ID: 3, Name: "c"}},
-		{id: "no row", response: `[]`, noRow: true, wantErr: "no row of projects matches the filters: no row"},
-		{id: "two rows", response: `[{"id":1},{"id":2}]`, wantErr: "2 rows of projects match the filters, want one"},
+		{name: "one row", response: `[{"id":3,"name":"c"}]`, want: row{ID: 3, Name: "c"}},
+		{name: "no row", response: `[]`, noRow: true, wantErr: "no row of projects matches the filters: no row"},
+		{name: "two rows", response: `[{"id":1},{"id":2}]`, wantErr: "2 rows of projects match the filters, want one"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			c, _ := newServer(t, http.StatusOK, tt.response)
 
 			var got row
@@ -374,79 +378,79 @@ func TestGetOne(t *testing.T) {
 
 func TestRefusesBeforeTheRequest(t *testing.T) {
 	tests := []struct {
-		id      string
+		name    string
 		tokens  TokenSource
 		call    func(context.Context, *Client) error
 		wantErr string
 	}{
 		{
-			id: "patch without a filter",
+			name: "patch without a filter",
 			call: func(ctx context.Context, c *Client) error {
 				return c.Patch(ctx, ConsoleProfile, "projects", nil, map[string]int{}, nil)
 			},
 			wantErr: "patch projects: give at least one filter",
 		},
 		{
-			id:      "delete without a filter",
+			name:    "delete without a filter",
 			call:    func(ctx context.Context, c *Client) error { return c.Delete(ctx, ConsoleProfile, "projects", nil, nil) },
 			wantErr: "delete from projects: give at least one filter",
 		},
 		{
-			id:      "empty profile",
+			name:    "empty profile",
 			call:    func(ctx context.Context, c *Client) error { return c.Get(ctx, "", "projects", nil, nil) },
 			wantErr: "the profile is empty",
 		},
 		{
-			id:      "empty table",
+			name:    "empty table",
 			call:    func(ctx context.Context, c *Client) error { return c.Get(ctx, ConsoleProfile, "", nil, nil) },
 			wantErr: "the table name is empty",
 		},
 		{
-			id:      "empty function",
+			name:    "empty function",
 			call:    func(ctx context.Context, c *Client) error { return c.RPC(ctx, ConsoleProfile, "", nil, nil) },
 			wantErr: "the function name is empty",
 		},
 		{
-			id:      "empty function of a get rpc",
+			name:    "empty function of a get rpc",
 			call:    func(ctx context.Context, c *Client) error { return c.GetRPC(ctx, ConsoleProfile, "", nil) },
 			wantErr: "the function name is empty",
 		},
 		{
-			id: "filter without a column",
+			name: "filter without a column",
 			call: func(ctx context.Context, c *Client) error {
 				return c.Get(ctx, ConsoleProfile, "projects", []Filter{Eq("", "1")}, nil)
 			},
 			wantErr: "filter 0 of projects has an empty column",
 		},
 		{
-			id: "delete filtered on a reserved parameter",
+			name: "delete filtered on a reserved parameter",
 			call: func(ctx context.Context, c *Client) error {
 				return c.Delete(ctx, ConsoleProfile, "projects", []Filter{Eq("columns", "x")}, nil)
 			},
 			wantErr: `filter 0 of projects: PostgREST reads "columns" as a parameter, not as a column`,
 		},
 		{
-			id: "patch filtered on a reserved parameter after a column",
+			name: "patch filtered on a reserved parameter after a column",
 			call: func(ctx context.Context, c *Client) error {
 				return c.Patch(ctx, ConsoleProfile, "projects", []Filter{Eq("id", "1"), IsNull("or")}, map[string]int{}, nil)
 			},
 			wantErr: `filter 1 of projects: PostgREST reads "or" as a parameter, not as a column`,
 		},
 		{
-			id: "get filtered on a reserved parameter",
+			name: "get filtered on a reserved parameter",
 			call: func(ctx context.Context, c *Client) error {
 				return c.Get(ctx, ConsoleProfile, "projects", []Filter{Eq("select", "*")}, nil)
 			},
 			wantErr: `filter 0 of projects: PostgREST reads "select" as a parameter, not as a column`,
 		},
 		{
-			id:      "token error",
+			name:    "token error",
 			tokens:  staticToken{err: errors.New("token endpoint down")},
 			call:    func(ctx context.Context, c *Client) error { return c.Get(ctx, ConsoleProfile, "projects", nil, nil) },
 			wantErr: "get the token: token endpoint down",
 		},
 		{
-			id:      "empty token",
+			name:    "empty token",
 			tokens:  staticToken{},
 			call:    func(ctx context.Context, c *Client) error { return c.Get(ctx, ConsoleProfile, "projects", nil, nil) },
 			wantErr: "the token source returned an empty token",
@@ -454,7 +458,7 @@ func TestRefusesBeforeTheRequest(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			var calls atomic.Int32
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -487,20 +491,20 @@ func TestRefusesBeforeTheRequest(t *testing.T) {
 
 func TestNew(t *testing.T) {
 	tests := []struct {
-		id       string
+		name     string
 		endpoint string
 		tokens   TokenSource
 		wantErr  string
 	}{
-		{id: "https with a path", endpoint: "https://data-proxy.example.com/api/", tokens: staticToken{}},
-		{id: "other scheme", endpoint: "ftp://data-proxy.example.com", tokens: staticToken{}, wantErr: `endpoint "ftp://data-proxy.example.com": the scheme must be http or https`},
-		{id: "no host", endpoint: "https://", tokens: staticToken{}, wantErr: `endpoint "https://": the host is empty`},
-		{id: "query", endpoint: "https://data-proxy.example.com?a=1", tokens: staticToken{}, wantErr: `endpoint "https://data-proxy.example.com?a=1": remove the query and the fragment`},
-		{id: "no token source", endpoint: "https://data-proxy.example.com", wantErr: "the token source is nil"},
+		{name: "https with a path", endpoint: "https://data-proxy.example.com/api/", tokens: staticToken{}},
+		{name: "other scheme", endpoint: "ftp://data-proxy.example.com", tokens: staticToken{}, wantErr: `endpoint "ftp://data-proxy.example.com": the scheme must be http or https`},
+		{name: "no host", endpoint: "https://", tokens: staticToken{}, wantErr: `endpoint "https://": the host is empty`},
+		{name: "query", endpoint: "https://data-proxy.example.com?a=1", tokens: staticToken{}, wantErr: `endpoint "https://data-proxy.example.com?a=1": remove the query and the fragment`},
+		{name: "no token source", endpoint: "https://data-proxy.example.com", wantErr: "the token source is nil"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			c, err := New(tt.endpoint, tt.tokens, nil)
 
 			if tt.wantErr == "" {
@@ -524,7 +528,7 @@ func TestNew(t *testing.T) {
 
 func TestErrorResponses(t *testing.T) {
 	tests := []struct {
-		id       string
+		name     string
 		status   int
 		response string
 		kind     error
@@ -532,7 +536,7 @@ func TestErrorResponses(t *testing.T) {
 		text     string
 	}{
 		{
-			id:       "unique violation is a conflict",
+			name:     "unique violation is a conflict",
 			status:   http.StatusConflict,
 			response: `{"code":"23505","message":"duplicate key value violates unique constraint \"projects_name_key\"","details":"Key (name)=(a) already exists.","hint":null}`,
 			kind:     ErrConflict,
@@ -540,7 +544,7 @@ func TestErrorResponses(t *testing.T) {
 			text:     `postgrest: HTTP 409 23505: duplicate key value violates unique constraint "projects_name_key" (details: Key (name)=(a) already exists.)`,
 		},
 		{
-			id:       "foreign key violation is a conflict",
+			name:     "foreign key violation is a conflict",
 			status:   http.StatusConflict,
 			response: `{"code":"23503","message":"insert or update on table \"tables\" violates foreign key constraint","details":null,"hint":null}`,
 			kind:     ErrConflict,
@@ -548,7 +552,7 @@ func TestErrorResponses(t *testing.T) {
 			text:     `postgrest: HTTP 409 23503: insert or update on table "tables" violates foreign key constraint`,
 		},
 		{
-			id:       "check violation is invalid",
+			name:     "check violation is invalid",
 			status:   http.StatusBadRequest,
 			response: `{"code":"23514","message":"new row violates check constraint \"cache_ttl_positive\"","details":null,"hint":"Use a positive cache_ttl."}`,
 			kind:     ErrInvalid,
@@ -556,7 +560,7 @@ func TestErrorResponses(t *testing.T) {
 			text:     `postgrest: HTTP 400 23514: new row violates check constraint "cache_ttl_positive" (hint: Use a positive cache_ttl.)`,
 		},
 		{
-			id:       "row-level security is forbidden",
+			name:     "row-level security is forbidden",
 			status:   http.StatusForbidden,
 			response: `{"code":"42501","message":"new row violates row-level security policy for table \"projects\"","details":null,"hint":null}`,
 			kind:     ErrForbidden,
@@ -564,7 +568,7 @@ func TestErrorResponses(t *testing.T) {
 			text:     `postgrest: HTTP 403 42501: new row violates row-level security policy for table "projects"`,
 		},
 		{
-			id:       "denied permission with HTTP 401 is forbidden",
+			name:     "denied permission with HTTP 401 is forbidden",
 			status:   http.StatusUnauthorized,
 			response: `{"code":"42501","message":"permission denied for table projects","details":null,"hint":null}`,
 			kind:     ErrForbidden,
@@ -572,7 +576,7 @@ func TestErrorResponses(t *testing.T) {
 			text:     `postgrest: HTTP 401 42501: permission denied for table projects`,
 		},
 		{
-			id:       "HTTP 403 without a SQLSTATE is forbidden",
+			name:     "HTTP 403 without a SQLSTATE is forbidden",
 			status:   http.StatusForbidden,
 			response: `forbidden`,
 			kind:     ErrForbidden,
@@ -580,7 +584,7 @@ func TestErrorResponses(t *testing.T) {
 			text:     `postgrest: HTTP 403: forbidden`,
 		},
 		{
-			id:       "expired JWT is unauthorized",
+			name:     "expired JWT is unauthorized",
 			status:   http.StatusUnauthorized,
 			response: `{"code":"PGRST303","message":"JWT expired","details":null,"hint":null}`,
 			kind:     ErrUnauthorized,
@@ -588,7 +592,7 @@ func TestErrorResponses(t *testing.T) {
 			text:     `postgrest: HTTP 401 PGRST303: JWT expired`,
 		},
 		{
-			id:       "unknown table is not found",
+			name:     "unknown table is not found",
 			status:   http.StatusNotFound,
 			response: `{"code":"PGRST205","message":"Could not find the table 'console.nope' in the schema cache","details":null,"hint":"Perhaps you meant the table 'console.projects'"}`,
 			kind:     ErrNotFound,
@@ -596,7 +600,7 @@ func TestErrorResponses(t *testing.T) {
 			text:     `postgrest: HTTP 404 PGRST205: Could not find the table 'console.nope' in the schema cache (hint: Perhaps you meant the table 'console.projects')`,
 		},
 		{
-			id:       "other HTTP 409 is a conflict",
+			name:     "other HTTP 409 is a conflict",
 			status:   http.StatusConflict,
 			response: `{"code":"PGRST999","message":"conflict","details":null,"hint":null}`,
 			kind:     ErrConflict,
@@ -604,7 +608,7 @@ func TestErrorResponses(t *testing.T) {
 			text:     `postgrest: HTTP 409 PGRST999: conflict`,
 		},
 		{
-			id:       "other HTTP 400 is invalid",
+			name:     "other HTTP 400 is invalid",
 			status:   http.StatusBadRequest,
 			response: `{"code":"22P02","message":"invalid input syntax for type integer: \"x\"","details":null,"hint":null}`,
 			kind:     ErrInvalid,
@@ -612,7 +616,7 @@ func TestErrorResponses(t *testing.T) {
 			text:     `postgrest: HTTP 400 22P02: invalid input syntax for type integer: "x"`,
 		},
 		{
-			id:       "server error has no kind",
+			name:     "server error has no kind",
 			status:   http.StatusBadGateway,
 			response: "<html>bad gateway</html>\n",
 			want:     Error{Status: 502, Message: "<html>bad gateway</html>"},
@@ -623,7 +627,7 @@ func TestErrorResponses(t *testing.T) {
 	kinds := []error{ErrConflict, ErrInvalid, ErrForbidden, ErrUnauthorized, ErrNotFound, ErrNoRow}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			c, _ := newServer(t, tt.status, tt.response)
 
 			err := c.Get(context.Background(), ConsoleProfile, "projects", nil, nil)
@@ -643,8 +647,10 @@ func TestErrorResponses(t *testing.T) {
 			}
 
 			for _, kind := range kinds {
-				if errors.Is(err, kind) != (kind == tt.kind) {
-					t.Errorf("errors.Is(err, %v) = %t, want %t", kind, kind != tt.kind, kind == tt.kind)
+				want := errors.Is(kind, tt.kind)
+
+				if got := errors.Is(err, kind); got != want {
+					t.Errorf("errors.Is(err, %v) = %t, want %t", kind, got, want)
 				}
 			}
 		})

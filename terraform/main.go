@@ -14,6 +14,7 @@ import (
 // version is set at build time with -ldflags "-X main.version=<version>".
 var version = "dev"
 
+// main serves the provider over the plugin protocol. The flag -debug lets a debugger such as delve attach.
 func main() {
 	var debug bool
 

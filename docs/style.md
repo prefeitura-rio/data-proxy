@@ -600,7 +600,7 @@ The Terraform provider of Data Proxy is a Go module in `terraform/`, with its ow
 ### Code
 
 - **GO-01** Keep the calls to PostgREST in `internal/client`, with no import of the Terraform Plugin Framework. The resources and the data sources call the client. [must, review]
-- **GO-02** Write a doc comment above each package and each exported name. Say what it does, in a full sentence that starts with the name. [must, review]
+- **GO-02** Write a doc comment above each package, type, function, method and test helper, exported or not. Start it with the name, in one sentence. Comment other lines only to give a reason that the code can't show. [must, golangci-lint]
 - **GO-03** Pass a `context.Context` as the first argument of each function that does I/O. Never store it in a struct. [must, review]
 - **GO-04** Wrap an error with `fmt.Errorf` and `%w`, and say the step that failed, such as `decode the row of %s: %w`. [must, review]
 - **GO-05** Give each kind of error that a caller handles a sentinel value, and check it with `errors.Is`. Don't compare the text of an error. [must, review]
@@ -617,12 +617,12 @@ The Terraform provider of Data Proxy is a Go module in `terraform/`, with its ow
 
 - **GO-09** Keep `tf:lint:go` green. It fails when `gofmt` would change a file, and it runs `golangci-lint`. [must, golangci-lint]
 - **GO-10** Keep `tf:test:unit` green. It runs `go test ./...` without `TF_ACC`, so the acceptance tests don't run. [must, devenv]
-- **GO-11** Write a table of cases with an `id` field, and run each case with `t.Run(tt.id, ...)`. [must, review]
+- **GO-11** Write a table of cases with a `name` field, and run each case with `t.Run(tt.name, ...)`. [must, review]
 - **GO-12** Test the client against an `httptest` server. Test a delay with a fake clock, never with a real wait. [must, review]
 
 ```go
 for _, tt := range tests {
-    t.Run(tt.id, func(t *testing.T) {
+    t.Run(tt.name, func(t *testing.T) {
         ...
     })
 }

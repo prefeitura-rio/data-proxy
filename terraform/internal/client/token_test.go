@@ -15,6 +15,7 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// The credentials that the fake token endpoint expects.
 const (
 	testClientID     = "terraform"
 	testClientSecret = "secret-123"
@@ -39,6 +40,7 @@ type tokenRequest struct {
 	scope     string
 }
 
+// ServeHTTP records the token request and answers it with token-<n>, or with the status that the test set.
 func (s *tokenServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		s.t.Errorf("parse the token request: %v", err)
@@ -81,6 +83,7 @@ func (s *tokenServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// count returns the number of token requests that the server saw.
 func (s *tokenServer) count() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -88,23 +91,23 @@ func (s *tokenServer) count() int {
 	return len(s.requests)
 }
 
-// newTokenSource starts the fake token endpoint and returns a source for it with a clock that the test moves.
-// The clock starts at the real time, because the oauth2 package sets the expiry of a token from the real time.
-func newTokenSource(t *testing.T, server *tokenServer, scopes []string) (*ClientCredentialsSource, *time.Time) {
+// newTokenSource starts the fake token endpoint and returns a source for it, with a clock that the test moves.
+// The clock starts at the real time, because oauth2 sets the expiry of a token from the real time.
+func newTokenSource(t *testing.T, server *tokenServer, scopes []string) (*CredentialsSource, *time.Time) {
 	t.Helper()
 
 	server.t = t
 	httpServer := httptest.NewServer(server)
 	t.Cleanup(httpServer.Close)
 
-	source, err := NewClientCredentialsSource(ClientCredentials{
+	source, err := NewCredentialsSource(Credentials{
 		TokenURL:     httpServer.URL + "/realms/test/protocol/openid-connect/token",
 		ClientID:     testClientID,
 		ClientSecret: testClientSecret,
 		Scopes:       scopes,
 	}, httpServer.Client())
 	if err != nil {
-		t.Fatalf("NewClientCredentialsSource: %v", err)
+		t.Fatalf("NewCredentialsSource: %v", err)
 	}
 
 	clock := time.Now()
@@ -113,54 +116,54 @@ func newTokenSource(t *testing.T, server *tokenServer, scopes []string) (*Client
 	return source, &clock
 }
 
-func TestNewClientCredentialsSourceRejects(t *testing.T) {
-	valid := ClientCredentials{TokenURL: "https://id.example.com/token", ClientID: "terraform", ClientSecret: "s"}
+func TestNewCredentialsSourceRejects(t *testing.T) {
+	valid := Credentials{TokenURL: "https://id.example.com/token", ClientID: "terraform", ClientSecret: "s"}
 
 	tests := []struct {
-		id     string
-		change func(*ClientCredentials)
+		name   string
+		change func(*Credentials)
 		want   string
 	}{
 		{
-			id:     "token URL without a scheme",
-			change: func(c *ClientCredentials) { c.TokenURL = "id.example.com/token" },
+			name:   "token URL without a scheme",
+			change: func(c *Credentials) { c.TokenURL = "id.example.com/token" },
 			want:   `token URL "id.example.com/token": the scheme must be http or https`,
 		},
 		{
-			id:     "token URL with another scheme",
-			change: func(c *ClientCredentials) { c.TokenURL = "ftp://id.example.com/token" },
+			name:   "token URL with another scheme",
+			change: func(c *Credentials) { c.TokenURL = "ftp://id.example.com/token" },
 			want:   `token URL "ftp://id.example.com/token": the scheme must be http or https`,
 		},
 		{
-			id:     "token URL without a host",
-			change: func(c *ClientCredentials) { c.TokenURL = "https:///token" },
+			name:   "token URL without a host",
+			change: func(c *Credentials) { c.TokenURL = "https:///token" },
 			want:   `token URL "https:///token": the host is empty`,
 		},
 		{
-			id:     "token URL that doesn't parse",
-			change: func(c *ClientCredentials) { c.TokenURL = "https://id.example.com/%zz" },
+			name:   "token URL that doesn't parse",
+			change: func(c *Credentials) { c.TokenURL = "https://id.example.com/%zz" },
 			want:   `parse the token URL: parse "https://id.example.com/%zz": invalid URL escape "%zz"`,
 		},
 		{
-			id:     "empty client ID",
-			change: func(c *ClientCredentials) { c.ClientID = "" },
+			name:   "empty client ID",
+			change: func(c *Credentials) { c.ClientID = "" },
 			want:   "the client ID is empty",
 		},
 		{
-			id:     "empty client secret",
-			change: func(c *ClientCredentials) { c.ClientSecret = "" },
+			name:   "empty client secret",
+			change: func(c *Credentials) { c.ClientSecret = "" },
 			want:   "the client secret is empty",
 		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			credentials := valid
 			tt.change(&credentials)
 
-			source, err := NewClientCredentialsSource(credentials, nil)
+			source, err := NewCredentialsSource(credentials, nil)
 			if err == nil {
-				t.Fatalf("NewClientCredentialsSource = %v, want an error", source)
+				t.Fatalf("NewCredentialsSource = %v, want an error", source)
 			}
 
 			if err.Error() != tt.want {
@@ -170,7 +173,7 @@ func TestNewClientCredentialsSourceRejects(t *testing.T) {
 	}
 }
 
-func TestClientCredentialsSourceRenewsTheToken(t *testing.T) {
+func TestCredentialsSourceRenewsTheToken(t *testing.T) {
 	server := &tokenServer{expiresIn: 300}
 	source, clock := newTokenSource(t, server, []string{"openid", "dataproxy"})
 
@@ -194,31 +197,31 @@ func TestClientCredentialsSourceRenewsTheToken(t *testing.T) {
 	}
 
 	steps := []struct {
-		id       string
+		name     string
 		at       func(expiry time.Time) time.Time
 		want     string
 		requests int
 	}{
 		{
-			id:       "a call 31 s before the expiry reuses the token",
+			name:     "a call 31 s before the expiry reuses the token",
 			at:       func(expiry time.Time) time.Time { return expiry.Add(-31 * time.Second) },
 			want:     "token-1",
 			requests: 1,
 		},
 		{
-			id:       "a call 29 s before the expiry renews it",
+			name:     "a call 29 s before the expiry renews it",
 			at:       func(expiry time.Time) time.Time { return expiry.Add(-29 * time.Second) },
 			want:     "token-2",
 			requests: 2,
 		},
 		{
-			id:       "a call 31 s before the expiry of the new token reuses it",
+			name:     "a call 31 s before the expiry of the new token reuses it",
 			at:       func(expiry time.Time) time.Time { return expiry.Add(-31 * time.Second) },
 			want:     "token-2",
 			requests: 2,
 		},
 		{
-			id:       "a call after the expiry renews it",
+			name:     "a call after the expiry renews it",
 			at:       func(expiry time.Time) time.Time { return expiry.Add(time.Minute) },
 			want:     "token-3",
 			requests: 3,
@@ -230,15 +233,15 @@ func TestClientCredentialsSourceRenewsTheToken(t *testing.T) {
 
 		got, err := source.Token(context.Background())
 		if err != nil {
-			t.Fatalf("%s: Token: %v", step.id, err)
+			t.Fatalf("%s: Token: %v", step.name, err)
 		}
 
 		if got != step.want {
-			t.Errorf("%s: token = %q, want %q", step.id, got, step.want)
+			t.Errorf("%s: token = %q, want %q", step.name, got, step.want)
 		}
 
 		if server.count() != step.requests {
-			t.Errorf("%s: token requests = %d, want %d", step.id, server.count(), step.requests)
+			t.Errorf("%s: token requests = %d, want %d", step.name, server.count(), step.requests)
 		}
 	}
 
@@ -251,7 +254,7 @@ func TestClientCredentialsSourceRenewsTheToken(t *testing.T) {
 	}
 }
 
-func TestClientCredentialsSourceKeepsATokenWithoutExpiry(t *testing.T) {
+func TestCredentialsSourceKeepsATokenWithoutExpiry(t *testing.T) {
 	server := &tokenServer{}
 	source, clock := newTokenSource(t, server, nil)
 
@@ -277,7 +280,7 @@ func TestClientCredentialsSourceKeepsATokenWithoutExpiry(t *testing.T) {
 	}
 }
 
-func TestClientCredentialsSourceFetchesOnceForConcurrentCalls(t *testing.T) {
+func TestCredentialsSourceFetchesOnceForConcurrentCalls(t *testing.T) {
 	server := &tokenServer{expiresIn: 300}
 	source, _ := newTokenSource(t, server, nil)
 
@@ -311,15 +314,15 @@ func TestClientCredentialsSourceFetchesOnceForConcurrentCalls(t *testing.T) {
 	}
 }
 
-func TestClientCredentialsSourceErrors(t *testing.T) {
+func TestCredentialsSourceErrors(t *testing.T) {
 	tests := []struct {
-		id     string
+		name   string
 		server *tokenServer
 		ctx    func() context.Context
 		check  func(*testing.T, error)
 	}{
 		{
-			id: "the identity provider refuses the client",
+			name: "the identity provider refuses the client",
 			server: &tokenServer{
 				status:   http.StatusUnauthorized,
 				response: `{"error":"unauthorized_client","error_description":"Invalid client or Invalid client credentials"}`,
@@ -337,7 +340,7 @@ func TestClientCredentialsSourceErrors(t *testing.T) {
 			},
 		},
 		{
-			id:     "the context ends before the request",
+			name:   "the context ends before the request",
 			server: &tokenServer{expiresIn: 300},
 			ctx: func() context.Context {
 				ctx, cancel := context.WithCancel(context.Background())
@@ -354,7 +357,7 @@ func TestClientCredentialsSourceErrors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			source, _ := newTokenSource(t, tt.server, nil)
 
 			token, err := source.Token(tt.ctx())
@@ -375,7 +378,7 @@ func TestClientCredentialsSourceErrors(t *testing.T) {
 	}
 }
 
-func TestClientCredentialsSourceRetriesAfterAFailure(t *testing.T) {
+func TestCredentialsSourceRetriesAfterAFailure(t *testing.T) {
 	server := &tokenServer{expiresIn: 300}
 	source, _ := newTokenSource(t, server, nil)
 

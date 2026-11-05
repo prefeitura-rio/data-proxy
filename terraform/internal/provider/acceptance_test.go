@@ -17,22 +17,15 @@ import (
 	"github.com/prefeitura-rio/data-proxy/terraform/internal/client"
 )
 
-// The helpers that the acceptance tests share. An acceptance test is a TestAcc function that calls resource.Test.
-// It runs only when TF_ACC is set, against the API that the DATAPROXY_* variables name, and it skips without
-// TF_ACC. The task tf:test:int starts the console stack and runs the acceptance tests against it.
-
-// testAccNamePrefix starts every name that an acceptance test creates, so a row that a test left behind is easy
-// to find.
+// testAccNamePrefix starts every name that an acceptance test creates, so a row that a test left behind is easy to find.
 const testAccNamePrefix = "tfacc"
 
-// testAccProviderFactories serves the provider inside the test process, so Terraform needs no build of the
-// provider binary.
+// testAccProviderFactories serves the provider inside the test process, so Terraform needs no provider binary.
 var testAccProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
 	TypeName: providerserver.NewProtocol6WithError(New("test")()),
 }
 
-// testAccPreCheck fails the test when a required DATAPROXY_* variable is empty. Give it to the PreCheck of each
-// resource.TestCase.
+// testAccPreCheck fails the test when a required DATAPROXY_* variable is empty.
 func testAccPreCheck(t *testing.T) {
 	t.Helper()
 
@@ -43,17 +36,14 @@ func testAccPreCheck(t *testing.T) {
 	}
 }
 
-// testAccName returns a new name for an object that a test creates: testAccNamePrefix and 10 random lowercase
-// letters and digits. Two tests or two runs don't share a name, and the name is valid for a project and for a
-// schema.
+// testAccName returns a new name for an object that a test creates. The name is valid for a project and for a schema.
 func testAccName() string {
 	return testAccNamePrefix + acctest.RandStringFromCharSet(10, acctest.CharSetAlphaNum)
 }
 
-// testAccClient returns a client of the API with the credentials of the DATAPROXY_* variables, as the provider
-// reads them from an empty provider block.
+// testAccClient returns a client with the credentials of the DATAPROXY_* variables.
 func testAccClient() (*client.Client, error) {
-	tokens, err := client.NewClientCredentialsSource(client.ClientCredentials{
+	tokens, err := client.NewCredentialsSource(client.Credentials{
 		TokenURL:     os.Getenv(EnvTokenURL),
 		ClientID:     os.Getenv(EnvClientID),
 		ClientSecret: os.Getenv(EnvClientSecret),
@@ -71,10 +61,8 @@ func testAccClient() (*client.Client, error) {
 	return apiClient, nil
 }
 
-// testAccCleanup deletes the rows of table, in the console profile, that match every filter when the test ends.
-// It also deletes them when a step fails before Terraform destroys them. A row that Terraform already destroyed
-// is no error. The test runs its cleanups in reverse order, so register a parent, such as a project, before its
-// children. Without TF_ACC it registers nothing, because the acceptance test skips.
+// testAccCleanup deletes the rows of table that match every filter when the test ends. Cleanups run in reverse
+// order, so register a parent, such as a project, before its children.
 func testAccCleanup(t testing.TB, table string, filters ...client.Filter) {
 	t.Helper()
 
@@ -100,7 +88,7 @@ func testAccCleanup(t testing.TB, table string, filters ...client.Filter) {
 }
 
 func TestTestAccName(t *testing.T) {
-	// The checks of the names of console.projects and console.schemas, in console/migrations/00012_add_projects.sql.
+	// These patterns copy the name checks of console.projects and console.schemas in migration 00012.
 	project := regexp.MustCompile(`^[a-z][a-z0-9]{0,29}$`)
 	schema := regexp.MustCompile(`^[a-z][a-z0-9_]{0,55}$`)
 	want := regexp.MustCompile(`^tfacc[a-z0-9]{10}$`)
@@ -118,8 +106,7 @@ func TestTestAccName(t *testing.T) {
 	}
 }
 
-// cleanupRecorder is a testing.TB that keeps the cleanups and the errors of testAccCleanup, so a test can run
-// them and read the errors.
+// cleanupRecorder is a testing.TB that keeps the cleanups and the errors of testAccCleanup.
 type cleanupRecorder struct {
 	testing.TB
 
@@ -127,19 +114,22 @@ type cleanupRecorder struct {
 	errors   []string
 }
 
+// Helper does nothing.
 func (r *cleanupRecorder) Helper() {}
 
+// Cleanup keeps the cleanup so that the test can run it.
 func (r *cleanupRecorder) Cleanup(cleanup func()) {
 	r.cleanups = append(r.cleanups, cleanup)
 }
 
+// Errorf keeps the error so that the test can read it.
 func (r *cleanupRecorder) Errorf(format string, args ...any) {
 	r.errors = append(r.errors, fmt.Sprintf(format, args...))
 }
 
 func TestTestAccCleanup(t *testing.T) {
 	tests := []struct {
-		id          string
+		name        string
 		acceptance  bool
 		tokenStatus int
 		status      int
@@ -148,26 +138,26 @@ func TestTestAccCleanup(t *testing.T) {
 		errors      func(api fakeAPI) []string
 	}{
 		{
-			id:     "no cleanup without TF_ACC",
+			name:   "no cleanup without TF_ACC",
 			status: http.StatusOK,
 			body:   `[]`,
 		},
 		{
-			id:         "a delete of the matching rows",
+			name:       "a delete of the matching rows",
 			acceptance: true,
 			status:     http.StatusOK,
 			body:       `[{"name":"tfaccabc"}]`,
 			requests:   []apiRequest{{method: http.MethodDelete, uri: "/schemas?name=eq.tfaccabc", contentProfile: "console", authorization: "Bearer jwt-123"}},
 		},
 		{
-			id:         "no row left to delete",
+			name:       "no row left to delete",
 			acceptance: true,
 			status:     http.StatusOK,
 			body:       `[]`,
 			requests:   []apiRequest{{method: http.MethodDelete, uri: "/schemas?name=eq.tfaccabc", contentProfile: "console", authorization: "Bearer jwt-123"}},
 		},
 		{
-			id:         "the database refuses the delete",
+			name:       "the database refuses the delete",
 			acceptance: true,
 			status:     http.StatusForbidden,
 			body:       `{"code":"42501","message":"permission denied for table schemas"}`,
@@ -177,7 +167,7 @@ func TestTestAccCleanup(t *testing.T) {
 			},
 		},
 		{
-			id:          "the identity provider refuses the secret",
+			name:        "the identity provider refuses the secret",
 			acceptance:  true,
 			tokenStatus: http.StatusUnauthorized,
 			errors: func(api fakeAPI) []string {
@@ -188,7 +178,7 @@ func TestTestAccCleanup(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			tokenStatus := tt.tokenStatus
 			if tokenStatus == 0 {
 				tokenStatus = http.StatusOK

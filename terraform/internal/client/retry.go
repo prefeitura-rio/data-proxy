@@ -6,28 +6,25 @@ import (
 	"time"
 )
 
-// Backoff sets how RetryNoRow waits between two reads.
+// Backoff sets how RetryNoRow waits between two reads. Each wait doubles until it reaches Max, and Max zero
+// means no limit. Timeout limits all the reads together.
 type Backoff struct {
-	// Initial is the wait after the first read.
 	Initial time.Duration
-	// Max limits one wait. Each wait doubles until it reaches Max. Zero means no limit.
-	Max time.Duration
-	// Timeout limits the time of all the reads. RetryNoRow doesn't start a wait that ends after it.
+	Max     time.Duration
 	Timeout time.Duration
 }
 
 // DefaultBackoff waits 100 ms, then 200 ms, 400 ms, 800 ms and 1 s, for up to 5 s in total.
 var DefaultBackoff = Backoff{Initial: 100 * time.Millisecond, Max: time.Second, Timeout: 5 * time.Second}
 
-// RetryNoRow calls read again while it returns an error that wraps ErrNoRow. The provider reads from a
-// replica (PgDog) behind PostgREST, and the replica can miss a row that the primary wrote a moment ago.
-// It doesn't retry ErrNotFound, because an HTTP 404, such as an unknown table, doesn't change with time.
-// RetryNoRow returns the first result that isn't ErrNoRow, the last ErrNoRow after the timeout, or the
-// error of the context.
+// RetryNoRow calls read again while it wraps ErrNoRow, because a standby behind PostgREST can miss a row that the
+// primary wrote a moment ago. It returns the first other result, the last ErrNoRow after the timeout, or the error
+// of the context. It doesn't retry ErrNotFound, which doesn't change with time.
 func RetryNoRow(ctx context.Context, backoff Backoff, read func(context.Context) error) error {
 	return retryNoRow(ctx, backoff, time.Now, sleep, read)
 }
 
+// retryNoRow is RetryNoRow with a clock and a wait that a test replaces.
 func retryNoRow(
 	ctx context.Context,
 	backoff Backoff,

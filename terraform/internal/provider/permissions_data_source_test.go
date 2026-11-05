@@ -18,14 +18,16 @@ import (
 	"github.com/prefeitura-rio/data-proxy/terraform/internal/client"
 )
 
+// staticToken is a TokenSource that returns itself as the token.
 type staticToken string
 
+// Token returns the string as the token.
 func (s staticToken) Token(context.Context) (string, error) {
 	return string(s), nil
 }
 
-// readPermissions runs the data source with a client of a server that answers GET /rpc/permissions with status
-// and body. It returns the permissions in the state, sorted, and the diagnostics.
+// readPermissions runs the data source against a server that answers GET /rpc/permissions with the status and the
+// body. It returns the sorted permissions of the state and the diagnostics.
 func readPermissions(t *testing.T, status int, body string) ([]string, []diagnostic) {
 	t.Helper()
 
@@ -103,32 +105,32 @@ func readPermissions(t *testing.T, status int, body string) ([]string, []diagnos
 
 func TestPermissionsDataSourceRead(t *testing.T) {
 	tests := []struct {
-		id     string
+		name   string
 		status int
 		body   string
 		want   []string
 		diags  []diagnostic
 	}{
 		{
-			id:     "the permissions of the token",
+			name:   "the permissions of the token",
 			status: http.StatusOK,
 			body:   `["read_api","read_sync","read_config"]`,
 			want:   []string{"read_api", "read_config", "read_sync"},
 		},
 		{
-			id:     "no permission",
+			name:   "no permission",
 			status: http.StatusOK,
 			body:   `[]`,
 			want:   []string{},
 		},
 		{
-			id:     "a null result",
+			name:   "a null result",
 			status: http.StatusOK,
 			body:   `null`,
 			want:   []string{},
 		},
 		{
-			id:     "the database refuses the function",
+			name:   "the database refuses the function",
 			status: http.StatusForbidden,
 			body:   `{"code":"42501","message":"permission denied for function permissions"}`,
 			diags: []diagnostic{{
@@ -137,7 +139,7 @@ func TestPermissionsDataSourceRead(t *testing.T) {
 			}},
 		},
 		{
-			id:     "the API refuses the token",
+			name:   "the API refuses the token",
 			status: http.StatusUnauthorized,
 			body:   `{"code":"PGRST303","message":"JWT expired"}`,
 			diags: []diagnostic{{
@@ -149,7 +151,7 @@ func TestPermissionsDataSourceRead(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			got, diags := readPermissions(t, tt.status, tt.body)
 
 			if !reflect.DeepEqual(diags, tt.diags) {
@@ -165,13 +167,13 @@ func TestPermissionsDataSourceRead(t *testing.T) {
 
 func TestPermissionsDataSourceConfigure(t *testing.T) {
 	tests := []struct {
-		id           string
+		name         string
 		providerData any
 		diags        []diagnostic
 	}{
-		{id: "no provider data before the provider is configured"},
+		{name: "no provider data before the provider is configured"},
 		{
-			id:           "provider data that isn't a client",
+			name:         "provider data that isn't a client",
 			providerData: "not a client",
 			diags: []diagnostic{{
 				summary: "Unexpected provider data",
@@ -181,7 +183,7 @@ func TestPermissionsDataSourceConfigure(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			dataSource := &permissionsDataSource{}
 
 			var resp datasource.ConfigureResponse
@@ -210,7 +212,7 @@ func TestPermissionsDataSourceReadWithoutClient(t *testing.T) {
 	}
 }
 
-// deleteError returns the error of the client for a DELETE that the server answers with status and body.
+// deleteError returns the error of a DELETE that the server answers with the status and the body.
 func deleteError(t *testing.T, status int, body string) error {
 	t.Helper()
 
@@ -242,31 +244,31 @@ func TestAddAPIError(t *testing.T) {
 	unauthorizedErr := deleteError(t, http.StatusUnauthorized, `{"code":"PGRST303","message":"JWT expired"}`)
 
 	tests := []struct {
-		id         string
+		name       string
 		permission string
 		err        error
 		want       string
 	}{
 		{
-			id:         "a refused write names its permission",
+			name:       "a refused write names its permission",
 			permission: "create_config",
 			err:        forbiddenErr,
 			want: "The token lacks the create_config permission, or the schema isn't in the claim of the token. " +
 				"Give the client a role that has create_config. The API answered: postgrest: HTTP 403 42501: permission denied for table schemas",
 		},
 		{
-			id:   "a refused request that needs no permission",
+			name: "a refused request that needs no permission",
 			err:  forbiddenErr,
 			want: "The database refused the request. The API answered: postgrest: HTTP 403 42501: permission denied for table schemas",
 		},
 		{
-			id:         "a refused token",
+			name:       "a refused token",
 			permission: "edit_config",
 			err:        unauthorizedErr,
 			want:       "The API refused the token. Check that the API trusts the identity provider of token_url. The API answered: postgrest: HTTP 401 PGRST303: JWT expired",
 		},
 		{
-			id:         "another error",
+			name:       "another error",
 			permission: "delete_config",
 			err:        errors.New("DELETE schemas: connection refused"),
 			want:       "DELETE schemas: connection refused",
@@ -274,7 +276,7 @@ func TestAddAPIError(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			var diagnostics diag.Diagnostics
 
 			addAPIError(&diagnostics, "Couldn't delete the schema", tt.permission, tt.err)
@@ -289,13 +291,13 @@ func TestAddAPIError(t *testing.T) {
 
 func TestCheckReadConfig(t *testing.T) {
 	tests := []struct {
-		id          string
+		name        string
 		permissions []string
 		diags       []diagnostic
 	}{
-		{id: "read_config among others", permissions: []string{"read_api", "read_config", "create_config"}},
+		{name: "read_config among others", permissions: []string{"read_api", "read_config", "create_config"}},
 		{
-			id:          "write permissions without read_config",
+			name:        "write permissions without read_config",
 			permissions: []string{"create_config", "edit_config"},
 			diags: []diagnostic{{
 				summary: "Missing read_config permission",
@@ -306,7 +308,7 @@ func TestCheckReadConfig(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			if got := diagnosticsOf(checkReadConfig("ci", tt.permissions)); !reflect.DeepEqual(got, tt.diags) {
 				t.Errorf("diagnostics = %+v, want %+v", got, tt.diags)
 			}
@@ -314,8 +316,6 @@ func TestCheckReadConfig(t *testing.T) {
 	}
 }
 
-// TestAccPermissionsDataSource reads the permissions of the admin client of the local stack, whose role is
-// dp_admin.
 func TestAccPermissionsDataSource(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },

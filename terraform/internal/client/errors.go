@@ -8,36 +8,34 @@ import (
 	"strings"
 )
 
-// The kinds of an Error. Check them with errors.Is.
+// The kinds of an Error, for errors.Is.
 var (
-	// ErrConflict is a unique or a foreign key violation (SQLSTATE 23505 or 23503), or an HTTP 409.
+	// ErrConflict is a unique or foreign key violation, or an HTTP 409.
 	ErrConflict = errors.New("conflict")
-	// ErrInvalid is a check violation (SQLSTATE 23514), or an HTTP 400.
+	// ErrInvalid is a check violation, or an HTTP 400.
 	ErrInvalid = errors.New("invalid")
-	// ErrForbidden is a denied permission or row-level security policy (SQLSTATE 42501), or an HTTP 403.
+	// ErrForbidden is a denied permission or row-level security policy, or an HTTP 403.
 	ErrForbidden = errors.New("forbidden")
 	// ErrUnauthorized is an HTTP 401 without a SQLSTATE, such as a missing or an expired JWT.
 	ErrUnauthorized = errors.New("unauthorized")
-	// ErrNotFound is an HTTP 404, such as a table that PostgREST doesn't know.
+	// ErrNotFound is an HTTP 404, such as an unknown table.
 	ErrNotFound = errors.New("not found")
 )
 
-// ErrNoRow is the error of GetOne when no row matches the filters. It isn't an Error: PostgREST answered.
+// ErrNoRow is the error of GetOne when no row matches. PostgREST answered, so it is not an Error.
 var ErrNoRow = errors.New("no row")
 
-// Error is an error response of PostgREST.
+// Error is an error response of PostgREST. Code is a SQLSTATE or a PGRST code.
 type Error struct {
-	// Status is the HTTP status of the response.
-	Status int
-	// Code is the SQLSTATE of PostgreSQL or the PGRST code of PostgREST.
+	Status  int
 	Code    string
 	Message string
 	Details string
 	Hint    string
-	// kind is one of the Err values, or nil when the client doesn't know the error.
-	kind error
+	kind    error
 }
 
+// Error describes the HTTP status, the code, the message, the details and the hint of the response.
 func (e *Error) Error() string {
 	var text strings.Builder
 
@@ -75,7 +73,8 @@ type body struct {
 	Hint    *string `json:"hint"`
 }
 
-// parseError builds the Error of a response that isn't a success.
+// parseError builds the Error of a response that is not a success. It reads the JSON body of PostgREST, and it
+// keeps the text of any other body as the message.
 func parseError(status int, raw []byte) *Error {
 	result := &Error{Status: status}
 
@@ -101,8 +100,7 @@ func parseError(status int, raw []byte) *Error {
 	return result
 }
 
-// kindOf maps the SQLSTATE first, because PostgREST answers 401 to a denied permission without a JWT role,
-// and the HTTP status after it.
+// kindOf maps the SQLSTATE first, because PostgREST answers 401 to a denied permission when the JWT has no role.
 func kindOf(status int, code string) error {
 	switch code {
 	case "23505", "23503":

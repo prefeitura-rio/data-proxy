@@ -1,5 +1,4 @@
-// Package client calls the PostgREST API of Data Proxy. It doesn't depend on the Terraform Plugin Framework,
-// so the resources and the data sources of the provider share it, and its tests need no Terraform.
+// Package client calls the PostgREST API of Data Proxy.
 package client
 
 import (
@@ -15,7 +14,7 @@ import (
 	"time"
 )
 
-// ConsoleProfile is the schema of the configuration tables. An access policy uses the schema of its data instead.
+// ConsoleProfile is the schema of the configuration tables.
 const ConsoleProfile = "console"
 
 // DefaultTimeout limits one request when New gets no HTTP client.
@@ -24,18 +23,18 @@ const DefaultTimeout = 30 * time.Second
 // maxErrorBody limits how much of an error response the client reads.
 const maxErrorBody = 1 << 20
 
-// reservedParameters are the query parameters of PostgREST. A filter on a column with one of these names would
-// not filter the rows, so a Patch or a Delete would touch the whole table.
+// reservedParameters are the query parameters of PostgREST. A filter on a column with one of these names would not
+// filter the rows, so a Patch or a Delete would touch the whole table.
 var reservedParameters = map[string]struct{}{
 	"select": {}, "columns": {}, "order": {}, "limit": {}, "offset": {}, "on_conflict": {}, "and": {}, "or": {}, "not": {},
 }
 
-// TokenSource gives the JWT that the client sends in the Authorization header of each request.
+// TokenSource gives the JWT that the client sends with each request.
 type TokenSource interface {
 	Token(ctx context.Context) (string, error)
 }
 
-// Filter is one condition of the query string of PostgREST, such as id=eq.42.
+// Filter is one condition of the query string, such as id=eq.42.
 type Filter struct {
 	column   string
 	operator string
@@ -59,8 +58,7 @@ type Client struct {
 	http     *http.Client
 }
 
-// New returns a client for the endpoint, the base address of the PostgREST API.
-// With a nil httpClient, it uses a client with DefaultTimeout.
+// New returns a client for the base address of the API. A nil httpClient means a client with DefaultTimeout.
 func New(endpoint string, tokens TokenSource, httpClient *http.Client) (*Client, error) {
 	parsed, err := url.Parse(endpoint)
 	if err != nil {
@@ -93,13 +91,13 @@ func New(endpoint string, tokens TokenSource, httpClient *http.Client) (*Client,
 	return &Client{endpoint: parsed, tokens: tokens, http: httpClient}, nil
 }
 
-// Get reads the rows of the table that match every filter, and decodes the JSON array into out.
+// Get decodes the rows of the table that match every filter into out.
 func (c *Client) Get(ctx context.Context, profile, table string, filters []Filter, out any) error {
 	return c.do(ctx, request{method: http.MethodGet, profile: profile, path: table, filters: filters}, out)
 }
 
-// GetOne reads the one row of the table that matches every filter, and decodes it into out.
-// It returns an error that wraps ErrNoRow when no row matches, and an error when more than one row matches.
+// GetOne decodes the one row that matches every filter into out.
+// It wraps ErrNoRow when no row matches, and it fails when more than one row matches.
 func (c *Client) GetOne(ctx context.Context, profile, table string, filters []Filter, out any) error {
 	var rows []json.RawMessage
 
@@ -125,13 +123,12 @@ func (c *Client) GetOne(ctx context.Context, profile, table string, filters []Fi
 	}
 }
 
-// Insert writes the body, one object or an array of objects, to the table, and decodes the written rows into out.
+// Insert writes the body, an object or an array of objects, and decodes the written rows into out.
 func (c *Client) Insert(ctx context.Context, profile, table string, body, out any) error {
 	return c.do(ctx, request{method: http.MethodPost, profile: profile, path: table, body: body, write: true}, out)
 }
 
-// Patch changes the rows of the table that match every filter, and decodes the changed rows into out.
-// It needs at least one filter, so that it never changes the whole table.
+// Patch changes the rows that match every filter and decodes the changed rows into out. It needs a filter.
 func (c *Client) Patch(ctx context.Context, profile, table string, filters []Filter, body, out any) error {
 	if len(filters) == 0 {
 		return fmt.Errorf("patch %s: give at least one filter", table)
@@ -140,8 +137,7 @@ func (c *Client) Patch(ctx context.Context, profile, table string, filters []Fil
 	return c.do(ctx, request{method: http.MethodPatch, profile: profile, path: table, filters: filters, body: body, write: true}, out)
 }
 
-// Delete removes the rows of the table that match every filter, and decodes the removed rows into out.
-// It needs at least one filter, so that it never empties the table.
+// Delete removes the rows that match every filter and decodes the removed rows into out. It needs a filter.
 func (c *Client) Delete(ctx context.Context, profile, table string, filters []Filter, out any) error {
 	if len(filters) == 0 {
 		return fmt.Errorf("delete from %s: give at least one filter", table)
@@ -150,7 +146,7 @@ func (c *Client) Delete(ctx context.Context, profile, table string, filters []Fi
 	return c.do(ctx, request{method: http.MethodDelete, profile: profile, path: table, filters: filters, write: true}, out)
 }
 
-// RPC calls the function with the arguments, a JSON object, and decodes its result into out.
+// RPC calls the function with the arguments, a JSON object, and decodes the result into out.
 func (c *Client) RPC(ctx context.Context, profile, function string, args, out any) error {
 	if function == "" {
 		return errors.New("the function name is empty")
@@ -163,8 +159,7 @@ func (c *Client) RPC(ctx context.Context, profile, function string, args, out an
 	return c.do(ctx, request{method: http.MethodPost, profile: profile, path: "rpc/" + url.PathEscape(function), body: args, rpc: true}, out)
 }
 
-// GetRPC calls a function that only reads, a STABLE or an IMMUTABLE one, with GET and no arguments, and decodes
-// its result into out. PostgREST finds the function in the schema of Accept-Profile.
+// GetRPC calls a STABLE or IMMUTABLE function with GET and decodes the result into out.
 func (c *Client) GetRPC(ctx context.Context, profile, function string, out any) error {
 	if function == "" {
 		return errors.New("the function name is empty")
@@ -173,8 +168,7 @@ func (c *Client) GetRPC(ctx context.Context, profile, function string, out any) 
 	return c.do(ctx, request{method: http.MethodGet, profile: profile, path: "rpc/" + url.PathEscape(function), rpc: true}, out)
 }
 
-// Permissions returns the permissions of the token, the names of rbac.toml such as read_config that the role of
-// its JWT has. It calls console.permissions() with GET /rpc/permissions.
+// Permissions returns the names of rbac.toml, such as read_config, that the role of the token has.
 func (c *Client) Permissions(ctx context.Context) ([]string, error) {
 	var permissions []string
 
@@ -189,7 +183,7 @@ func (c *Client) Permissions(ctx context.Context) ([]string, error) {
 	return permissions, nil
 }
 
-// request is one call to PostgREST. path is already escaped, except a table name, which do escapes.
+// request is one call to PostgREST. Its path is escaped, except a table name, which do escapes.
 type request struct {
 	method  string
 	profile string
@@ -200,6 +194,8 @@ type request struct {
 	rpc     bool
 }
 
+// do sends one request and decodes the JSON answer into out. It returns an *Error for a status outside 2xx, and it
+// ignores an empty answer.
 func (c *Client) do(ctx context.Context, r request, out any) error {
 	if r.profile == "" {
 		return errors.New("the profile is empty")
@@ -284,7 +280,7 @@ func (c *Client) do(ctx context.Context, r request, out any) error {
 	return nil
 }
 
-// target builds the address of the request: the endpoint, the path and the filters in their given order.
+// target builds the address of a request from the endpoint, the path and the filters, in the order given.
 func (c *Client) target(r request) (string, error) {
 	path := r.path
 
@@ -327,8 +323,7 @@ func (c *Client) target(r request) (string, error) {
 	return target, nil
 }
 
-// escapeQuery escapes a part of the query string. It writes a space as %20, because a plus sign is literal for
-// some servers.
+// escapeQuery writes a space as %20, because some servers read a plus sign literally.
 func escapeQuery(value string) string {
 	return strings.ReplaceAll(url.QueryEscape(value), "+", "%20")
 }

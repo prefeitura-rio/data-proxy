@@ -19,39 +19,37 @@ import (
 	"github.com/prefeitura-rio/data-proxy/terraform/internal/client"
 )
 
-// Address is the registry address that Terraform uses to find the provider.
+// Address is the registry address of the provider.
 const Address = "registry.terraform.io/prefeitura-rio/dataproxy"
 
-// TypeName is the prefix of the resource and data source names of the provider.
+// TypeName is the prefix of the resource and data source names.
 const TypeName = "dataproxy"
 
-// The environment variables that set an attribute of the provider block. The attribute in the block takes
-// precedence over its variable.
+// The environment variables for the attributes of the provider block. An attribute in the block wins.
 const (
 	EnvEndpoint     = "DATAPROXY_ENDPOINT"
 	EnvTokenURL     = "DATAPROXY_TOKEN_URL"
 	EnvClientID     = "DATAPROXY_CLIENT_ID"
 	EnvClientSecret = "DATAPROXY_CLIENT_SECRET"
-	// EnvScopes is a list of scopes separated by commas or spaces, such as "openid,profile".
+	// EnvScopes holds scopes separated by commas or spaces.
 	EnvScopes = "DATAPROXY_SCOPES"
 )
 
 var _ provider.Provider = (*dataProxyProvider)(nil)
 
-// dataProxyProvider is the provider. Configure gives its resources and data sources a *client.Client in their
-// provider data.
+// dataProxyProvider is the provider. Configure gives its resources and data sources a *client.Client.
 type dataProxyProvider struct {
 	version string
 }
 
-// settings are the values that the provider needs, after the environment fills the attributes that the
-// provider block leaves out.
+// settings are the values that the provider needs, after the environment fills the attributes that the block
+// leaves out.
 type settings struct {
 	endpoint    string
-	credentials client.ClientCredentials
+	credentials client.Credentials
 }
 
-// providerModel maps the provider block of a Terraform configuration.
+// providerModel maps the provider block.
 type providerModel struct {
 	Endpoint     types.String `tfsdk:"endpoint"`
 	TokenURL     types.String `tfsdk:"token_url"`
@@ -67,11 +65,13 @@ func New(version string) func() provider.Provider {
 	}
 }
 
+// Metadata sets the type name and the version of the provider.
 func (p *dataProxyProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = TypeName
 	resp.Version = p.version
 }
 
+// Schema declares the attributes of the provider block. Each one can come from an environment variable.
 func (p *dataProxyProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Manages the configuration of Data Proxy through its PostgREST API.",
@@ -102,9 +102,8 @@ func (p *dataProxyProvider) Schema(_ context.Context, _ provider.SchemaRequest, 
 	}
 }
 
-// Configure reads the provider block and the environment, and gives the resources and the data sources a client
-// that fetches and renews its token with the client credentials grant. It fetches a token and reads its
-// permissions, and it fails when the token doesn't work or lacks read_config.
+// Configure gives the resources and the data sources a client, and fails when the token doesn't work or lacks
+// read_config.
 func (p *dataProxyProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var config providerModel
 
@@ -121,7 +120,7 @@ func (p *dataProxyProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
-	tokens, err := client.NewClientCredentialsSource(values.credentials, nil)
+	tokens, err := client.NewCredentialsSource(values.credentials, nil)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid Data Proxy credentials", err.Error())
 
@@ -153,7 +152,7 @@ func (p *dataProxyProvider) Configure(ctx context.Context, req provider.Configur
 }
 
 // readSettings takes each attribute from the provider block, or from its environment variable when the block
-// leaves it out. It returns an error for an unknown attribute and for each required value that is empty.
+// leaves it out. It reports an unknown value and each required value that is empty.
 func readSettings(ctx context.Context, config providerModel, getenv func(string) string) (settings, diag.Diagnostics) {
 	var diagnostics diag.Diagnostics
 
@@ -174,7 +173,7 @@ func readSettings(ctx context.Context, config providerModel, getenv func(string)
 
 	values := settings{
 		endpoint: text("endpoint", config.Endpoint, EnvEndpoint),
-		credentials: client.ClientCredentials{
+		credentials: client.Credentials{
 			TokenURL:     text("token_url", config.TokenURL, EnvTokenURL),
 			ClientID:     text("client_id", config.ClientID, EnvClientID),
 			ClientSecret: text("client_secret", config.ClientSecret, EnvClientSecret),
@@ -213,17 +212,19 @@ func readSettings(ctx context.Context, config providerModel, getenv func(string)
 	return values, diagnostics
 }
 
-// splitScopes reads a list of scopes separated by commas or spaces.
+// splitScopes splits a list of scopes at commas and spaces.
 func splitScopes(value string) []string {
 	return strings.FieldsFunc(value, func(r rune) bool {
 		return r == ',' || unicode.IsSpace(r)
 	})
 }
 
+// Resources lists the resources of the provider. It has none yet.
 func (p *dataProxyProvider) Resources(_ context.Context) []func() resource.Resource {
 	return nil
 }
 
+// DataSources lists the data sources of the provider.
 func (p *dataProxyProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{newPermissionsDataSource}
 }

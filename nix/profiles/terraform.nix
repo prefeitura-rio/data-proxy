@@ -8,6 +8,7 @@
         sources = utils.mkInputs [
           "terraform/go.mod"
           "terraform/go.sum"
+          "terraform/.golangci.yml"
           "terraform/**/*.go"
         ];
       in

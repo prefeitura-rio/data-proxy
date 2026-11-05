@@ -16,8 +16,7 @@ var (
 	_ datasource.DataSourceWithConfigure = (*permissionsDataSource)(nil)
 )
 
-// permissionsDataSource is the dataproxy_permissions data source. It reads the permissions of the token of the
-// provider.
+// permissionsDataSource is the dataproxy_permissions data source. It reads the permissions of the token.
 type permissionsDataSource struct {
 	client *client.Client
 }
@@ -27,14 +26,17 @@ type permissionsModel struct {
 	Permissions types.Set `tfsdk:"permissions"`
 }
 
+// newPermissionsDataSource returns the dataproxy_permissions data source.
 func newPermissionsDataSource() datasource.DataSource {
 	return &permissionsDataSource{}
 }
 
+// Metadata names the data source with the type name of the provider and the suffix _permissions.
 func (d *permissionsDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_permissions"
 }
 
+// Schema declares the computed set of permissions of the token.
 func (d *permissionsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Reads the permissions of the token of the provider, from GET /rpc/permissions.",
@@ -48,6 +50,7 @@ func (d *permissionsDataSource) Schema(_ context.Context, _ datasource.SchemaReq
 	}
 }
 
+// Configure takes the client that the provider built. It does nothing before the provider is configured.
 func (d *permissionsDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
 	if req.ProviderData == nil {
 		return
@@ -64,6 +67,7 @@ func (d *permissionsDataSource) Configure(_ context.Context, req datasource.Conf
 	d.client = apiClient
 }
 
+// Read stores the permissions of the token in the state.
 func (d *permissionsDataSource) Read(ctx context.Context, _ datasource.ReadRequest, resp *datasource.ReadResponse) {
 	if d.client == nil {
 		resp.Diagnostics.AddError("Unconfigured provider", "The data source has no client, because the provider isn't configured.")

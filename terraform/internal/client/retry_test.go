@@ -15,10 +15,12 @@ type fakeClock struct {
 	waits   []time.Duration
 }
 
+// now returns the time that the fake clock holds.
 func (f *fakeClock) now() time.Time {
 	return f.current
 }
 
+// wait records the duration and moves the clock forward by it, without sleeping.
 func (f *fakeClock) wait(_ context.Context, duration time.Duration) error {
 	f.waits = append(f.waits, duration)
 	f.current = f.current.Add(duration)
@@ -26,15 +28,17 @@ func (f *fakeClock) wait(_ context.Context, duration time.Duration) error {
 	return nil
 }
 
+// errOther is an error that RetryNoRow must not retry.
 var errOther = errors.New("other")
 
+// noRow returns the error of a read that finds no row.
 func noRow() error {
 	return fmt.Errorf("no row of projects matches the filters: %w", ErrNoRow)
 }
 
 func TestRetryNoRow(t *testing.T) {
 	tests := []struct {
-		id        string
+		name      string
 		backoff   Backoff
 		results   []error
 		wantErr   error
@@ -42,34 +46,34 @@ func TestRetryNoRow(t *testing.T) {
 		wantWaits []time.Duration
 	}{
 		{
-			id:        "first read succeeds",
+			name:      "first read succeeds",
 			backoff:   DefaultBackoff,
 			results:   []error{nil},
 			wantReads: 1,
 		},
 		{
-			id:        "other error isn't retried",
+			name:      "other error isn't retried",
 			backoff:   DefaultBackoff,
 			results:   []error{errOther},
 			wantErr:   errOther,
 			wantReads: 1,
 		},
 		{
-			id:        "HTTP 404 isn't retried",
+			name:      "HTTP 404 isn't retried",
 			backoff:   DefaultBackoff,
 			results:   []error{&Error{Status: 404, Code: "PGRST205", kind: ErrNotFound}},
 			wantErr:   ErrNotFound,
 			wantReads: 1,
 		},
 		{
-			id:        "row appears on the third read",
+			name:      "row appears on the third read",
 			backoff:   DefaultBackoff,
 			results:   []error{noRow(), noRow(), nil},
 			wantReads: 3,
 			wantWaits: []time.Duration{100 * time.Millisecond, 200 * time.Millisecond},
 		},
 		{
-			id:        "other error after a retry is returned",
+			name:      "other error after a retry is returned",
 			backoff:   DefaultBackoff,
 			results:   []error{noRow(), errOther},
 			wantErr:   errOther,
@@ -77,7 +81,7 @@ func TestRetryNoRow(t *testing.T) {
 			wantWaits: []time.Duration{100 * time.Millisecond},
 		},
 		{
-			id:        "gives up at the timeout of the default backoff",
+			name:      "gives up at the timeout of the default backoff",
 			backoff:   DefaultBackoff,
 			wantErr:   ErrNoRow,
 			wantReads: 8,
@@ -87,14 +91,14 @@ func TestRetryNoRow(t *testing.T) {
 			},
 		},
 		{
-			id:        "zero max doubles without a limit",
+			name:      "zero max doubles without a limit",
 			backoff:   Backoff{Initial: time.Second, Timeout: 10 * time.Second},
 			wantErr:   ErrNoRow,
 			wantReads: 4,
 			wantWaits: []time.Duration{time.Second, 2 * time.Second, 4 * time.Second},
 		},
 		{
-			id:        "zero initial reads once",
+			name:      "zero initial reads once",
 			backoff:   Backoff{Timeout: time.Second},
 			wantErr:   ErrNoRow,
 			wantReads: 1,
@@ -102,7 +106,7 @@ func TestRetryNoRow(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.id, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			clock := &fakeClock{current: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
 			reads := 0
 

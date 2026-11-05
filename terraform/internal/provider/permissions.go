@@ -11,14 +11,11 @@ import (
 	"github.com/prefeitura-rio/data-proxy/terraform/internal/client"
 )
 
-// readConfig is the permission that every resource and data source needs, because each one reads the
-// configuration. Configure checks it once. The database checks the write permissions, such as create_config,
-// on each request, and addAPIError names the one that a refused request needed.
+// readConfig is the permission that every resource and data source needs. Configure checks it once, and the
+// database checks the write permissions on each request.
 const readConfig = "read_config"
 
-// addAPIError adds an error for a failed request to the API. When the database refused the request, the detail
-// names permission, the permission of rbac.toml that the request needs. An empty permission means a request that
-// needs none.
+// addAPIError adds an error for a failed request. When the database refused it, the detail names permission.
 func addAPIError(diagnostics *diag.Diagnostics, summary, permission string, err error) {
 	detail := err.Error()
 
@@ -36,7 +33,7 @@ func addAPIError(diagnostics *diag.Diagnostics, summary, permission string, err 
 	diagnostics.AddError(summary, detail)
 }
 
-// checkReadConfig returns an error when the permissions of the token lack read_config.
+// checkReadConfig returns an error that lists the permissions of the token when it lacks read_config.
 func checkReadConfig(clientID string, permissions []string) diag.Diagnostics {
 	var diagnostics diag.Diagnostics
 
