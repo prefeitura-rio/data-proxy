@@ -1,0 +1,4 @@
+/* A SQL cell runs on the DuckDB of Pyodide, which has none of the tables. Hide the SQL button of the add-cell bar. */
+button:has(> svg.lucide-database.mr-2) {
+	display: none;
+}

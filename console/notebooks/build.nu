@@ -3,7 +3,7 @@
 # Build the notebook site into one folder: `nu console/notebooks/build.nu notebooks/query.py dist`. The script installs the
 # locked dependencies, exports the notebook with `marimo export html-wasm --offline`, bundles the two TypeScript scripts
 # with DuckDB-WASM (bundle.ts, esbuild), downloads the Parquet extension for the pinned DuckDB version, and adds the
-# scripts to index.html. The pins are marimo and Playwright in pyproject.toml, and DuckDB-WASM in package.json. The export
+# scripts and the stylesheet that hides the SQL cell button to index.html. The pins are marimo and Playwright in pyproject.toml, and DuckDB-WASM in package.json. The export
 # needs a Chromium, so Containerfile.console builds the site in a first stage that has one. A notebook fails to run when
 # two cells define the same name, so give each variable a name that no other cell uses.
 
@@ -59,6 +59,12 @@ def main [
 
     node bundle.ts $output
 
+    try {
+        cp src/hide.css $output
+    } catch {|err|
+        fail $'Cannot copy hide.css: ($err.msg)'
+    }
+
     for file in [duckdb-browser-eh.worker.js duckdb-eh.wasm] {
         try {
             cp ([node_modules @duckdb duckdb-wasm dist $file] | path join) $duckdb
@@ -78,7 +84,7 @@ def main [
     let index = [$output index.html] | path join
     try {
         open --raw $index
-        | str replace '</head>' '<script src="/config.js"></script><script src="/bridge.js"></script></head>'
+        | str replace '</head>' '<link rel="stylesheet" href="/hide.css"><script src="/config.js"></script><script src="/bridge.js"></script></head>'
         | save --force $index
     } catch {|err|
         fail $'Cannot update ($index): ($err.msg)'

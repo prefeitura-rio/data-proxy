@@ -30,7 +30,10 @@
           "console/notebooks/pyproject.toml"
           "console/notebooks/uv.lock"
         ]
-        ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
+        ++ utils.mkGlobs "console/notebooks/src" [
+          "css"
+          "ts"
+        ]
         ++ utils.mkGlobs "console/notebooks/notebooks" [ "py" ];
 
         syncSources = [

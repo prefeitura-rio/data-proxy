@@ -105,7 +105,10 @@ in
                       "console/notebooks/.prettierrc"
                       ".prettierignore"
                     ]
-                    ++ utils.mkGlobs "console/notebooks/src" [ "ts" ]
+                    ++ utils.mkGlobs "console/notebooks/src" [
+                      "css"
+                      "ts"
+                    ]
                   );
               "console:test:unit" =
                 pnpmTask "Run the unit tests of the console app." "console/ui" "console:install:ui" "pnpm test"
