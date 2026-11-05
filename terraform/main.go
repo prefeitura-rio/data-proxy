@@ -1,4 +1,4 @@
-// Command terraform-provider-dataproxy serves the dataproxy Terraform provider over the plugin protocol.
+// Command terraform-provider-data-proxy serves the data_proxy Terraform provider over the plugin protocol.
 package main
 
 import (
@@ -8,21 +8,27 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 
-	"github.com/prefeitura-rio/data-proxy/terraform/internal/provider"
+	"terraform-provider-data-proxy/internal/provider"
 )
 
-// version is set at build time with -ldflags "-X main.version=<version>".
-var version = "dev"
+// version and address are set at build time with -ldflags "-X main.version=<version> -X main.address=<address>".
+// The address names the registry that hosts the provider, so the binary holds no DNS name of its own.
+var (
+	version = "dev"
+	address = "registry.example.com/example/data-proxy"
+)
 
-// main serves the provider over the plugin protocol. The flag -debug lets a debugger such as delve attach.
+// main serves the provider over the plugin protocol. The flag -debug lets a debugger such as delve attach, and
+// the flag -address sets the registry address that the debug session reports.
 func main() {
 	var debug bool
 
 	flag.BoolVar(&debug, "debug", false, "run the provider with support for debuggers such as delve")
+	flag.StringVar(&address, "address", address, "registry address of the provider, <host>/<namespace>/<type>")
 	flag.Parse()
 
 	opts := providerserver.ServeOpts{
-		Address: provider.Address,
+		Address: address,
 		Debug:   debug,
 	}
 

@@ -58,7 +58,7 @@ flowchart LR
 - [Style](style.md) — The rules for the code and the docs, one section for each area.
 - [Development](dev/index.md) — Local setup, devenv, checks, tests and CI.
 - [Operations](operations/index.md) — Helm chart, topology, settings, scaling, metrics and backups.
-- [Terraform provider](terraform.md) — The `dataproxy` provider that manages the configuration as code.
+- [Terraform provider](terraform.md) — The `data_proxy` provider that manages the configuration as code.
 
 <!-- nav:start -->
 ---

@@ -1,20 +1,20 @@
 # Terraform provider
 
-The `dataproxy` Terraform provider will manage the configuration of Data Proxy as code. It will manage the projects, the schemas, the tables, the row policies and the access policies through the PostgREST API. The provider is a Go module in `terraform/`, and it uses the Terraform Plugin Framework.
+The `data_proxy` Terraform provider will manage the configuration of Data Proxy as code. It will manage the projects, the schemas, the tables, the row policies and the access policies through the PostgREST API. The provider is a Go module in `terraform/`, and it uses the Terraform Plugin Framework.
 
-The provider has the configuration block and the `dataproxy_permissions` data source, and no resources yet. It gets an access token from the identity provider with the OAuth 2.0 client credentials grant. It fetches a new token 30 seconds before the old one expires, so a long run keeps working with tokens that last 5 minutes.
+The provider has the configuration block and the `data_proxy_permissions` data source, and no resources yet. It gets an access token from the identity provider with the OAuth 2.0 client credentials grant. It fetches a new token 30 seconds before the old one expires, so a long run keeps working with tokens that last 5 minutes.
 
 ## Configuration
 
-The registry address is `registry.terraform.io/prefeitura-rio/dataproxy`, and the type name is `dataproxy`. Each attribute has an environment variable. The provider uses the variable when the block doesn't set the attribute. An attribute in the block takes precedence over its variable, also when its value is an empty string.
+The registry address is `<host>/<namespace>/data-proxy`, and the build sets it, so the provider has no host name. A local name has no underscore, so it's `data-proxy`. The resources are `data_proxy_*`, so each one needs `provider = data-proxy`. [Provider releases](dev/provider.md) says where the registry is. Each attribute has an environment variable. The provider uses the variable when the block doesn't set the attribute. An attribute in the block takes precedence over its variable, also when its value is an empty string.
 
 | Attribute | Variable | Type | Content |
 | --- | --- | --- | --- |
-| `endpoint` | `DATAPROXY_ENDPOINT` | string, required | The base address of the Data Proxy API. |
-| `token_url` | `DATAPROXY_TOKEN_URL` | string, required | The address of the token endpoint of the identity provider. |
-| `client_id` | `DATAPROXY_CLIENT_ID` | string, required | The client ID for the client credentials grant. |
-| `client_secret` | `DATAPROXY_CLIENT_SECRET` | string, required, sensitive | The client secret for the client credentials grant. Terraform hides it in the output. |
-| `scopes` | `DATAPROXY_SCOPES` | list of strings | The scopes to request with the token. The variable separates them with commas or spaces. |
+| `endpoint` | `DATA_PROXY_ENDPOINT` | string, required | The base address of the Data Proxy API. |
+| `token_url` | `DATA_PROXY_TOKEN_URL` | string, required | The address of the token endpoint of the identity provider. |
+| `client_id` | `DATA_PROXY_CLIENT_ID` | string, required | The client ID for the client credentials grant. |
+| `client_secret` | `DATA_PROXY_CLIENT_SECRET` | string, required, sensitive | The client secret for the client credentials grant. Terraform hides it in the output. |
+| `scopes` | `DATA_PROXY_SCOPES` | list of strings | The scopes to request with the token. The variable separates them with commas or spaces. |
 
 A required value must come from the block or from its variable. The provider fails with one error for each value that's missing.
 
@@ -23,13 +23,13 @@ When it starts, the provider gets a token and calls `GET /rpc/permissions`. It f
 ```hcl
 terraform {
   required_providers {
-    dataproxy = {
-      source = "registry.terraform.io/prefeitura-rio/dataproxy"
+    data-proxy = {
+      source = "registry.example.com/example/data-proxy"
     }
   }
 }
 
-provider "dataproxy" {
+provider "data-proxy" {
   endpoint  = "https://data-proxy.example.com"
   token_url = "https://id.example.com/realms/example/protocol/openid-connect/token"
   client_id = "terraform"
@@ -37,17 +37,19 @@ provider "dataproxy" {
 }
 ```
 
-Don't write the client secret in a `.tf` file. Set `DATAPROXY_CLIENT_SECRET`, or give it to Terraform as a variable from your secret store.
+Don't write the client secret in a `.tf` file. Set `DATA_PROXY_CLIENT_SECRET`, or give it to Terraform as a variable from your secret store.
 
 ## Data sources
 
-`dataproxy_permissions` reads the permissions of the token, from `GET /rpc/permissions`. It has no arguments. Its attribute `permissions` is a set of the names in `rbac.toml`, such as `read_config`.
+`data_proxy_permissions` reads the permissions of the token, from `GET /rpc/permissions`. It has no arguments. Its attribute `permissions` is a set of the names in `rbac.toml`, such as `read_config`.
 
 ```hcl
-data "dataproxy_permissions" "this" {}
+data "data_proxy_permissions" "this" {
+  provider = data-proxy
+}
 
 output "can_delete" {
-  value = contains(data.dataproxy_permissions.this.permissions, "delete_config")
+  value = contains(data.data_proxy_permissions.this.permissions, "delete_config")
 }
 ```
 
@@ -70,7 +72,7 @@ Terraform downloads a provider from the registry. To test your local binary, add
 
    ```bash
    cd terraform
-   go build -o bin/terraform-provider-dataproxy .
+   go build -o bin/terraform-provider-data-proxy .
    ```
 
 2. Add the block to `~/.terraformrc`. Write the absolute path of `terraform/bin` in your clone.
@@ -78,7 +80,7 @@ Terraform downloads a provider from the registry. To test your local binary, add
    ```hcl
    provider_installation {
      dev_overrides {
-       "registry.terraform.io/prefeitura-rio/dataproxy" = "/home/you/data-proxy/terraform/bin"
+       "registry.example.com/example/data-proxy" = "/home/you/data-proxy/terraform/bin"
      }
      direct {}
    }
@@ -96,15 +98,15 @@ An acceptance test runs the provider through Terraform against a real API. It's 
 devenv --profile terraform tasks run tf:test:int
 ```
 
-The task runs `devenv --profile terraform-acc test`. That profile starts the console stack: PostgreSQL, SeaweedFS, Keycloak, PostgREST and the console. It sets `TF_ACC=1` and the `DATAPROXY_*` variables. The provider calls the local PostgREST and gets its token from the local Keycloak with the test client `admin`, whose role is `dp_admin`. The stack needs Podman, as the [tests page](dev/tests.md#the-test-stack) says.
+The task runs `devenv --profile terraform-acc test`. That profile starts the console stack: PostgreSQL, SeaweedFS, Keycloak, PostgREST and the console. It sets `TF_ACC=1` and the `DATA_PROXY_*` variables. The provider calls the local PostgREST and gets its token from the local Keycloak with the test client `admin`, whose role is `dp_admin`. The stack needs Podman, as the [tests page](dev/tests.md#the-test-stack) says.
 
 To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `terraform-acc` shell, because the tests call OpenTofu.
 
 ```bash
 devenv --profile console up -d
 devenv processes wait
-export TF_ACC=1 DATAPROXY_ENDPOINT=http://127.0.0.1:13000 DATAPROXY_CLIENT_ID=admin DATAPROXY_CLIENT_SECRET=test-secret
-export DATAPROXY_TOKEN_URL=http://localhost:18180/realms/dev/protocol/openid-connect/token
+export TF_ACC=1 DATA_PROXY_ENDPOINT=http://127.0.0.1:13000 DATA_PROXY_CLIENT_ID=admin DATA_PROXY_CLIENT_SECRET=test-secret
+export DATA_PROXY_TOKEN_URL=http://localhost:18180/realms/dev/protocol/openid-connect/token
 devenv --profile terraform shell -- go -C terraform test -count=1 -run TestAccPermissionsDataSource ./...
 ```
 

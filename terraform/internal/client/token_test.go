@@ -175,7 +175,7 @@ func TestNewCredentialsSourceRejects(t *testing.T) {
 
 func TestCredentialsSourceRenewsTheToken(t *testing.T) {
 	server := &tokenServer{expiresIn: 300}
-	source, clock := newTokenSource(t, server, []string{"openid", "dataproxy"})
+	source, clock := newTokenSource(t, server, []string{"openid", "data-proxy"})
 
 	before := time.Now()
 
@@ -245,7 +245,7 @@ func TestCredentialsSourceRenewsTheToken(t *testing.T) {
 		}
 	}
 
-	want := tokenRequest{grantType: "client_credentials", clientID: testClientID, secret: testClientSecret, scope: "openid dataproxy"}
+	want := tokenRequest{grantType: "client_credentials", clientID: testClientID, secret: testClientSecret, scope: "openid data-proxy"}
 
 	for i, request := range server.requests {
 		if request != want {

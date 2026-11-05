@@ -8,7 +8,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 
-	"github.com/prefeitura-rio/data-proxy/terraform/internal/client"
+	"terraform-provider-data-proxy/internal/client"
 )
 
 // readConfig is the permission that every resource and data source needs. Configure checks it once, and the

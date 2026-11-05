@@ -1,4 +1,4 @@
-// Package provider implements the dataproxy Terraform provider.
+// Package provider implements the data_proxy Terraform provider.
 package provider
 
 import (
@@ -16,23 +16,20 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/prefeitura-rio/data-proxy/terraform/internal/client"
+	"terraform-provider-data-proxy/internal/client"
 )
 
-// Address is the registry address of the provider.
-const Address = "registry.terraform.io/prefeitura-rio/dataproxy"
-
 // TypeName is the prefix of the resource and data source names.
-const TypeName = "dataproxy"
+const TypeName = "data_proxy"
 
 // The environment variables for the attributes of the provider block. An attribute in the block wins.
 const (
-	EnvEndpoint     = "DATAPROXY_ENDPOINT"
-	EnvTokenURL     = "DATAPROXY_TOKEN_URL"
-	EnvClientID     = "DATAPROXY_CLIENT_ID"
-	EnvClientSecret = "DATAPROXY_CLIENT_SECRET"
+	EnvEndpoint     = "DATA_PROXY_ENDPOINT"
+	EnvTokenURL     = "DATA_PROXY_TOKEN_URL"
+	EnvClientID     = "DATA_PROXY_CLIENT_ID"
+	EnvClientSecret = "DATA_PROXY_CLIENT_SECRET"
 	// EnvScopes holds scopes separated by commas or spaces.
-	EnvScopes = "DATAPROXY_SCOPES"
+	EnvScopes = "DATA_PROXY_SCOPES"
 )
 
 var _ provider.Provider = (*dataProxyProvider)(nil)

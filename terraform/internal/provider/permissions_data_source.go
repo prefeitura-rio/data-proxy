@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
-	"github.com/prefeitura-rio/data-proxy/terraform/internal/client"
+	"terraform-provider-data-proxy/internal/client"
 )
 
 var (
@@ -16,17 +16,17 @@ var (
 	_ datasource.DataSourceWithConfigure = (*permissionsDataSource)(nil)
 )
 
-// permissionsDataSource is the dataproxy_permissions data source. It reads the permissions of the token.
+// permissionsDataSource is the data_proxy_permissions data source. It reads the permissions of the token.
 type permissionsDataSource struct {
 	client *client.Client
 }
 
-// permissionsModel maps the dataproxy_permissions data source.
+// permissionsModel maps the data_proxy_permissions data source.
 type permissionsModel struct {
 	Permissions types.Set `tfsdk:"permissions"`
 }
 
-// newPermissionsDataSource returns the dataproxy_permissions data source.
+// newPermissionsDataSource returns the data_proxy_permissions data source.
 func newPermissionsDataSource() datasource.DataSource {
 	return &permissionsDataSource{}
 }

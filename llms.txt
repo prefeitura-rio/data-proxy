@@ -120,7 +120,7 @@ flowchart LR
 - Style — The rules for the code and the docs, one section for each area.
 - Development — Local setup, devenv, checks, tests and CI.
 - Operations — Helm chart, topology, settings, scaling, metrics and backups.
-- Terraform provider — The `dataproxy` provider that manages the configuration as code.
+- Terraform provider — The `data_proxy` provider that manages the configuration as code.
 
 ---
 
@@ -1653,7 +1653,7 @@ This page defines the terms that the other pages use. Each term has one meaning 
 | Hurl | The tool for the HTTP tests of the proxy. |
 | devenv | The tool for the local environment, on Nix. It starts services and runs tasks. |
 | prek | The tool that runs the Git hooks. |
-| Terraform | The tool that manages infrastructure as code. The `dataproxy` provider lets it manage the configuration of Data Proxy. |
+| Terraform | The tool that manages infrastructure as code. The `data_proxy` provider lets it manage the configuration of Data Proxy. |
 
 ### Schema
 
@@ -3016,25 +3016,70 @@ Source: dev/provider.md
 
 The Terraform provider has its own versions and its own releases. A chart release doesn't release the provider, and a provider release doesn't change the chart or production.
 
-### How a release works
+### How a release happens
 
-- The tag is `terraform-v<version>`, such as `terraform-v0.1.0`. The chart tags `helm-v<version>` stay separate.
-- The workflow `terraform.yaml` lints the provider and runs its unit tests on each change under `terraform/`.
-- A person starts a release. Run the workflow by hand on `main` with the input `version`, such as `0.1.0`. An empty input runs the checks only.
-- The `release` job builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and writes `SHA256SUMS`.
-- The job publishes the archives in a GitHub Release with the tag. The notes list the commit subjects under `terraform/` since the last provider tag.
+CI runs on every push to `main`. When it succeeds, the workflow `terraform.yaml` runs on the same commit and decides whether a release is due.
 
-A tag that exists already makes the job fail, so a version never changes after its release.
+1. `ci terraform next` reads the commits that changed `terraform/` since the last tag `terraform-v<version>`.
+2. A `feat` or a breaking commit raises the minor version, and a `fix` raises the patch. Other types give no release. The major version stays 0 until a person sets it.
+3. `ci terraform release` builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and signs the checksums with the GPG key.
+4. It creates the GitHub Release `terraform-v<version>` with the archives, the checksum file and its signature. The notes list the commit subjects under `terraform/`.
+5. `ci terraform registry` writes the registry files from every release and uploads them to a bucket.
 
-### Install a release
+A tag that exists already makes the job fail, so a version never changes after its release. To release a version by hand, run the workflow with the input `version`.
 
-Download the archive for your system from the GitHub Release and put it in a Terraform [filesystem mirror](https://developer.hashicorp.com/terraform/cli/config/config-file#filesystem_mirror). The release has no signature, so the public Terraform Registry doesn't accept it. The checksums in `SHA256SUMS` let you check each archive.
+### The registry
+
+The registry is a set of static JSON files, as the [registry protocol](https://developer.hashicorp.com/terraform/internet-documentation/provider-registry-protocol) describes. The release workflow writes them to a public bucket. The ingress of Data Proxy sends `/.well-known/terraform.json` and `/v1/providers/` to that bucket, so the host of the API also serves the registry. The archives stay in GitHub Releases, and the JSON files point to them.
+
+The provider and the scripts have no host name. Every name comes from a variable.
+
+| Variable | Where | Content |
+| --- | --- | --- |
+| `TERRAFORM_REGISTRY_HOST` | GitHub repository variable | The host that serves the registry. The provider reports `<host>/<namespace>/data-proxy` as its address. |
+| `TERRAFORM_REGISTRY_NAMESPACE` | GitHub repository variable | The namespace in the address and in the registry paths. |
+| `TERRAFORM_REGISTRY_BUCKET` | GitHub repository variable | The bucket that stores the registry files. |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` | GitHub repository variables | The identity that writes the bucket. |
+| `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE` | GitHub secrets | The key that signs the checksums. |
+| `ingress.registry.bucket` | Chart value | The bucket that the ingress serves. An empty value adds no route. |
+
+Terraform and OpenTofu refuse a provider from a registry unless a GPG key signs its checksums. The workflow gets the public key from the private key, so the secrets are the only key input.
+
+### Set up the registry
+
+1. Create a GPG key without an expiry date, and add its private key and its passphrase as the secrets `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE`.
+2. In the infra repository, set the variable `terraform_registry` of the GCP module with the repository that publishes. Apply the module. It creates the bucket, the service account and the identity pool.
+3. Set `terraform_registry_enabled` of the k8s module, and apply it. It adds the route values for the ingress and the Istio objects for the storage host.
+4. Copy the outputs of the GCP module into the GitHub variables of the table above. The workflow does nothing while `TERRAFORM_REGISTRY_HOST` is empty.
+
+The route needs a chart version that has `ingress.registry`. Staging gets each chart first, and production waits for an approval.
+
+### Use a release
+
+```hcl
+terraform {
+  required_providers {
+    data-proxy = {
+      source = "registry.example.com/example/data-proxy"
+    }
+  }
+}
+```
+
+Replace the source with `<host>/<namespace>/data-proxy` of your registry. A local name has no underscore, and Terraform reads the provider of `data_proxy_table` from the part before the first underscore. So each resource needs `provider = data-proxy`. `terraform init` downloads the archive and checks the signature and the checksum.
+
+### Roll back and rotate
+
+- A bad release stays in the registry. Fix it with a new `fix` commit. Or delete the GitHub Release and run `ci terraform registry` again, which drops the version from the files.
+- To rotate the key, add the new key and rerun `ci terraform registry`. A release that the old key signed fails to install with the new key, so keep the old key until you release again.
 
 ### Commands
 
 | Command | Work |
 | --- | --- |
-| `ci terraform release <version>` | Builds the archives, writes the checksums and publishes the GitHub Release. |
+| `ci terraform next` | Writes `release` and `version` from the commits since the last provider tag. |
+| `ci terraform release <version>` | Builds, signs and publishes the GitHub Release. |
+| `ci terraform registry` | Writes the registry files from the releases and uploads them to the bucket. |
 
 CI and releases describes the chart release.
 
@@ -3974,21 +4019,21 @@ Source: terraform.md
 
 ## Terraform provider
 
-The `dataproxy` Terraform provider will manage the configuration of Data Proxy as code. It will manage the projects, the schemas, the tables, the row policies and the access policies through the PostgREST API. The provider is a Go module in `terraform/`, and it uses the Terraform Plugin Framework.
+The `data_proxy` Terraform provider will manage the configuration of Data Proxy as code. It will manage the projects, the schemas, the tables, the row policies and the access policies through the PostgREST API. The provider is a Go module in `terraform/`, and it uses the Terraform Plugin Framework.
 
-The provider has the configuration block and the `dataproxy_permissions` data source, and no resources yet. It gets an access token from the identity provider with the OAuth 2.0 client credentials grant. It fetches a new token 30 seconds before the old one expires, so a long run keeps working with tokens that last 5 minutes.
+The provider has the configuration block and the `data_proxy_permissions` data source, and no resources yet. It gets an access token from the identity provider with the OAuth 2.0 client credentials grant. It fetches a new token 30 seconds before the old one expires, so a long run keeps working with tokens that last 5 minutes.
 
 ### Configuration
 
-The registry address is `registry.terraform.io/prefeitura-rio/dataproxy`, and the type name is `dataproxy`. Each attribute has an environment variable. The provider uses the variable when the block doesn't set the attribute. An attribute in the block takes precedence over its variable, also when its value is an empty string.
+The registry address is `<host>/<namespace>/data-proxy`, and the build sets it, so the provider has no host name. A local name has no underscore, so it's `data-proxy`. The resources are `data_proxy_*`, so each one needs `provider = data-proxy`. Provider releases says where the registry is. Each attribute has an environment variable. The provider uses the variable when the block doesn't set the attribute. An attribute in the block takes precedence over its variable, also when its value is an empty string.
 
 | Attribute | Variable | Type | Content |
 | --- | --- | --- | --- |
-| `endpoint` | `DATAPROXY_ENDPOINT` | string, required | The base address of the Data Proxy API. |
-| `token_url` | `DATAPROXY_TOKEN_URL` | string, required | The address of the token endpoint of the identity provider. |
-| `client_id` | `DATAPROXY_CLIENT_ID` | string, required | The client ID for the client credentials grant. |
-| `client_secret` | `DATAPROXY_CLIENT_SECRET` | string, required, sensitive | The client secret for the client credentials grant. Terraform hides it in the output. |
-| `scopes` | `DATAPROXY_SCOPES` | list of strings | The scopes to request with the token. The variable separates them with commas or spaces. |
+| `endpoint` | `DATA_PROXY_ENDPOINT` | string, required | The base address of the Data Proxy API. |
+| `token_url` | `DATA_PROXY_TOKEN_URL` | string, required | The address of the token endpoint of the identity provider. |
+| `client_id` | `DATA_PROXY_CLIENT_ID` | string, required | The client ID for the client credentials grant. |
+| `client_secret` | `DATA_PROXY_CLIENT_SECRET` | string, required, sensitive | The client secret for the client credentials grant. Terraform hides it in the output. |
+| `scopes` | `DATA_PROXY_SCOPES` | list of strings | The scopes to request with the token. The variable separates them with commas or spaces. |
 
 A required value must come from the block or from its variable. The provider fails with one error for each value that's missing.
 
@@ -3997,13 +4042,13 @@ When it starts, the provider gets a token and calls `GET /rpc/permissions`. It f
 ```hcl
 terraform {
   required_providers {
-    dataproxy = {
-      source = "registry.terraform.io/prefeitura-rio/dataproxy"
+    data-proxy = {
+      source = "registry.example.com/example/data-proxy"
     }
   }
 }
 
-provider "dataproxy" {
+provider "data-proxy" {
   endpoint  = "https://data-proxy.example.com"
   token_url = "https://id.example.com/realms/example/protocol/openid-connect/token"
   client_id = "terraform"
@@ -4011,17 +4056,19 @@ provider "dataproxy" {
 }
 ```
 
-Don't write the client secret in a `.tf` file. Set `DATAPROXY_CLIENT_SECRET`, or give it to Terraform as a variable from your secret store.
+Don't write the client secret in a `.tf` file. Set `DATA_PROXY_CLIENT_SECRET`, or give it to Terraform as a variable from your secret store.
 
 ### Data sources
 
-`dataproxy_permissions` reads the permissions of the token, from `GET /rpc/permissions`. It has no arguments. Its attribute `permissions` is a set of the names in `rbac.toml`, such as `read_config`.
+`data_proxy_permissions` reads the permissions of the token, from `GET /rpc/permissions`. It has no arguments. Its attribute `permissions` is a set of the names in `rbac.toml`, such as `read_config`.
 
 ```hcl
-data "dataproxy_permissions" "this" {}
+data "data_proxy_permissions" "this" {
+  provider = data-proxy
+}
 
 output "can_delete" {
-  value = contains(data.dataproxy_permissions.this.permissions, "delete_config")
+  value = contains(data.data_proxy_permissions.this.permissions, "delete_config")
 }
 ```
 
@@ -4044,7 +4091,7 @@ Terraform downloads a provider from the registry. To test your local binary, add
 
    ```bash
    cd terraform
-   go build -o bin/terraform-provider-dataproxy .
+   go build -o bin/terraform-provider-data-proxy .
    ```
 
 2. Add the block to `~/.terraformrc`. Write the absolute path of `terraform/bin` in your clone.
@@ -4052,7 +4099,7 @@ Terraform downloads a provider from the registry. To test your local binary, add
    ```hcl
    provider_installation {
      dev_overrides {
-       "registry.terraform.io/prefeitura-rio/dataproxy" = "/home/you/data-proxy/terraform/bin"
+       "registry.example.com/example/data-proxy" = "/home/you/data-proxy/terraform/bin"
      }
      direct {}
    }
@@ -4070,15 +4117,15 @@ An acceptance test runs the provider through Terraform against a real API. It's 
 devenv --profile terraform tasks run tf:test:int
 ```
 
-The task runs `devenv --profile terraform-acc test`. That profile starts the console stack: PostgreSQL, SeaweedFS, Keycloak, PostgREST and the console. It sets `TF_ACC=1` and the `DATAPROXY_*` variables. The provider calls the local PostgREST and gets its token from the local Keycloak with the test client `admin`, whose role is `dp_admin`. The stack needs Podman, as the tests page says.
+The task runs `devenv --profile terraform-acc test`. That profile starts the console stack: PostgreSQL, SeaweedFS, Keycloak, PostgREST and the console. It sets `TF_ACC=1` and the `DATA_PROXY_*` variables. The provider calls the local PostgREST and gets its token from the local Keycloak with the test client `admin`, whose role is `dp_admin`. The stack needs Podman, as the tests page says.
 
 To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `terraform-acc` shell, because the tests call OpenTofu.
 
 ```bash
 devenv --profile console up -d
 devenv processes wait
-export TF_ACC=1 DATAPROXY_ENDPOINT=http://127.0.0.1:13000 DATAPROXY_CLIENT_ID=admin DATAPROXY_CLIENT_SECRET=test-secret
-export DATAPROXY_TOKEN_URL=http://localhost:18180/realms/dev/protocol/openid-connect/token
+export TF_ACC=1 DATA_PROXY_ENDPOINT=http://127.0.0.1:13000 DATA_PROXY_CLIENT_ID=admin DATA_PROXY_CLIENT_SECRET=test-secret
+export DATA_PROXY_TOKEN_URL=http://localhost:18180/realms/dev/protocol/openid-connect/token
 devenv --profile terraform shell -- go -C terraform test -count=1 -run TestAccPermissionsDataSource ./...
 ```
 

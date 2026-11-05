@@ -14,18 +14,22 @@ import (
 	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
-	"github.com/prefeitura-rio/data-proxy/terraform/internal/client"
+	"terraform-provider-data-proxy/internal/client"
 )
 
 // testAccNamePrefix starts every name that an acceptance test creates, so a row that a test left behind is easy to find.
 const testAccNamePrefix = "tfacc"
 
+// testAccProviderName is the local name of the provider in the test configurations. A local name has no underscore,
+// so it differs from TypeName, and each resource of a test names it with provider = data-proxy.
+const testAccProviderName = "data-proxy"
+
 // testAccProviderFactories serves the provider inside the test process, so Terraform needs no provider binary.
 var testAccProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
-	TypeName: providerserver.NewProtocol6WithError(New("test")()),
+	testAccProviderName: providerserver.NewProtocol6WithError(New("test")()),
 }
 
-// testAccPreCheck fails the test when a required DATAPROXY_* variable is empty.
+// testAccPreCheck fails the test when a required DATA_PROXY_* variable is empty.
 func testAccPreCheck(t *testing.T) {
 	t.Helper()
 
@@ -41,7 +45,7 @@ func testAccName() string {
 	return testAccNamePrefix + acctest.RandStringFromCharSet(10, acctest.CharSetAlphaNum)
 }
 
-// testAccClient returns a client with the credentials of the DATAPROXY_* variables.
+// testAccClient returns a client with the credentials of the DATA_PROXY_* variables.
 func testAccClient() (*client.Client, error) {
 	tokens, err := client.NewCredentialsSource(client.Credentials{
 		TokenURL:     os.Getenv(EnvTokenURL),

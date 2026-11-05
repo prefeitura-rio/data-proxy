@@ -17,7 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 
-	"github.com/prefeitura-rio/data-proxy/terraform/internal/client"
+	"terraform-provider-data-proxy/internal/client"
 )
 
 func TestMetadata(t *testing.T) {
@@ -25,8 +25,8 @@ func TestMetadata(t *testing.T) {
 
 	New("1.2.3")().Metadata(context.Background(), provider.MetadataRequest{}, &resp)
 
-	if resp.TypeName != "dataproxy" {
-		t.Errorf("TypeName = %q, want %q", resp.TypeName, "dataproxy")
+	if resp.TypeName != "data_proxy" {
+		t.Errorf("TypeName = %q, want %q", resp.TypeName, "data_proxy")
 	}
 
 	if resp.Version != "1.2.3" {
@@ -88,13 +88,13 @@ func TestSchemaServedOverProtocol(t *testing.T) {
 		t.Errorf("got %d resources, want none", len(resp.ResourceSchemas))
 	}
 
-	permissions, ok := resp.DataSourceSchemas["dataproxy_permissions"]
+	permissions, ok := resp.DataSourceSchemas["data_proxy_permissions"]
 	if len(resp.DataSourceSchemas) != 1 || !ok {
-		t.Fatalf("data sources = %v, want only dataproxy_permissions", resp.DataSourceSchemas)
+		t.Fatalf("data sources = %v, want only data_proxy_permissions", resp.DataSourceSchemas)
 	}
 
 	if attributes := permissions.Block.Attributes; len(attributes) != 1 || attributes[0].Name != "permissions" || !attributes[0].Computed {
-		t.Errorf("attributes of dataproxy_permissions = %v, want only the computed permissions", attributes)
+		t.Errorf("attributes of data_proxy_permissions = %v, want only the computed permissions", attributes)
 	}
 }
 
@@ -163,7 +163,7 @@ var fullEnv = map[string]string{
 	EnvTokenURL:     "https://id.env.example.com/token",
 	EnvClientID:     "env-client",
 	EnvClientSecret: "env-secret",
-	EnvScopes:       "openid, dataproxy\tprofile",
+	EnvScopes:       "openid, data-proxy\tprofile",
 }
 
 func TestReadSettings(t *testing.T) {
@@ -206,7 +206,7 @@ func TestReadSettings(t *testing.T) {
 					TokenURL:     "https://id.env.example.com/token",
 					ClientID:     "env-client",
 					ClientSecret: "env-secret",
-					Scopes:       []string{"openid", "dataproxy", "profile"},
+					Scopes:       []string{"openid", "data-proxy", "profile"},
 				},
 			},
 		},
@@ -226,7 +226,7 @@ func TestReadSettings(t *testing.T) {
 					TokenURL:     "https://id.env.example.com/token",
 					ClientID:     "hcl-client",
 					ClientSecret: "env-secret",
-					Scopes:       []string{"openid", "dataproxy", "profile"},
+					Scopes:       []string{"openid", "data-proxy", "profile"},
 				},
 			},
 		},
@@ -263,10 +263,10 @@ func TestReadSettings(t *testing.T) {
 			env:   map[string]string{EnvScopes: "openid"},
 			want:  settings{credentials: client.Credentials{Scopes: []string{"openid"}}},
 			diags: []diagnostic{
-				{path: "endpoint", summary: "Missing endpoint", detail: "Set endpoint in the provider block or in the DATAPROXY_ENDPOINT environment variable."},
-				{path: "token_url", summary: "Missing token_url", detail: "Set token_url in the provider block or in the DATAPROXY_TOKEN_URL environment variable."},
-				{path: "client_id", summary: "Missing client_id", detail: "Set client_id in the provider block or in the DATAPROXY_CLIENT_ID environment variable."},
-				{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATAPROXY_CLIENT_SECRET environment variable."},
+				{path: "endpoint", summary: "Missing endpoint", detail: "Set endpoint in the provider block or in the DATA_PROXY_ENDPOINT environment variable."},
+				{path: "token_url", summary: "Missing token_url", detail: "Set token_url in the provider block or in the DATA_PROXY_TOKEN_URL environment variable."},
+				{path: "client_id", summary: "Missing client_id", detail: "Set client_id in the provider block or in the DATA_PROXY_CLIENT_ID environment variable."},
+				{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATA_PROXY_CLIENT_SECRET environment variable."},
 			},
 		},
 		{
@@ -282,7 +282,7 @@ func TestReadSettings(t *testing.T) {
 				},
 			},
 			diags: []diagnostic{
-				{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATAPROXY_CLIENT_SECRET environment variable."},
+				{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATA_PROXY_CLIENT_SECRET environment variable."},
 			},
 		},
 		{
@@ -293,7 +293,7 @@ func TestReadSettings(t *testing.T) {
 				credentials: hclSettings.credentials,
 			},
 			diags: []diagnostic{
-				{path: "endpoint", summary: "Unknown endpoint", detail: "The provider can't start with an unknown endpoint. Give a known value, or leave it out and set DATAPROXY_ENDPOINT."},
+				{path: "endpoint", summary: "Unknown endpoint", detail: "The provider can't start with an unknown endpoint. Give a known value, or leave it out and set DATA_PROXY_ENDPOINT."},
 			},
 		},
 		{
@@ -309,7 +309,7 @@ func TestReadSettings(t *testing.T) {
 				},
 			},
 			diags: []diagnostic{
-				{path: "scopes", summary: "Unknown scopes", detail: "The provider can't start with unknown scopes. Give known values, or leave them out and set DATAPROXY_SCOPES."},
+				{path: "scopes", summary: "Unknown scopes", detail: "The provider can't start with unknown scopes. Give known values, or leave them out and set DATA_PROXY_SCOPES."},
 			},
 		},
 	}
@@ -479,7 +479,7 @@ func TestConfigure(t *testing.T) {
 			},
 			diags: func(fakeAPI) []diagnostic {
 				return []diagnostic{
-					{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATAPROXY_CLIENT_SECRET environment variable."},
+					{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATA_PROXY_CLIENT_SECRET environment variable."},
 				}
 			},
 		},

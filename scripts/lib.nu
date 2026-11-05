@@ -402,6 +402,124 @@ export def provider-archive [name: string, version: string, os: string, arch: st
     $'terraform-provider-($name)_($version)_($os)_($arch).zip'
 }
 
+# Return the version of a provider release tag, such as 0.1.3 for terraform-v0.1.3.
+export def terraform-tag-version []: string -> string {
+    str replace --regex '^terraform-v' ''
+}
+
+# Return the bump that one commit subject asks for: minor for a feature or a breaking change, patch for a fix.
+def commit-bump [subject: string]: nothing -> oneof<string, nothing> {
+    if $subject =~ '^feat(\([^)]*\))?: ' or $subject =~ '^[a-z]+(\([^)]*\))?!: ' {
+        'minor'
+    } else if $subject =~ '^fix(\([^)]*\))?: ' {
+        'patch'
+    }
+}
+
+# Return the bump that the commits of the provider ask for, or null when none needs a release. Only a commit that
+# changes a file of terraform/ counts. The major version stays 0, so a breaking change raises the minor version.
+export def terraform-bump []: list<record<subject: string, files: list<string>>> -> oneof<string, nothing> {
+    let bumps = $in
+    | where ($it.files | any {|file| $file =~ '^terraform/' })
+    | each {|commit| commit-bump $commit.subject }
+    | compact
+
+    if 'minor' in $bumps {
+        'minor'
+    } else if 'patch' in $bumps {
+        'patch'
+    }
+}
+
+# Return the next provider version from the last one, or null for the first release, and a bump.
+export def next-terraform-version [last: oneof<string, nothing>, bump: string]: nothing -> string {
+    if $last == null {
+        return '0.1.0'
+    }
+
+    let parts = $last
+    | parse --regex '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$'
+    | first
+    | into int major minor patch
+
+    match $bump {
+        minor => $'($parts.major).($parts.minor + 1).0'
+        patch => $'($parts.major).($parts.minor).($parts.patch + 1)'
+        _ => (fail $'The bump ($bump) is neither minor nor patch')
+    }
+}
+
+# Return a record from the file name to the hash, from the text of a SHA256SUMS file.
+export def parse-sha256sums []: string -> record {
+    parse --regex '(?m)^(?<hash>[0-9a-f]+)\s+\*?(?<name>\S+)$'
+    | reduce --fold {} {|row, sums| $sums | insert $row.name $row.hash }
+}
+
+# Return the files of a provider registry as a table of the path and the body. The registry is static: the service
+# discovery, the versions of the provider and one download file for each version, system and architecture. The inputs
+# are the namespace, the type, the base URL of the release downloads, the signing key (id and armor), the targets and
+# the versions with the checksums of their archives. The documents hold no host name, because the host serves them.
+export def registry-documents [inputs: record]: nothing -> table<path: string, body: record> {
+    let root = $'v1/providers/($inputs.namespace)/($inputs.type)'
+    let discovery = {
+        path: '.well-known/terraform.json'
+        body: {'providers.v1': '/v1/providers/'}
+    }
+    let versions = {
+        path: $'($root)/versions'
+        body: {
+            versions: (
+                $inputs.versions
+                | each {|release|
+                    {
+                        version: $release.version
+                        protocols: ['6.0']
+                        platforms: $inputs.targets
+                    }
+                }
+            )
+        }
+    }
+    let downloads = $inputs.versions | each {|release|
+        let base = $'($inputs.base_url)/terraform-v($release.version)'
+        let sums = $'terraform-provider-($inputs.type)_($release.version)_SHA256SUMS'
+
+        $inputs.targets | each {|target|
+            let archive = provider-archive $inputs.type $release.version $target.os $target.arch
+            let hashes = $release.sums | transpose name hash | where name == $archive
+
+            if ($hashes | is-empty) {
+                fail $'The checksums of ($release.version) have no ($archive)'
+            }
+
+            {
+                path: $'($root)/($release.version)/download/($target.os)/($target.arch)'
+                body: {
+                    protocols: ['6.0']
+                    os: $target.os
+                    arch: $target.arch
+                    filename: $archive
+                    download_url: $'($base)/($archive)'
+                    shasums_url: $'($base)/($sums)'
+                    shasums_signature_url: $'($base)/($sums).sig'
+                    shasum: ($hashes | first | get hash)
+                    signing_keys: {
+                        gpg_public_keys: [
+                            {
+                                key_id: $inputs.key.id
+                                ascii_armor: $inputs.key.armor
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+    | flatten
+
+    [$discovery $versions] | append $downloads
+}
+
 # Return the tag that `cog bump --dry-run` prints when a release is due, or null when it prints a message.
 export def release-tag []: string -> oneof<string, nothing> {
     lines | where $it =~ '^helm-v\d+\.\d+\.\d+' | get --optional 0

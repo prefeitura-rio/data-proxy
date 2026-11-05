@@ -21,7 +21,9 @@
 
         packages = with pkgs; [
           go
+          gnupg
           golangci-lint
+          govulncheck
           zip
         ];
 
@@ -39,6 +41,11 @@
               golangci-lint run ./...
             '';
             execIfModified = sources;
+          };
+          "tf:lint:vuln" = utils.nuTask {
+            description = "Check the Terraform provider and the Go toolchain against the Go vulnerability database.";
+            cwd = "terraform";
+            exec = "govulncheck ./...";
           };
           "tf:test:unit" = utils.nuTask {
             description = "Run the unit tests of the Terraform provider, without the acceptance tests.";
@@ -107,10 +114,10 @@
           TF_ACC = "1";
           TF_ACC_TERRAFORM_PATH = lib.getExe pkgs.opentofu;
           TF_ACC_PROVIDER_HOST = "registry.opentofu.org";
-          DATAPROXY_ENDPOINT = data.urls.pgrest;
-          DATAPROXY_TOKEN_URL = "${data.urls.issuer}/protocol/openid-connect/token";
-          DATAPROXY_CLIENT_ID = "admin";
-          DATAPROXY_CLIENT_SECRET = "test-secret";
+          DATA_PROXY_ENDPOINT = data.urls.pgrest;
+          DATA_PROXY_TOKEN_URL = "${data.urls.issuer}/protocol/openid-connect/token";
+          DATA_PROXY_CLIENT_ID = "admin";
+          DATA_PROXY_CLIENT_SECRET = "test-secret";
         };
 
         enterTest = lib.mkForce ''

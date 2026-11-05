@@ -15,7 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
-	"github.com/prefeitura-rio/data-proxy/terraform/internal/client"
+	"terraform-provider-data-proxy/internal/client"
 )
 
 // staticToken is a TokenSource that returns itself as the token.
@@ -322,12 +322,12 @@ func TestAccPermissionsDataSource(t *testing.T) {
 		ProtoV6ProviderFactories: testAccProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				Config: `data "dataproxy_permissions" "this" {}`,
+				Config: `data "data_proxy_permissions" "this" { provider = data-proxy }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckTypeSetElemAttr("data.dataproxy_permissions.this", "permissions.*", "read_config"),
-					resource.TestCheckTypeSetElemAttr("data.dataproxy_permissions.this", "permissions.*", "create_config"),
-					resource.TestCheckTypeSetElemAttr("data.dataproxy_permissions.this", "permissions.*", "edit_config"),
-					resource.TestCheckTypeSetElemAttr("data.dataproxy_permissions.this", "permissions.*", "delete_config"),
+					resource.TestCheckTypeSetElemAttr("data.data_proxy_permissions.this", "permissions.*", "read_config"),
+					resource.TestCheckTypeSetElemAttr("data.data_proxy_permissions.this", "permissions.*", "create_config"),
+					resource.TestCheckTypeSetElemAttr("data.data_proxy_permissions.this", "permissions.*", "edit_config"),
+					resource.TestCheckTypeSetElemAttr("data.data_proxy_permissions.this", "permissions.*", "delete_config"),
 				),
 			},
 		},
