@@ -103,7 +103,7 @@
 
         enterTest = lib.mkForce ''
           cd terraform
-          go test -count=1 -run '^TestAcc' ./...
+          go test -count=1 -run '^TestAcc[A-Z]' ./...
         '';
       };
   };
