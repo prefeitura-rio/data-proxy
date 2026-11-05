@@ -164,4 +164,26 @@ in
         '';
       };
   };
+
+  # Starts the console stack and writes the database diagrams of docs/model.md with `devenv --profile model test`.
+  profiles.model = {
+    extends = [ "console" ];
+    module =
+      {
+        lib,
+        data,
+        utils,
+        ...
+      }:
+      {
+        packages = [ pkgs.tbls ];
+
+        env = {
+          TBLS_APP_DSN = "${utils.postgresUrl { database = data.databases.app; }}?sslmode=disable";
+          TBLS_CATALOG_DSN = "${utils.postgresUrl { database = data.databases.catalog; }}?sslmode=disable";
+        };
+
+        enterTest = lib.mkForce "nu scripts/db.nu diagrams";
+      };
+  };
 }

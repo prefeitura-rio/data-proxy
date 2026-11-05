@@ -36,6 +36,8 @@ in
           "js"
           "json"
           "md"
+          "mmd"
+          "yaml"
         ];
 
       in
@@ -84,7 +86,7 @@ in
           };
           "nu:test:unit" = utils.nuTask {
             description = "Run the Nushell tests.";
-            exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/docs.nu scripts/tests/kc.nu scripts/tests/rules.nu";
+            exec = "nu helm/files/scripts/tests/run.nu helm/files/scripts/tests/lib.nu scripts/tests/lib.nu scripts/tests/db.nu scripts/tests/docs.nu scripts/tests/kc.nu scripts/tests/rules.nu";
             execIfModified = utils.mkInputs [
               "helm/files/scripts/**/*.nu"
               "scripts/**/*.nu"
@@ -116,6 +118,20 @@ in
             execIfModified = utils.mkInputs [
               "helm/files/config/rbac.toml"
               "scripts/docs.nu"
+            ];
+          };
+          "docs:build:model" = utils.serviceSuite {
+            description = "Start the databases, write the diagrams of docs/model.md from them, and stop the databases.";
+            profile = "model";
+            inputs = [
+              "console/migrations/*.sql"
+              "helm/files/templates/postgres/*.sql"
+              "sync/uv.lock"
+              "docs/.tbls.yaml"
+              "docs/.tbls.catalog.yaml"
+              "scripts/db.nu"
+              "nix/stack/console.nix"
+              "nix/stack/postgres.nix"
             ];
           };
           "docs:lint:roles" = utils.nuTask {

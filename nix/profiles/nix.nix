@@ -10,6 +10,7 @@ let
     sync-unit = 900;
     sync = 1200;
     console = 2600;
+    model = 2700;
     repo = 2300;
     default = 6500;
   };
@@ -60,6 +61,8 @@ in
               "js"
               "json"
               "md"
+              "mmd"
+              "yaml"
             ]
           );
         };
