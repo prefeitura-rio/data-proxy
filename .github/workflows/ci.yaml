@@ -14,6 +14,7 @@ on:
       - helm/**
       - k6/**
       - scripts/**
+      - terraform/**
       - Containerfile.sync
       - Containerfile.jobs
       - Containerfile.pg
@@ -77,6 +78,7 @@ jobs:
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
       - uses: ./.github/actions/cache-packages
+      - uses: ./.github/actions/cache-go
       - name: Restore the repo virtual environment
         id: repo-venv-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -176,6 +178,35 @@ jobs:
         with:
           group: proxy
           profile: integration
+  test-terraform:
+    name: Terraform provider tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: ./.github/actions/prewarm-images
+        with:
+          keycloak: true
+      - uses: ./.github/actions/cache-nix
+      - uses: ./.github/actions/setup-devenv
+      - uses: ./.github/actions/cache-packages
+      - uses: ./.github/actions/cache-go
+      - run: podman --version
+      - name: Restore the task state
+        uses: ./.github/actions/task-state-restore
+        with:
+          force: ${{ inputs.force_full || inputs.force_checks }}
+          group: terraform
+          profile: terraform
+      - run: devenv --profile terraform tasks run tf:lint:go
+      - run: devenv --profile terraform tasks run tf:test:unit
+      - run: devenv --profile terraform tasks run tf:test:int
+      - name: Save the task state
+        if: github.ref == 'refs/heads/main'
+        uses: ./.github/actions/task-state-save
+        with:
+          group: terraform
+          profile: terraform
   profile-sizes:
     name: Profile sizes
     runs-on: ubuntu-latest

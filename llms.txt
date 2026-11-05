@@ -2874,7 +2874,7 @@ The workflow `.github/workflows/ci.yaml` checks, tests, builds and releases. A s
 
 ### Triggers
 
-The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `nix/`, `k3d/`, `k6/`, `scripts/`, the workflows, the container files, the linter files and the devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
+The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `terraform/`, `nix/`, `k3d/`, `k6/`, `scripts/`, the workflows, the container files, the linter files and the devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
 
 A manual start has two inputs. `force_checks` runs every check and test without the saved task state. `force_full` does the same, builds every image and starts the release job. The release job still needs a release-level commit and a chart or image change.
 
@@ -2890,6 +2890,7 @@ flowchart LR
     sync["test-sync"]
     console["test-console"]
     proxy["test-proxy"]
+    terraform["test-terraform"]
     sizes["profile-sizes"]
   end
   subgraph main["Only on main"]
@@ -2900,6 +2901,7 @@ flowchart LR
   push --> sync
   push --> console
   push --> proxy
+  push --> terraform
   push --> sizes
   changes --> build
   repo -->|"tests pass"| pushimg
@@ -2913,6 +2915,7 @@ flowchart LR
 | `changes` | Runs `ci changes`. It writes which images need a build and whether the chart needs a release. |
 | `repo` | Runs `repo:lint` and `repo:test:unit`. |
 | `test-sync`, `test-console`, `test-proxy` | Run the `:int` task of the component in the `integration` profile. A task runs only if one of its inputs changed. |
+| `test-terraform` | Runs `tf:lint:go`, `tf:test:unit` and `tf:test:int`. No other job waits for it. |
 | `profile-sizes` | Runs `nix:lint:closure` and `nix:lint:cmd`. No other job waits for it. |
 | `build-images` | Builds each changed image and pushes nothing. It fills the layer cache while the tests run. |
 | `push-images` | Waits for every test job. It builds each image again from the cache, pushes it and signs it, so no image of an untested commit reaches the registry. |

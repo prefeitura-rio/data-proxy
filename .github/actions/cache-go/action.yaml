@@ -1,0 +1,14 @@
+name: Cache the Go modules
+description: Keep the Go module cache, the Go build cache and the golangci-lint cache between runs, keyed by terraform/go.sum, so the provider tasks download and compile nothing that did not change.
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/.cache/golangci-lint
+        key: go-${{ runner.os }}-${{ hashFiles('terraform/go.sum') }}
+        restore-keys: |
+          go-${{ runner.os }}-
