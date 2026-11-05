@@ -2,6 +2,23 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.10.0 - 2026-11-05
+
+### Features
+
+- **terraform**: add the dataproxy provider skeleton (#12) (2a91ea4)
+- **docs**: add llms.txt (67c9029)
+
+### Fixes
+
+- **ci**: release the chart when an image changed since the last release (935d030)
+- **sync**: keep the Swagger schema list equal to the console schemas (b765b91)
+- **console**: hide the SQL cell button of the notebook (a5ef65d)
+- **proxy**: never cache the OpenAPI document (27377c9)
+
+
+- - -
+
 ## helm-v2.9.1 - 2026-11-04
 
 ### Fixes
