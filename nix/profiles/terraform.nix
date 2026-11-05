@@ -91,9 +91,14 @@
       "terraform"
     ];
     module =
-      { lib, data, ... }:
       {
-        # console-unit and terraform both set stdenv with mkDefault, and two definitions of one priority conflict.
+        lib,
+        data,
+        pkgs,
+        ...
+      }:
+      {
+        # The profiles console and terraform both set the default, so this profile picks one.
         stdenv = pkgs.stdenvNoCC;
 
         env = {
