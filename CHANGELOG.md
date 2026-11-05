@@ -2,6 +2,23 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.11.0 - 2026-11-05
+
+### Features
+
+- **terraform**: add the dataproxy_permissions data source and check read_config in configure [DEV-290] (#18) (11d951a)
+- **console**: add projects above schemas (c04e26d)
+- **ci**: gate production on a manual approval (a9e5fce)
+- **terraform**: authenticate the provider with OIDC client credentials [DEV-289] (#16) (31bd4ee)
+- **terraform**: add the PostgREST client of the provider [DEV-288] (#14) (c6ba269)
+
+### Fixes
+
+- **console**: update the UI tests for projects (a46f208)
+
+
+- - -
+
 ## helm-v2.10.0 - 2026-11-05
 
 ### Features
