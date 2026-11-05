@@ -556,7 +556,7 @@ func TestErrorResponses(t *testing.T) {
 
 			for _, kind := range kinds {
 				if errors.Is(err, kind) != (kind == tt.kind) {
-					t.Errorf("errors.Is(err, %v) = %t, want %t", kind, !(kind == tt.kind), kind == tt.kind)
+					t.Errorf("errors.Is(err, %v) = %t, want %t", kind, kind != tt.kind, kind == tt.kind)
 				}
 			}
 		})

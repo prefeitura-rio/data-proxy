@@ -231,7 +231,7 @@ func (c *Client) do(ctx context.Context, r request, out any) error {
 		return fmt.Errorf("%s %s: %w", r.method, r.path, err)
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		raw, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
