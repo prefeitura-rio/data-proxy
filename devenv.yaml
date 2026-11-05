@@ -9,10 +9,6 @@ inputs:
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling
 
-nixpkgs:
-  permitted_unfree_packages:
-    - terraform
-
 imports:
   - ./proxy
   - ./sync

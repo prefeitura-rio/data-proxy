@@ -21,8 +21,7 @@
         packages = with pkgs; [
           go
           golangci-lint
-          terraform
-          terraform-plugin-docs
+          zip
         ];
 
         tasks = {
@@ -91,10 +90,22 @@
       "terraform"
     ];
     module =
-      { lib, data, ... }:
       {
+        lib,
+        data,
+        pkgs,
+        ...
+      }:
+      {
+        # The profiles console and terraform both set the default, so this profile picks one.
+        stdenv = pkgs.stdenvNoCC;
+
+        packages = [ pkgs.opentofu ];
+
         env = {
           TF_ACC = "1";
+          TF_ACC_TERRAFORM_PATH = lib.getExe pkgs.opentofu;
+          TF_ACC_PROVIDER_HOST = "registry.opentofu.org";
           DATAPROXY_ENDPOINT = data.urls.pgrest;
           DATAPROXY_TOKEN_URL = "${data.urls.issuer}/protocol/openid-connect/token";
           DATAPROXY_CLIENT_ID = "admin";

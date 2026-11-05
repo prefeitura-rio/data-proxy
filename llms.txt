@@ -41,6 +41,7 @@
 - Tests (dev/tests.md)
 - CI and releases (dev/ci.md)
 - Production deploys (dev/promote.md)
+- Provider releases (dev/provider.md)
 - Operations (operations/index.md)
 - Helm Chart (operations/helm.md)
 - Initialization (operations/initialization.md)
@@ -2682,7 +2683,7 @@ Source: dev/index.md
 
 ## Development
 
-This section helps you set up the repository, run the checks and find your way in the code. Tests says how to run each suite. CI describes the pipeline and the release. Production deploys says how a release reaches production. Style has the rules for the code and the docs.
+This section helps you set up the repository, run the checks and find your way in the code. Tests says how to run each suite. CI describes the pipeline and the release. Production deploys says how a release reaches production. Provider releases covers the provider. Style has the rules for the code and the docs.
 
 ### Code map
 
@@ -2728,7 +2729,7 @@ The root `devenv.yaml` imports the folders `proxy/`, `sync/`, `console/` and `he
 | `sync`, `proxy`, `console` | One component with its test services, for `devenv test` and `devenv up`. |
 | `integration` | The three `:int` tasks, which start the service profiles. |
 | `chart` | Helm, `cog` and the `ci` script. |
-| `terraform` | Go, `golangci-lint`, Terraform and `tfplugindocs` for `terraform/`. |
+| `terraform` | Go and `golangci-lint` for `terraform/`. `terraform-acc` adds OpenTofu. |
 | `nix` | The checks of the profile sizes and of the commands in the docs. |
 | `base`, `python` | The parts that the other profiles share, in `nix/profiles/shared.nix`. |
 
@@ -2764,7 +2765,7 @@ Before a release, run the checks that CI can't run. `cluster k6 e2e` tests the w
 devenv --profile console up
 ```
 
-The first start takes about one minute. Add `-d` to run in the background, wait with `devenv processes wait` and stop with `devenv down`. Open `http://console.localhost:13001/console`, or run `devenv --profile console tasks run console:open:browser`. Sign in as `admin` (role `dp_admin`, schema `test`) with the password `admin`. The tests also use six users with the password `web-test`:
+Add `-d` to run in the background, wait with `devenv processes wait` and stop with `devenv down`. Open `http://console.localhost:13001/console`, or run `devenv --profile console tasks run console:open:browser`. Sign in as `admin` (role `dp_admin`, schema `test`) with the password `admin`. The tests also use six users with the password `web-test`:
 
 - `web_admin`: role `dp_admin`, schema `test`.
 - `web_viewer`: role `dp_console`.
@@ -3003,6 +3004,36 @@ Start `promote.yaml` by hand with the input `version`, such as `2.11.0`. The job
 ### Settings
 
 The reviewers are in the GitHub settings of the repository, under Environments and `production`. The infra repository has the production HelmRelease. It reads the tag with an `OCIRepository` whose `ref.tag` is `prod`. CI and releases describes the chart release that comes before a promotion.
+
+---
+
+Source: dev/provider.md
+
+## Provider releases
+
+The Terraform provider has its own versions and its own releases. A chart release doesn't release the provider, and a provider release doesn't change the chart or production.
+
+### How a release works
+
+- The tag is `terraform-v<version>`, such as `terraform-v0.1.0`. The chart tags `helm-v<version>` stay separate.
+- The workflow `terraform.yaml` lints the provider and runs its unit tests on each change under `terraform/`.
+- A person starts a release. Run the workflow by hand on `main` with the input `version`, such as `0.1.0`. An empty input runs the checks only.
+- The `release` job builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and writes `SHA256SUMS`.
+- The job publishes the archives in a GitHub Release with the tag. The notes list the commit subjects under `terraform/` since the last provider tag.
+
+A tag that exists already makes the job fail, so a version never changes after its release.
+
+### Install a release
+
+Download the archive for your system from the GitHub Release and put it in a Terraform [filesystem mirror](https://developer.hashicorp.com/terraform/cli/config/config-file#filesystem_mirror). The release has no signature, so the public Terraform Registry doesn't accept it. The checksums in `SHA256SUMS` let you check each archive.
+
+### Commands
+
+| Command | Work |
+| --- | --- |
+| `ci terraform release <version>` | Builds the archives, writes the checksums and publishes the GitHub Release. |
+
+CI and releases describes the chart release.
 
 ---
 
@@ -4038,7 +4069,7 @@ devenv --profile terraform tasks run tf:test:int
 
 The task runs `devenv --profile terraform-acc test`. That profile starts the console stack: PostgreSQL, SeaweedFS, Keycloak, PostgREST and the console. It sets `TF_ACC=1` and the `DATAPROXY_*` variables. The provider calls the local PostgREST and gets its token from the local Keycloak with the test client `admin`, whose role is `dp_admin`. The stack needs Podman, as the tests page says.
 
-To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `terraform` shell, because the tests call the `terraform` binary.
+To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `terraform-acc` shell, because the tests call OpenTofu.
 
 ```bash
 devenv --profile console up -d

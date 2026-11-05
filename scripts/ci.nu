@@ -6,12 +6,15 @@ use lib.nu [
     IMAGES
     images-changed
     latest-helm-tag
+    latest-terraform-tag
     make-dir
     newest-version
+    provider-archive
     read-data
     read-text
     release-commit
     release-tag
+    sha256-file
     valid-chart-version
     version-of-digest
     write-text
@@ -422,6 +425,62 @@ def 'main guard' []: nothing -> nothing {
 
     write-output skip ($skip | into string)
     log info $'Release needed: (not $skip)'
+}
+
+# The provider name in the binary and in the archives, and the systems that the release builds for.
+const PROVIDER = 'dataproxy'
+const PROVIDER_TARGETS = [
+    {os: linux, arch: amd64}
+    {os: linux, arch: arm64}
+    {os: darwin, arch: amd64}
+    {os: darwin, arch: arm64}
+    {os: windows, arch: amd64}
+]
+
+# Build the provider for one system, zip the binary into the output folder, and return the name of the archive.
+def build-provider [target: record<os: string, arch: string>, version: string, output: path]: nothing -> string {
+    let extension = if $target.os == windows { '.exe' } else { '' }
+    let binary = $output | path join build $'($target.os)-($target.arch)' $'terraform-provider-($PROVIDER)_v($version)($extension)'
+    let archive = provider-archive $PROVIDER $version $target.os $target.arch
+
+    make-dir ($binary | path dirname)
+    log info $'Building ($archive)...'
+
+    load-env {GOOS: $target.os, GOARCH: $target.arch, CGO_ENABLED: '0'}
+    go build -C terraform -trimpath -ldflags $'-s -w -X main.version=($version)' -o $binary . | complete | check-result $'go build for ($target.os) ($target.arch)' | ignore
+    ^zip --quiet --junk-paths ($output | path join $archive) $binary | complete | check-result 'zip' | ignore
+
+    $archive
+}
+
+# Build the Terraform provider for each system and publish a GitHub Release with the archives and their checksums.
+# The tag is `terraform-v<version>`. The notes list the subjects of the commits of terraform/ since the last provider tag.
+def 'main terraform release' [
+    version: string # The provider version, such as 0.1.0.
+]: nothing -> nothing {
+    if not (valid-chart-version $version) {
+        fail $'($version) is not a version such as 0.1.0'
+    }
+
+    let tag = $'terraform-v($version)'
+    let previous = git tag --sort=-v:refname | lines | latest-terraform-tag
+    let range = if $previous == null { 'HEAD' } else { $'($previous)..HEAD' }
+    let notes = git log --no-merges --format='- %s' $range -- terraform | complete | check-result 'git log'
+    let output = $env.PWD | path join packaged terraform
+
+    let archives = $PROVIDER_TARGETS | each {|target| build-provider $target $version $output }
+
+    let sums = $archives | each {|archive|
+        let hash = sha256-file ($output | path join $archive)
+
+        $'($hash)  ($archive)'
+    }
+
+    $sums | str join (char nl) | $in + (char nl) | write-text ($output | path join SHA256SUMS)
+
+    let files = [SHA256SUMS ...$archives] | each {|file| $output | path join $file }
+
+    gh release create $tag ...$files --target $env.GITHUB_SHA --title $tag --notes $notes | complete | check-result 'gh release create' | print
 }
 
 # Print the available CI subcommands.
