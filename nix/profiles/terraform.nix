@@ -93,6 +93,9 @@
     module =
       { lib, data, ... }:
       {
+        # console-unit and terraform both set stdenv with mkDefault, and two definitions of one priority conflict.
+        stdenv = pkgs.stdenvNoCC;
+
         env = {
           TF_ACC = "1";
           DATAPROXY_ENDPOINT = data.urls.pgrest;
