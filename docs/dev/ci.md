@@ -45,7 +45,7 @@ flowchart LR
 | `changes` | Runs `ci changes`. It writes which images need a build and whether the chart needs a release. |
 | `repo` | Runs `repo:lint` and `repo:test:unit`. |
 | `test-sync`, `test-console`, `test-proxy` | Run the `:int` task of the component in the `integration` profile. A task runs only if one of its inputs changed. |
-| `test-terraform` | Runs `tf:lint:go`, `tf:test:unit` and `tf:test:int`. No other job waits for it. |
+| `test-terraform` | Runs `tf:test:int`. No other job waits for it. |
 | `profile-sizes` | Runs `nix:lint:closure` and `nix:lint:cmd`. No other job waits for it. |
 | `build-images` | Builds each changed image and pushes nothing. It fills the layer cache while the tests run. |
 | `push-images` | Waits for every test job. It builds each image again from the cache, pushes it and signs it, so no image of an untested commit reaches the registry. |

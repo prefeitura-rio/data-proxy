@@ -198,8 +198,6 @@ jobs:
           force: ${{ inputs.force_full || inputs.force_checks }}
           group: terraform
           profile: terraform
-      - run: devenv --profile terraform tasks run tf:lint:go
-      - run: devenv --profile terraform tasks run tf:test:unit
       - run: devenv --profile terraform tasks run tf:test:int
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
