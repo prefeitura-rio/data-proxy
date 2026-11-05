@@ -11,6 +11,7 @@ use ../docs.nu [
     links-of
     page-problems
     problems
+    profile-names
     rules-of
     sentence-problems
     slug
@@ -393,4 +394,21 @@ export def "test problems-accepts-both-link-forms" []: nothing -> nothing {
     assert equal (problems $entries $dir) ["index.md doesn't link three.md"]
 
     remove-path $dir
+}
+
+# Verify that a profile name comes from `profiles.<name> =` and from a key of one `profiles = { ... }` set.
+export def "test profile-names-reads-both-forms" []: nothing -> nothing {
+    let cases = [
+        [name text expected];
+        ['one dotted key' "{\n  profiles.base = { };\n}" [base]]
+        ['two dotted keys' "profiles.repo = {\n};\nprofiles.chart-x = {\n};" [repo chart-x]]
+        ['keys of one set' "{\n  profiles = {\n    console-unit = {\n      extends = [ ];\n    };\n    console = {\n    };\n  };\n}" [console-unit console]]
+        ['a key of another set is not a profile' "{\n  other = {\n    console = {\n    };\n  };\n}" []]
+        ['both forms and a repeat' "{\n  profiles.base = { };\n  profiles = {\n    base = {\n    };\n  };\n}" [base]]
+        ['no profile' "{ }" []]
+    ]
+
+    for case in $cases {
+        assert equal (profile-names $case.text) $case.expected $case.name
+    }
 }

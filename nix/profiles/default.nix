@@ -20,7 +20,6 @@
         };
 
         packages = with pkgs; [
-          ast-grep
           kubecolor
           kubectl
           marksman

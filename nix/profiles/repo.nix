@@ -42,7 +42,7 @@ in
 
       in
       {
-        stdenv = pkgs.stdenv;
+        inherit (pkgs) stdenv;
 
         packages = with pkgs; [ vale ];
 

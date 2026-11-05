@@ -1,5 +1,4 @@
-{ ... }:
-{
+_: {
   profiles.integration = {
     extends = [ "base" ];
     module =

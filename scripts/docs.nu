@@ -478,12 +478,24 @@ export def command-problems [commands: table, profiles: list<string>, tasks_of: 
     | flatten
 }
 
+# Return the profile names in the text of a Nix file: `profiles.<name> =`, and the keys of one `profiles = { ... }` set.
+export def profile-names [text: string]: nothing -> list<string> {
+    let dotted = $text | parse --regex 'profiles\.(?<name>[a-z][a-z-]*) =' | get --optional name | default []
+
+    let nested = if ($text | str contains "\n  profiles = {\n") {
+        $text | parse --regex '(?m)^    (?<name>[a-z][a-z-]*) = \{$' | get --optional name | default []
+    } else {
+        []
+    }
+
+    [...$dotted ...$nested] | uniq
+}
+
 # Return the names of the profiles that the Nix files define.
 def known-profiles []: nothing -> list<string> {
     [...(glob nix/profiles/*.nix) ...(glob */devenv.nix) devenv.nix]
-    | each {|file| read-text $file | parse --regex 'profiles\.(?<name>[a-z][a-z-]*) =' }
+    | each {|file| profile-names (read-text $file) }
     | flatten
-    | get name
     | uniq
 }
 

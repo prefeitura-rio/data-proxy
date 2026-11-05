@@ -4,186 +4,188 @@ let
   projects = "^console/(ui|notebooks)/";
 in
 {
-  profiles.console-unit = {
-    extends = [ "base" ];
-    module = {
-      key = "data-proxy-console-unit";
-      imports = [
-        (
-          { lib, utils, ... }:
-          let
-            consoleInputs = [
-              "console/ui/package.json"
-              "console/ui/pnpm-lock.yaml"
-              "console/ui/tsconfig.json"
-              "console/ui/vite.config.ts"
-              "console/ui/playwright.config.ts"
-              "console/ui/eslint.config.js"
-              "console/ui/.prettierrc.mjs"
-              "console/ui/.npmrc"
-              ".prettierignore"
-            ]
-            ++ utils.mkGlobs "console/ui/src" [
-              "ts"
-              "svelte"
-              "svg"
-              "html"
-              "css"
-            ]
-            ++ utils.mkGlobs "console/ui/tests" [
-              "ts"
-              "feature"
-            ];
-
-            installTask =
-              dir:
-              utils.nuTask {
-                description = "Install the locked dependencies of ${dir}.";
-                cwd = dir;
-                exec = "pnpm install --frozen-lockfile";
-              };
-
-            pnpmTask =
-              description: dir: install: script: files:
-              utils.nuTask {
-                inherit description;
-                cwd = dir;
-                after = [ install ];
-                exec = script;
-                execIfModified = utils.mkInputs files;
-              };
-          in
-          {
-            stdenv = lib.mkDefault pkgs.stdenvNoCC;
-
-            languages = {
-              javascript = {
-                enable = true;
-                pnpm.enable = true;
-              };
-              typescript.enable = true;
-            };
-
-            git-hooks.hooks = {
-              prettier = {
-                enable = true;
-                files = projects;
-                settings = {
-                  write = true;
-                  ignore-unknown = true;
-                  ignore-path = [ "./.prettierignore" ];
-                  binPath = "${bin}/prettier";
-                };
-              };
-              eslint = {
-                enable = true;
-                settings = {
-                  binPath = "${bin}/eslint";
-                  extensions = "${projects}.*\\.(ts|js|mjs|svelte)$";
-                };
-              };
-            };
-
-            tasks = {
-              "devenv:git-hooks:run".before = lib.mkForce [ ];
-              "console:install:ui" = installTask "console/ui";
-              "nb:install:deps" = installTask "console/notebooks";
-              "console:lint:ui" =
-                pnpmTask "Check and lint the console app." "console/ui" "console:install:ui" "pnpm check\npnpm lint"
-                  consoleInputs;
-              "nb:lint:ts" =
-                pnpmTask "Check and lint the notebooks." "console/notebooks" "nb:install:deps"
-                  "pnpm check\npnpm lint"
-                  (
-                    [
-                      "console/notebooks/*.ts"
-                      "console/notebooks/tsconfig.json"
-                      "console/notebooks/package.json"
-                      "console/notebooks/pnpm-lock.yaml"
-                      "console/notebooks/pnpm-workspace.yaml"
-                      "console/notebooks/eslint.config.js"
-                      "console/notebooks/.prettierrc"
-                      ".prettierignore"
-                    ]
-                    ++ utils.mkGlobs "console/notebooks/src" [
-                      "css"
-                      "ts"
-                    ]
-                  );
-              "console:test:unit" =
-                pnpmTask "Run the unit tests of the console app." "console/ui" "console:install:ui" "pnpm test"
-                  consoleInputs;
-            };
-
-          }
-        )
-      ];
-    };
-  };
-
-  profiles.console = {
-    extends = [
-      "console-unit"
-      "python"
-    ];
-    module =
-      { data, utils, ... }:
-      {
+  profiles = {
+    console-unit = {
+      extends = [ "base" ];
+      module = {
+        key = "data-proxy-console-unit";
         imports = [
-          ../nix/stack/keycloak.nix
-          ../nix/stack/postgres.nix
-          ../nix/stack/postgrest.nix
-          ../nix/stack/seaweedfs.nix
-          ../nix/stack/console.nix
-          ../nix/stack/notebooks.nix
+          (
+            { lib, utils, ... }:
+            let
+              consoleInputs = [
+                "console/ui/package.json"
+                "console/ui/pnpm-lock.yaml"
+                "console/ui/tsconfig.json"
+                "console/ui/vite.config.ts"
+                "console/ui/playwright.config.ts"
+                "console/ui/eslint.config.js"
+                "console/ui/.prettierrc.mjs"
+                "console/ui/.npmrc"
+                ".prettierignore"
+              ]
+              ++ utils.mkGlobs "console/ui/src" [
+                "ts"
+                "svelte"
+                "svg"
+                "html"
+                "css"
+              ]
+              ++ utils.mkGlobs "console/ui/tests" [
+                "ts"
+                "feature"
+              ];
+
+              installTask =
+                dir:
+                utils.nuTask {
+                  description = "Install the locked dependencies of ${dir}.";
+                  cwd = dir;
+                  exec = "pnpm install --frozen-lockfile";
+                };
+
+              pnpmTask =
+                description: dir: install: script: files:
+                utils.nuTask {
+                  inherit description;
+                  cwd = dir;
+                  after = [ install ];
+                  exec = script;
+                  execIfModified = utils.mkInputs files;
+                };
+            in
+            {
+              stdenv = lib.mkDefault pkgs.stdenvNoCC;
+
+              languages = {
+                javascript = {
+                  enable = true;
+                  pnpm.enable = true;
+                };
+                typescript.enable = true;
+              };
+
+              git-hooks.hooks = {
+                prettier = {
+                  enable = true;
+                  files = projects;
+                  settings = {
+                    write = true;
+                    ignore-unknown = true;
+                    ignore-path = [ "./.prettierignore" ];
+                    binPath = "${bin}/prettier";
+                  };
+                };
+                eslint = {
+                  enable = true;
+                  settings = {
+                    binPath = "${bin}/eslint";
+                    extensions = "${projects}.*\\.(ts|js|mjs|svelte)$";
+                  };
+                };
+              };
+
+              tasks = {
+                "devenv:git-hooks:run".before = lib.mkForce [ ];
+                "console:install:ui" = installTask "console/ui";
+                "nb:install:deps" = installTask "console/notebooks";
+                "console:lint:ui" =
+                  pnpmTask "Check and lint the console app." "console/ui" "console:install:ui" "pnpm check\npnpm lint"
+                    consoleInputs;
+                "nb:lint:ts" =
+                  pnpmTask "Check and lint the notebooks." "console/notebooks" "nb:install:deps"
+                    "pnpm check\npnpm lint"
+                    (
+                      [
+                        "console/notebooks/*.ts"
+                        "console/notebooks/tsconfig.json"
+                        "console/notebooks/package.json"
+                        "console/notebooks/pnpm-lock.yaml"
+                        "console/notebooks/pnpm-workspace.yaml"
+                        "console/notebooks/eslint.config.js"
+                        "console/notebooks/.prettierrc"
+                        ".prettierignore"
+                      ]
+                      ++ utils.mkGlobs "console/notebooks/src" [
+                        "css"
+                        "ts"
+                      ]
+                    );
+                "console:test:unit" =
+                  pnpmTask "Run the unit tests of the console app." "console/ui" "console:install:ui" "pnpm test"
+                    consoleInputs;
+              };
+
+            }
+          )
         ];
-
-        env = {
-          CONSOLE_URL = data.urls.console;
-          KEYCLOAK_URL = data.urls.kc;
-          KEYCLOAK_USER_PASSWORD = "web-test";
-          INTEGRATION_DATABASE_URL = utils.postgresUrl { database = "data_proxy"; };
-          PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers.override {
-            withFirefox = false;
-            withWebkit = false;
-          }}";
-          PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
-        };
-
-        scripts.migrate = {
-          description = "Run one goose command on the application database.";
-          package = pkgs.nushell;
-          binary = "nu";
-          exec = ../scripts/migrate.nu;
-        };
-
-        enterTest = ''
-          pnpm --dir console/ui exec bddgen
-          pnpm --dir console/ui exec playwright test ''${PLAYWRIGHT_ARGS:-}
-        '';
       };
-  };
+    };
 
-  # Starts the console stack and writes the database diagrams of docs/model.md with `devenv --profile model test`.
-  profiles.model = {
-    extends = [ "console" ];
-    module =
-      {
-        lib,
-        data,
-        utils,
-        ...
-      }:
-      {
-        packages = [ pkgs.tbls ];
+    console = {
+      extends = [
+        "console-unit"
+        "python"
+      ];
+      module =
+        { data, utils, ... }:
+        {
+          imports = [
+            ../nix/stack/keycloak.nix
+            ../nix/stack/postgres.nix
+            ../nix/stack/postgrest.nix
+            ../nix/stack/seaweedfs.nix
+            ../nix/stack/console.nix
+            ../nix/stack/notebooks.nix
+          ];
 
-        env = {
-          TBLS_APP_DSN = "${utils.postgresUrl { database = data.databases.app; }}?sslmode=disable";
-          TBLS_CATALOG_DSN = "${utils.postgresUrl { database = data.databases.catalog; }}?sslmode=disable";
+          env = {
+            CONSOLE_URL = data.urls.console;
+            KEYCLOAK_URL = data.urls.kc;
+            KEYCLOAK_USER_PASSWORD = "web-test";
+            INTEGRATION_DATABASE_URL = utils.postgresUrl { database = "data_proxy"; };
+            PLAYWRIGHT_BROWSERS_PATH = "${pkgs.playwright-driver.browsers.override {
+              withFirefox = false;
+              withWebkit = false;
+            }}";
+            PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS = "true";
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
+          };
+
+          scripts.migrate = {
+            description = "Run one goose command on the application database.";
+            package = pkgs.nushell;
+            binary = "nu";
+            exec = ../scripts/migrate.nu;
+          };
+
+          enterTest = ''
+            pnpm --dir console/ui exec bddgen
+            pnpm --dir console/ui exec playwright test ''${PLAYWRIGHT_ARGS:-}
+          '';
         };
+    };
 
-        enterTest = lib.mkForce "nu scripts/db.nu diagrams";
-      };
+    # Starts the console stack and writes the database diagrams of docs/model.md with `devenv --profile model test`.
+    model = {
+      extends = [ "console" ];
+      module =
+        {
+          lib,
+          data,
+          utils,
+          ...
+        }:
+        {
+          packages = [ pkgs.tbls ];
+
+          env = {
+            TBLS_APP_DSN = "${utils.postgresUrl { database = data.databases.app; }}?sslmode=disable";
+            TBLS_CATALOG_DSN = "${utils.postgresUrl { database = data.databases.catalog; }}?sslmode=disable";
+          };
+
+          enterTest = lib.mkForce "nu scripts/db.nu diagrams";
+        };
+    };
   };
 }
