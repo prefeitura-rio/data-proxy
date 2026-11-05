@@ -20,13 +20,16 @@ devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
 When `devenv` or Podman is missing, run the lint and the unit tests of each component that you changed.
 
 ```bash
-cd sync && uv run --frozen ruff check src tests && uv run --frozen ruff format --check src tests
+cd sync && uv run --frozen ruff check src tests && uv run --frozen ruff format --check src tests && uv run --frozen pyrefly check
 cd sync && uv run --frozen pytest tests/unit -m "not postgres"
 cd console/ui && pnpm install --frozen-lockfile && pnpm test && pnpm lint && pnpm check
 cd terraform && go build ./... && go vet ./... && go test ./...
 ```
 
-- These commands are a subset of the `devenv` tasks. The Lua checks, the type checks of `sync/` and the `:int` suites need `devenv`.
+- `pytest` reads its settings from the ignored `sync/.env.test`, which `devenv` writes. Without `devenv`, write that file with the keys of the `files` and `env` blocks of `sync/devenv.nix`.
+- Placeholder values are enough for those keys, because the `not postgres` tests connect to no service.
+- `sync:lint:py` in `sync/devenv.nix` has more Python checks. They also run with `uv run --frozen`.
+- The Lua checks, the SQL lint and the `:int` suites need `devenv`.
 - CI runs every check and the `:int` suites on a pull request that changes a path of the filter in `.github/workflows/ci.yaml`. That run is the proof for the checks that you can't run.
 
 ## Where the code is
