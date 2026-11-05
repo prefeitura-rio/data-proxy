@@ -26,7 +26,10 @@ def required[T](value: T | None, name: str) -> T:
 
 
 def job_from_cronjob(cronjob: CronJob, name: str) -> Job:
-    """Build the Job that `kubectl create job --from=cronjob/<name>` makes."""
+    """Build the Job of the template of a CronJob, owned by the CronJob but not controlled by it.
+
+    The CronJob controller watches only the Jobs that it controls, and reports each active one that it didn't start as `UnexpectedJob`.
+    """
     owner = required(cronjob.metadata, "metadata")
     owner_name: str | None = owner.name
     owner_uid: str | None = owner.uid
@@ -41,7 +44,7 @@ def job_from_cronjob(cronjob: CronJob, name: str) -> Job:
             kind="CronJob",
             name=required(owner_name, "name"),
             uid=required(owner_uid, "uid"),
-            controller=True,
+            controller=False,
         )
     ]
 

@@ -10,7 +10,7 @@ from tests.helpers.dbos import cronjob
 
 class TestJobFromCronjob:
     def test_names_the_job_and_marks_it_as_a_manual_run(self) -> None:
-        """Make the Job that kubectl create job --from=cronjob makes."""
+        """Name the Job, and annotate it as kubectl create job --from=cronjob does."""
         job = job_from_cronjob(cronjob(), "provision-ab12")
 
         assert job.metadata is not None
@@ -19,8 +19,8 @@ class TestJobFromCronjob:
             "cronjob.kubernetes.io/instantiate": "manual"
         }
 
-    def test_makes_the_cronjob_the_controller_of_the_job(self) -> None:
-        """Delete the Job together with its CronJob."""
+    def test_makes_the_cronjob_an_owner_but_not_the_controller(self) -> None:
+        """Delete the Job together with its CronJob, and keep the CronJob controller from reporting it as UnexpectedJob."""
         job = job_from_cronjob(cronjob(), "provision-ab12")
 
         assert job.metadata is not None
@@ -37,7 +37,7 @@ class TestJobFromCronjob:
             "CronJob",
             "provision",
             "uid-1",
-            True,
+            False,
         )
 
     def test_keeps_the_labels_of_the_job_template(self) -> None:
