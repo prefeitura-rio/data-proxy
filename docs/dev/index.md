@@ -10,6 +10,7 @@ flowchart LR
   proxy["<b>proxy/</b><br/>OpenResty and Lua.<br/>The request path."] ~~~ sync["<b>sync/</b><br/>Python and DBOS.<br/>Source to DuckLake."] ~~~ console["<b>console/</b><br/>SvelteKit app, notebook<br/>site and SQL migrations."]
   helm["<b>helm/</b><br/>The chart, the job scripts<br/>and the SQL templates."] ~~~ k6["<b>k6/</b><br/>Load and end-to-end tests."] ~~~ nix["<b>nix/ and */devenv.nix</b><br/>Profiles, processes<br/>and tasks."]
   scripts["<b>scripts/</b><br/>Nushell commands for<br/>developers and CI."] ~~~ k3d["<b>k3d/</b><br/>The local cluster."] ~~~ docs["<b>docs/</b><br/>This wiki."]
+  terraform["<b>terraform/</b><br/>Go. The Terraform<br/>provider of Data Proxy."]
 ```
 
 ## Set up the local cluster
@@ -45,6 +46,7 @@ The root `devenv.yaml` imports the folders `proxy/`, `sync/`, `console/` and `he
 | `sync`, `proxy`, `console` | One component with its test services, for `devenv test` and `devenv up`. |
 | `integration` | The three `:int` tasks, which start the service profiles. |
 | `chart` | Helm, `cog` and the `ci` script. |
+| `terraform` | Go, `golangci-lint`, Terraform and `tfplugindocs` for `terraform/`. |
 | `nix` | The checks of the profile sizes and of the commands in the docs. |
 | `base`, `python` | The parts that the other profiles share, in `nix/profiles/shared.nix`. |
 
@@ -65,6 +67,7 @@ devenv --profile repo tasks run repo:lint repo:test:unit
 | `console:lint:ui`, `nb:lint:ts` | The app and the notebooks: `svelte-check`, ESLint and Prettier. |
 | `chart:lint:helm`, `chart:lint:toml` | The chart and `rbac.toml`. |
 | `ci:lint:wf`, `ctr:lint:files`, `nu:lint:scripts` | Workflows, container files and Nushell scripts. |
+| `tf:lint:go`, `tf:test:unit` | The provider: `gofmt`, `golangci-lint` and `go test`. |
 | `docs:lint:code` | The style rules that a pattern can check, and the last 50 commit subjects. |
 | `docs:lint:style`, `docs:lint:links`, `docs:lint:nav`, `docs:lint:llms` | The style page, the links, the page order and `llms.txt`. |
 | `nix:lint:closure`, `nix:lint:cmd` | The profile sizes and the `devenv` commands in the docs. |

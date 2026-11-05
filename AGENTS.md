@@ -23,7 +23,7 @@ When `devenv` or Podman is missing, run the lint and the unit tests of each comp
 cd sync && uv run --frozen ruff check src tests && uv run --frozen ruff format --check src tests && uv run --frozen pyrefly check
 cd sync && uv run --frozen pytest tests/unit -m "not postgres"
 cd console/ui && pnpm install --frozen-lockfile && pnpm test && pnpm lint && pnpm check
-cd terraform && go build ./... && go vet ./... && go test ./...
+cd terraform && test -z "$(gofmt -l .)" && go build ./... && go vet ./... && go test ./...
 ```
 
 - `pytest` reads its settings from the ignored `sync/.env.test`, which `devenv` writes. Without `devenv`, write that file with the keys of the `files` and `env` blocks of `sync/devenv.nix`.
@@ -41,6 +41,7 @@ cd terraform && go build ./... && go vet ./... && go test ./...
 | `console/ui/`, `console/notebooks/` | SvelteKit console and the notebook site          |
 | `helm/`                             | The chart, the job scripts and the SQL templates |
 | `k6/`                               | Load and end-to-end tests                        |
+| `terraform/`                        | Go, the Terraform provider of Data Proxy         |
 | `nix/`, `*/devenv.nix`              | The devenv profiles, processes and tasks         |
 | `scripts/`                          | Nushell commands for developers and CI           |
 | `docs/`                             | The documentation                                |
@@ -54,6 +55,7 @@ cd terraform && go build ./... && go vet ./... && go test ./...
 | `scripts/*.nu`, `helm/files/scripts/*.nu` | [Nushell](docs/style.md#nushell)                                       |
 | `**/*.nix`, `devenv.*`                    | [Nix](docs/style.md#nix)                                               |
 | `**/*.sql`, `rbac.toml`                   | [SQL](docs/style.md#sql)                                               |
+| `terraform/**`                            | [Go](docs/style.md#go)                                                 |
 | `console/ui/**`                           | [TypeScript](docs/style.md#typescript), [Svelte](docs/style.md#svelte) |
 | `console/notebooks/**`                    | [Notebooks](docs/style.md#notebooks)                                   |
 | `docs/**`, `README.md`                    | [Documentation](docs/style.md#documentation)                           |

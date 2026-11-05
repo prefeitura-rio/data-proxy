@@ -15,6 +15,7 @@ in
       "console-unit"
       "proxy-unit"
       "chart"
+      "terraform"
     ];
     module =
       { config, utils, ... }:

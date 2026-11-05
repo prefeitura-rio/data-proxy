@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ lib, pkgs, ... }:
 {
   profiles.terraform = {
     extends = [ "base" ];
@@ -12,7 +12,7 @@
         ];
       in
       {
-        stdenv = pkgs.stdenvNoCC;
+        stdenv = lib.mkDefault pkgs.stdenvNoCC;
 
         env = {
           CGO_ENABLED = "0";

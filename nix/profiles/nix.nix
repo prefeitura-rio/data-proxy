@@ -12,7 +12,7 @@ let
     terraform = 1300;
     console = 2600;
     model = 2700;
-    repo = 2300;
+    repo = 2700;
     default = 6500;
   };
 in

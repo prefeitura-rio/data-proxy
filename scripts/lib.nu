@@ -349,6 +349,15 @@ export def images-changed [files: list<string>, force_full: bool]: nothing -> li
     $IMAGES | where $force_full or ($files | any {$in =~ $it.change_pattern})
 }
 
+# Return true when a commit can release the chart: a `feat`, a `fix` or a type with `!`, as in cog.toml, that changes
+# a file outside the Terraform provider, the docs and llms.txt. A provider or docs commit never releases the chart.
+export def release-commit [commit: record<subject: string, files: list<string>>]: nothing -> bool {
+    let level = $commit.subject =~ '^(feat|fix)(\([^)]*\))?!?: ' or $commit.subject =~ '^[a-z]+(\([^)]*\))?!: '
+    let product = $commit.files | any {|file| $file !~ '^(terraform/|docs/|llms\.txt$)' }
+
+    $level and $product
+}
+
 # Return true when a text is a full chart version such as 2.10.0. A range, a prefix or a channel tag is not one.
 export def valid-chart-version [text: string]: nothing -> bool {
     $text =~ '^\d+\.\d+\.\d+$'

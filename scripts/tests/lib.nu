@@ -4,6 +4,7 @@ use ../lib.nu [
     images-changed
     latest-helm-tag
     newest-version
+    release-commit
     release-tag
     valid-chart-version
     version-of-digest
@@ -42,12 +43,33 @@ export def "test chart-files-keeps-the-chart-and-drops-the-rest" []: nothing -> 
         ['the values file' [helm/values.yaml] [helm/values.yaml]]
         ['a chart test' [helm/tests/a_test.yaml] []]
         ['source and docs' [proxy/src/a.lua docs/a.md] []]
+        ['the terraform provider' [terraform/internal/client/client.go terraform/go.mod] []]
         ['a mix' [docs/a.md helm/Chart.yaml helm/tests/a_test.yaml] [helm/Chart.yaml]]
         ['nothing' [] []]
     ]
 
     for case in $cases {
         assert equal ($case.files | chart-files) $case.expected $case.name
+    }
+}
+
+# Verify that a release type counts only with a file outside the provider and the docs, so a provider feat never releases.
+export def "test release-commit-skips-the-provider-and-the-docs" []: nothing -> nothing {
+    let cases = [
+        [name subject files expected];
+        ['a fix of the proxy' 'fix(proxy): keep the cache key' [proxy/src/proxy/cache.lua] true]
+        ['a feat without a scope' 'feat: add a setting' [helm/values.yaml] true]
+        ['a breaking chore' 'chore(nix)!: drop a profile' [nix/profiles/repo.nix] true]
+        ['a feat of the provider' 'feat(terraform): add a resource' [terraform/internal/client/client.go] false]
+        ['a fix of the docs' 'fix(docs): correct a link' [docs/index.md llms.txt] false]
+        ['a feat of the provider and its docs' 'feat(terraform): add a resource' [terraform/main.go docs/terraform.md] false]
+        ['a feat of the provider and a profile' 'feat(terraform): add a task' [terraform/main.go nix/profiles/terraform.nix] true]
+        ['a refactor of the sync' 'refactor(sync): split a step' [sync/src/sync/a.py] false]
+        ['a release commit of the bot' 'chore(version): helm-v2.10.0 [skip ci]' [helm/Chart.yaml] false]
+    ]
+
+    for case in $cases {
+        assert equal (release-commit {subject: $case.subject, files: $case.files}) $case.expected $case.name
     }
 }
 
@@ -60,6 +82,7 @@ export def "test images-changed-matches-the-paths-of-each-image" []: nothing -> 
         ['console app' [console/ui/src/a.ts] false [console]]
         ['a sync test' [sync/tests/unit/a.py] false []]
         ['docs only' [docs/a.md llms.txt] false []]
+        ['the terraform provider and docs' [terraform/main.go terraform/go.sum docs/terraform.md] false []]
         ['no path' [] false []]
         ['no path, forced' [] true [sync proxy jobs postgres console]]
     ]

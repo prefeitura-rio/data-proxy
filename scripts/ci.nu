@@ -10,6 +10,7 @@ use lib.nu [
     newest-version
     read-data
     read-text
+    release-commit
     release-tag
     valid-chart-version
     version-of-digest
@@ -393,15 +394,29 @@ def 'main chart promote' [
     write-summary $'prod: ($current) to ($version)'
 }
 
-# Decide whether a Helm release is needed: a chart file or an image path changed since the last release tag.
+# Return the commits since a revision, without the merge commits that cog ignores, with their subjects and files.
+def commits-since [base: string]: nothing -> table<subject: string, files: list<string>> {
+    git log --no-merges --format=%H $'($base)..HEAD'
+    | lines
+    | each {|sha|
+        {
+            subject: (git log -1 --format=%s $sha | str trim)
+            files: (git diff-tree --no-commit-id --name-only -r $sha | lines)
+        }
+    }
+}
+
+# Decide whether a Helm release is needed: a chart file or an image path changed since the last release tag, and a
+# release commit outside the Terraform provider and the docs came since then.
 def 'main guard' []: nothing -> nothing {
     log info 'Checking whether a Helm release is needed...'
 
     let base = previous-helm-tag | default HEAD~1
     let files = git diff --name-only $base HEAD | lines
     let changed = ($files | chart-files | is-not-empty) or (images-changed $files false | is-not-empty)
+    let product = commits-since $base | any {|commit| release-commit $commit }
     let release = ($env.RELEASE? | default 'true') == 'true'
-    let skip = (not $release) or (not $changed)
+    let skip = (not $release) or (not $changed) or (not $product)
 
     write-output skip ($skip | into string)
     log info $'Release needed: (not $skip)'
