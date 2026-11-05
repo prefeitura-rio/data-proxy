@@ -2979,7 +2979,7 @@ Staging runs 2.11.0, and then CI releases 2.12.0 and 2.13.0. Staging now runs 2.
 
 ### Approve a deploy
 
-The workflow `promote.yaml` runs after each CI run on `main`. It compares the newest chart with the version of the tag `prod`. When they differ, it starts the job `Promote to production` in the environment `production`, and the job waits for a reviewer.
+The workflow `promote.yaml` runs after each CI run on `main`. It compares the newest chart with the version of the tag `prod`. When they differ, it starts the job `Promote to production` in the environment `production`, and the job waits for a reviewer. The job name shows the version that production runs and the version to promote.
 
 1. Open the run in GitHub Actions and choose Review deployments.
 2. Check that staging is healthy with the version that you promote.
@@ -2997,7 +2997,7 @@ Start `promote.yaml` by hand with the input `version`, such as `2.11.0`. The job
 | Command | Work |
 | --- | --- |
 | `ci chart prod` | Prints the version that production runs. |
-| `ci chart next` | Writes the version to promote and whether production runs another one. |
+| `ci chart next` | Writes the version to promote, the version of production and whether they differ. |
 | `ci chart promote <version>` | Moves the tag `prod` to a released version. `--if-latest` skips an old version. |
 
 ### Settings

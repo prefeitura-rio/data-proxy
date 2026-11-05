@@ -340,7 +340,7 @@ def 'main chart prod' []: nothing -> nothing {
     print (tag-version (chart-tags (chart-repository)) prod | default 'none')
 }
 
-# Find the version to promote and say whether production runs another one. It writes the outputs `version` and `pending`.
+# Find the version to promote and say whether production runs another one. It writes the outputs `version`, `current` and `pending`.
 # A run that names a version in the variable VERSION promotes that version. Another run promotes the newest chart.
 def 'main chart next' []: nothing -> nothing {
     crane-login
@@ -356,9 +356,11 @@ def 'main chart next' []: nothing -> nothing {
     let current = tag-version $tags prod
 
     write-output version $version
+    write-output current ($current | default none)
     write-output pending (($current != $version) | into string)
 
     log info $'Production runs ($current | default none). The chart to promote is ($version).'
+    write-summary $'Production runs ($current | default none). The chart to promote is ($version).'
 }
 
 # Move the tag prod of the chart to a released version. Prod Flux follows that tag.
