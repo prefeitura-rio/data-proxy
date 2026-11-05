@@ -206,6 +206,7 @@ async def pipeline(
     )
     monkeypatch.setattr(workflows, "SetEnqueueOptions", RecordedOptions)
     monkeypatch.setattr(workflows, "run_provision", AsyncMock())
+    monkeypatch.setattr(workflows, "publish_swagger_schemas", AsyncMock())
     monkeypatch.setattr(workflows, "finalize_run", AsyncMock())
     monkeypatch.setattr(workflows, "reload_postgrest", reloads)
     monkeypatch.setattr(workflows, "load_sync_config", load)

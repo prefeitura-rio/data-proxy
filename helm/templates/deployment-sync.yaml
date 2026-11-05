@@ -59,6 +59,10 @@ spec:
               value: {{ printf "%s-provision" (include "data-proxy.fullname" .) | quote }}
             - name: AGGREGATE_MAX_ROWS
               value: {{ .Values.postgrest.maxRows | quote }}
+            {{- if .Values.swaggerUi.enabled }}
+            - name: SWAGGER_SCHEMAS_CONFIGMAP
+              value: {{ printf "%s-swagger-ui-schemas" (include "data-proxy.fullname" .) | quote }}
+            {{- end }}
           volumeMounts:
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
             {{ if .Values.sync.trigger.enabled }}

@@ -8,9 +8,7 @@ metadata:
     {{- include "data-proxy.labels" . | nindent 4 }}
     app.kubernetes.io/component: swagger-ui
 data:
-  schemas.js: |
-    window.dataProxySchemas = {{ keys (.Values.sync.config.schemas | default dict) | sortAlpha | toJson }};
-
+  initializer.js: |
     window.createSchemaSelector = function(schemas, selectedSchema, onChange) {
       var schemes = document.querySelector('.schemes-server-container');
       if (!schemes || document.getElementById('schema-selector')) {
@@ -46,10 +44,9 @@ data:
       schemes.appendChild(label);
     };
 
-  initializer.js: |
     window.onload = function() {
       var schemaScript = document.createElement('script');
-      schemaScript.src = 'schemas.js';
+      schemaScript.src = 'schemas/schemas.js?t=' + Date.now();
       schemaScript.onload = initializeSwagger;
       document.head.appendChild(schemaScript);
     };
@@ -98,4 +95,16 @@ data:
         }
       });
     };
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "data-proxy.fullname" . }}-swagger-ui-schemas
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "data-proxy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: swagger-ui
+data:
+  schemas.js: |
+    window.dataProxySchemas = {{ keys (.Values.sync.config.schemas | default dict) | sortAlpha | toJson }};
 {{- end }}

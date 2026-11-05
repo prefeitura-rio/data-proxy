@@ -1,5 +1,6 @@
-"""Run Jobs from the job template of a CronJob through the Kubernetes API."""
+"""Run Jobs from the job template of a CronJob, and publish the schema list of the Swagger UI page, through the Kubernetes API."""
 
+import json
 from asyncio import timeout
 from contextlib import asynccontextmanager
 from copy import deepcopy
@@ -10,6 +11,7 @@ from asyncer import asyncify
 from lightkube import AsyncClient, KubeConfig
 from lightkube.models.meta_v1 import ObjectMeta, OwnerReference
 from lightkube.resources.batch_v1 import CronJob, Job
+from lightkube.resources.core_v1 import ConfigMap
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -77,3 +79,15 @@ async def wait_for_job(client: AsyncClient, name: str, seconds: float) -> None:
         raise TimeoutError(
             f"The Job {name} did not end in {seconds} seconds"
         ) from error
+
+
+def schemas_script(schemas: list[str]) -> str:
+    """Return the script that gives the Swagger UI page its list of schemas."""
+    return f"window.dataProxySchemas = {json.dumps(schemas)};\n"
+
+
+async def publish_schemas(client: AsyncClient, name: str, schemas: list[str]) -> None:
+    """Replace the list of schemas in the ConfigMap that the Swagger UI pod mounts."""
+    await client.patch(
+        ConfigMap, name, {"data": {"schemas.js": schemas_script(schemas)}}
+    )

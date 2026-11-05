@@ -386,6 +386,32 @@ class TestRunProvision:
 
         create.assert_not_awaited()
 
+    async def test_the_workflow_publishes_the_schemas_after_it_provisions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """provision_schemas gives the Swagger UI page the schemas that the console lists, after the Job made them."""
+        events: list[str] = []
+        monkeypatch.setattr(
+            workflows,
+            "run_provision",
+            AsyncMock(side_effect=lambda: events.append("provision")),
+        )
+        monkeypatch.setattr(
+            workflows,
+            "load_sync_config",
+            AsyncMock(return_value=LoadedConfig(revision="r", document=DOCUMENT)),
+        )
+        monkeypatch.setattr(workflows, "cleanup_s3_credentials", AsyncMock())
+
+        async def publish(document: str) -> None:
+            events.append(document)
+
+        monkeypatch.setattr(workflows, "publish_swagger_schemas", publish)
+
+        await workflow_body(workflows.provision_schemas)()
+
+        assert events == ["provision", DOCUMENT]
+
     async def test_the_workflow_provisions_and_then_removes_stale_credentials(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -407,6 +433,7 @@ class TestRunProvision:
             return []
 
         monkeypatch.setattr(workflows, "cleanup_s3_credentials", cleanup)
+        monkeypatch.setattr(workflows, "publish_swagger_schemas", AsyncMock())
 
         await workflow_body(workflows.provision_schemas)()
 
@@ -426,6 +453,48 @@ class TestRunProvision:
         await run_sync()
 
         assert events[0] == "provision"
+
+
+class TestPublishSwaggerSchemas:
+    """The step that writes the schema names of the console into the ConfigMap of the Swagger UI page."""
+
+    @staticmethod
+    def stub_cluster(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+        """Replace the Kubernetes calls of the step, and return the publish mock."""
+
+        @asynccontextmanager
+        async def client() -> AsyncGenerator[str]:
+            yield "client"
+
+        publish = AsyncMock()
+        monkeypatch.setattr(steps, "k8s_client", client)
+        monkeypatch.setattr(steps, "publish_schemas", publish)
+        return publish
+
+    async def test_publishes_the_sorted_names_of_the_document(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The page lists the schemas in the same order every time."""
+        publish = self.stub_cluster(monkeypatch)
+        monkeypatch.setattr(settings, "SWAGGER_SCHEMAS_CONFIGMAP", "release-schemas")
+        document = SyncConfig(
+            schemas={"b": SchemaConfig(), "a": SchemaConfig()}
+        ).model_dump_json()
+
+        await workflow_body(steps.publish_swagger_schemas)(document)
+
+        publish.assert_awaited_once_with("client", "release-schemas", ["a", "b"])
+
+    async def test_does_nothing_without_the_name_of_the_configmap(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A deployment without the Swagger UI page has no list to write."""
+        publish = self.stub_cluster(monkeypatch)
+        monkeypatch.setattr(settings, "SWAGGER_SCHEMAS_CONFIGMAP", None)
+
+        await workflow_body(steps.publish_swagger_schemas)(DOCUMENT)
+
+        publish.assert_not_awaited()
 
 
 class TestRemoveDroppedTables:

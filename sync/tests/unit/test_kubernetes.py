@@ -1,7 +1,10 @@
+from unittest.mock import AsyncMock
+
 import pytest
 from lightkube.models.meta_v1 import ObjectMeta
+from lightkube.resources.core_v1 import ConfigMap
 
-from sync.kubernetes import job_from_cronjob
+from sync.kubernetes import job_from_cronjob, publish_schemas, schemas_script
 from tests.helpers.dbos import cronjob
 
 
@@ -74,3 +77,44 @@ class TestJobFromCronjob:
         """Name the field that the CronJob lacks."""
         with pytest.raises(ValueError, match=f"The CronJob has no {missing}"):
             job_from_cronjob(cronjob(metadata=metadata), "provision-ab12")
+
+
+class TestSchemasScript:
+    """The script that the Swagger UI page loads to list the schemas."""
+
+    @pytest.mark.parametrize(
+        ("schemas", "expected"),
+        [
+            pytest.param([], "window.dataProxySchemas = [];\n", id="no-schema"),
+            pytest.param(["a"], 'window.dataProxySchemas = ["a"];\n', id="one"),
+            pytest.param(
+                ["b", "a"],
+                'window.dataProxySchemas = ["b", "a"];\n',
+                id="keeps-the-order",
+            ),
+            pytest.param(
+                ['a"b'],
+                'window.dataProxySchemas = ["a\\"b"];\n',
+                id="escapes-a-quote",
+            ),
+        ],
+    )
+    def test_writes_the_names_as_a_javascript_list(
+        self, schemas: list[str], expected: str
+    ) -> None:
+        """Make the same text that the chart makes for its seed."""
+        assert schemas_script(schemas) == expected
+
+
+class TestPublishSchemas:
+    async def test_patches_the_key_of_the_configmap(self) -> None:
+        """Replace the list of the page and nothing else of the ConfigMap."""
+        client = AsyncMock()
+
+        await publish_schemas(client, "release-swagger-ui-schemas", ["a", "b"])
+
+        client.patch.assert_awaited_once_with(
+            ConfigMap,
+            "release-swagger-ui-schemas",
+            {"data": {"schemas.js": 'window.dataProxySchemas = ["a", "b"];\n'}},
+        )

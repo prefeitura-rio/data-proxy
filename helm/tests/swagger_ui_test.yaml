@@ -4,6 +4,8 @@ templates:
   - services.yaml
   - configmap-swagger-ui.yaml
   - deployment-swagger-ui.yaml
+  - deployment-sync.yaml
+  - rbac.yaml
 tests:
   - it: does not render the deployment by default
     asserts:
@@ -51,3 +53,91 @@ tests:
       - hasDocuments:
           count: 1
         template: istio.yaml
+
+  - it: seeds the schema list of the page from the values, in its own ConfigMap
+    set:
+      swaggerUi.enabled: true
+      sync.config.schemas:
+        b: {}
+        a: {}
+    asserts:
+      - matchRegex:
+          path: data["schemas.js"]
+          pattern: 'window.dataProxySchemas = \["a","b"\];'
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-swagger-ui-schemas
+        template: configmap-swagger-ui.yaml
+      - isNull:
+          path: data["schemas.js"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-swagger-ui-scripts
+        template: configmap-swagger-ui.yaml
+
+  - it: loads the schema list from the mounted directory
+    set:
+      swaggerUi.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["initializer.js"]
+          pattern: "schemas/schemas.js"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-swagger-ui-scripts
+        template: configmap-swagger-ui.yaml
+
+  - it: mounts the schema list as a directory, so that a change reaches the pod
+    set:
+      swaggerUi.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: swagger-ui-schemas
+            mountPath: /usr/share/nginx/html/schemas
+        template: deployment-swagger-ui.yaml
+
+  - it: lets the sync workers patch only the schema list
+    set:
+      swaggerUi.enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["configmaps"]
+            resourceNames: ["data-proxy-swagger-ui-schemas"]
+            verbs: ["get", "patch"]
+        documentSelector:
+          path: kind
+          value: Role
+        template: rbac.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SWAGGER_SCHEMAS_CONFIGMAP
+            value: data-proxy-swagger-ui-schemas
+        template: deployment-sync.yaml
+
+  - it: gives the sync workers no ConfigMap right and no variable without the page
+    set:
+      swaggerUi.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["configmaps"]
+            resourceNames: ["data-proxy-swagger-ui-schemas"]
+            verbs: ["get", "patch"]
+        documentSelector:
+          path: kind
+          value: Role
+        template: rbac.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SWAGGER_SCHEMAS_CONFIGMAP
+            value: data-proxy-swagger-ui-schemas
+        template: deployment-sync.yaml

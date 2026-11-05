@@ -34,6 +34,7 @@ from .steps import (
     finalize_run,
     load_sync_config,
     notify_proxies,
+    publish_swagger_schemas,
     reconcile_idle_schemas,
     record_dump_failure,
     record_run_status,
@@ -117,6 +118,7 @@ async def run_sync(
 
     with SetWorkflowTimeout(settings.SYNC_RUN_TIMEOUT_SECONDS):
         loaded = await load_sync_config()
+        await publish_swagger_schemas(loaded.document)
         scope = SyncScope.model_validate({} if context is None else context)
         work = await build_sync_work(run_id, loaded.document, scope)
         if len(work.plans) == 0:
@@ -178,6 +180,7 @@ async def provision_schemas() -> None:
     """Provision the schemas after a change in the console tables, and drop the S3 credentials of removed schemas."""
     await run_provision()
     loaded = await load_sync_config()
+    await publish_swagger_schemas(loaded.document)
     await cleanup_s3_credentials(loaded.document)
 
 

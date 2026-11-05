@@ -64,6 +64,7 @@ class Settings(BaseSettings):
     SYNC_STEP_MAX_ATTEMPTS: int = Field(default=3, gt=0)
     PROXY_ADMIN_URL: str | None = None
     PROVISION_CRONJOB: str | None = None
+    SWAGGER_SCHEMAS_CONFIGMAP: str | None = None
     PROVISION_TIMEOUT_SECONDS: int = Field(default=600, gt=0)
 
     @cached_property

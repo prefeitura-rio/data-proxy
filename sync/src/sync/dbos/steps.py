@@ -17,7 +17,7 @@ from sync.ducklake import (
 )
 from sync.extraction import run_extraction
 from sync.identities import remove_stale_identities
-from sync.kubernetes import create_job, k8s_client, wait_for_job
+from sync.kubernetes import create_job, k8s_client, publish_schemas, wait_for_job
 from sync.log import SCHEMA, TABLE, summarize_exception
 from sync.metrics import metrics
 from sync.models import (
@@ -426,6 +426,25 @@ async def run_provision() -> None:
         await wait_for_job(client, job, settings.PROVISION_TIMEOUT_SECONDS)
 
     await logs.info("Provision completed", job=job)
+
+
+@transient_step
+async def publish_swagger_schemas(document: str) -> None:
+    """Write the schema names of the console into the ConfigMap that the Swagger UI page reads."""
+    name = settings.SWAGGER_SCHEMAS_CONFIGMAP
+
+    if name is None:
+        await logs.info(
+            "Swagger schemas skipped", reason="SWAGGER_SCHEMAS_CONFIGMAP is not set"
+        )
+        return
+
+    schemas = sorted(SyncConfig.model_validate_json(document).schemas)
+
+    async with k8s_client() as client:
+        await publish_schemas(client, name, schemas)
+
+    await logs.info("Swagger schemas published", schemas=",".join(schemas))
 
 
 @transient_step
