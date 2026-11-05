@@ -91,8 +91,16 @@
       "terraform"
     ];
     module =
-      { lib, data, ... }:
       {
+        lib,
+        data,
+        pkgs,
+        ...
+      }:
+      {
+        # The profiles console and terraform both set the default, so this profile picks one.
+        stdenv = pkgs.stdenvNoCC;
+
         env = {
           TF_ACC = "1";
           DATAPROXY_ENDPOINT = data.urls.pgrest;
