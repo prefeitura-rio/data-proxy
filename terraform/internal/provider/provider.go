@@ -216,12 +216,27 @@ func splitScopes(value string) []string {
 	})
 }
 
-// Resources lists the resources of the provider. It has none yet.
+// Resources lists the resources of the provider.
 func (p *dataProxyProvider) Resources(_ context.Context) []func() resource.Resource {
-	return nil
+	return []func() resource.Resource{
+		newProjectResource,
+		newSchemaResource,
+		newTableResource,
+		newAccessPolicyResource,
+	}
 }
 
 // DataSources lists the data sources of the provider.
 func (p *dataProxyProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{newPermissionsDataSource}
+	return []func() datasource.DataSource{
+		newPermissionsDataSource,
+		newProjectDataSource,
+		newSchemaDataSource,
+		newTableDataSource,
+		newExportConfigDataSource,
+		newSyncConfigDataSource,
+		newSchemaHealthDataSource,
+		newTableSyncStateDataSource,
+		newConfigHistoryDataSource,
+	}
 }

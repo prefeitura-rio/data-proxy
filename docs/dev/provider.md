@@ -72,5 +72,5 @@ Replace the source with `<host>/<namespace>/data-proxy` of your registry. A loca
 <!-- nav:start -->
 ---
 
-[Previous: Production deploys](./promote.md) | [Next: Operations](../operations/index.md) | [Index](./index.md) | [Home](../index.md)
+[Previous: Production deploys](./promote.md) | [Next: Provider development](./provider-development.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

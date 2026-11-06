@@ -177,7 +177,7 @@ func TestPermissionsDataSourceConfigure(t *testing.T) {
 			providerData: "not a client",
 			diags: []diagnostic{{
 				summary: "Unexpected provider data",
-				detail:  "The data source wants a *client.Client, and it got string. Report this bug to the developers of the provider.",
+				detail:  "The object wants a *client.Client, and it got string. Report this bug to the developers of the provider.",
 			}},
 		},
 	}

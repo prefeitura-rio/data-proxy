@@ -16,5 +16,5 @@ These pages are for the people who deploy and run Data Proxy. Start with the Hel
 <!-- nav:start -->
 ---
 
-[Previous: Provider releases](../dev/provider.md) | [Next: Helm Chart](./helm.md) | [Home](../index.md)
+[Previous: Provider development](../dev/provider-development.md) | [Next: Helm Chart](./helm.md) | [Home](../index.md)
 <!-- nav:end -->

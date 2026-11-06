@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -39,6 +41,8 @@ type Filter struct {
 	column   string
 	operator string
 	value    string
+	// raw marks a query parameter of PostgREST, such as order, which has no operator.
+	raw bool
 }
 
 // Eq matches the rows whose column equals the value.
@@ -49,6 +53,21 @@ func Eq(column, value string) Filter {
 // IsNull matches the rows whose column is NULL.
 func IsNull(column string) Filter {
 	return Filter{column: column, operator: "is", value: "null"}
+}
+
+// OrderBy sorts the rows by the column, ascending or descending.
+func OrderBy(column string, descending bool) Filter {
+	direction := "asc"
+	if descending {
+		direction = "desc"
+	}
+
+	return Filter{column: "order", value: column + "." + direction, raw: true}
+}
+
+// Limit returns at most n rows.
+func Limit(n int) Filter {
+	return Filter{column: "limit", value: strconv.Itoa(n), raw: true}
 }
 
 // Client sends requests to one PostgREST endpoint.
@@ -65,12 +84,8 @@ func New(endpoint string, tokens TokenSource, httpClient *http.Client) (*Client,
 		return nil, fmt.Errorf("parse the endpoint: %w", err)
 	}
 
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, fmt.Errorf("endpoint %q: the scheme must be http or https", endpoint)
-	}
-
-	if parsed.Host == "" {
-		return nil, fmt.Errorf("endpoint %q: the host is empty", endpoint)
+	if err := checkAddress("endpoint", endpoint, parsed); err != nil {
+		return nil, err
 	}
 
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
@@ -89,6 +104,35 @@ func New(endpoint string, tokens TokenSource, httpClient *http.Client) (*Client,
 	parsed.RawPath = ""
 
 	return &Client{endpoint: parsed, tokens: tokens, http: httpClient}, nil
+}
+
+// checkAddress refuses an address that the client can't call safely: another scheme than http or https, no host, or
+// http to a host that is not a loopback one, because the token or the secret would cross the network in plain text.
+func checkAddress(what, raw string, parsed *url.URL) error {
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("%s %q: the scheme must be http or https", what, raw)
+	}
+
+	if parsed.Host == "" {
+		return fmt.Errorf("%s %q: the host is empty", what, raw)
+	}
+
+	if parsed.Scheme == "http" && !isLoopback(parsed.Hostname()) {
+		return fmt.Errorf("%s %q: use https, or http for a loopback host", what, raw)
+	}
+
+	return nil
+}
+
+// isLoopback reports whether the host is localhost or a loopback IP address.
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+
+	return ip != nil && ip.IsLoopback()
 }
 
 // Get decodes the rows of the table that match every filter into out.
@@ -264,6 +308,11 @@ func (c *Client) do(ctx context.Context, r request, out any) error {
 		return parseError(resp.StatusCode, raw)
 	}
 
+	if resp.StatusCode == http.StatusPartialContent {
+		return fmt.Errorf("%s %s: %w: PostgREST sent the rows %s, so raise postgrest.maxRows or narrow the filter",
+			r.method, r.path, ErrTruncated, resp.Header.Get("Content-Range"))
+	}
+
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("%s %s: read the response: %w", r.method, r.path, err)
@@ -299,7 +348,7 @@ func (c *Client) target(r request) (string, error) {
 			return "", fmt.Errorf("filter %d of %s has an empty column", i, r.path)
 		}
 
-		if _, ok := reservedParameters[filter.column]; ok {
+		if _, ok := reservedParameters[filter.column]; ok && !filter.raw {
 			return "", fmt.Errorf("filter %d of %s: PostgREST reads %q as a parameter, not as a column", i, r.path, filter.column)
 		}
 
@@ -309,8 +358,12 @@ func (c *Client) target(r request) (string, error) {
 
 		query.WriteString(escapeQuery(filter.column))
 		query.WriteByte('=')
-		query.WriteString(filter.operator)
-		query.WriteByte('.')
+
+		if !filter.raw {
+			query.WriteString(filter.operator)
+			query.WriteByte('.')
+		}
+
 		query.WriteString(escapeQuery(filter.value))
 	}
 

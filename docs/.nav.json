@@ -130,6 +130,9 @@
         },
         {
           "page": "dev/provider.md"
+        },
+        {
+          "page": "dev/provider-development.md"
         }
       ]
     },
@@ -172,7 +175,15 @@
       ]
     },
     {
-      "page": "terraform.md"
+      "page": "terraform.md",
+      "children": [
+        {
+          "page": "terraform-resources.md"
+        },
+        {
+          "page": "terraform-data-sources.md"
+        }
+      ]
     }
   ]
 }

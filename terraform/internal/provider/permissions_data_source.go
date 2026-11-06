@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
@@ -52,19 +51,7 @@ func (d *permissionsDataSource) Schema(_ context.Context, _ datasource.SchemaReq
 
 // Configure takes the client that the provider built. It does nothing before the provider is configured.
 func (d *permissionsDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	if req.ProviderData == nil {
-		return
-	}
-
-	apiClient, ok := req.ProviderData.(*client.Client)
-	if !ok {
-		resp.Diagnostics.AddError("Unexpected provider data",
-			fmt.Sprintf("The data source wants a *client.Client, and it got %T. Report this bug to the developers of the provider.", req.ProviderData))
-
-		return
-	}
-
-	d.client = apiClient
+	d.client = providerClient(req.ProviderData, &resp.Diagnostics)
 }
 
 // Read stores the permissions of the token in the state.

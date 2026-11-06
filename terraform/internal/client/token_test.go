@@ -145,6 +145,11 @@ func TestNewCredentialsSourceRejects(t *testing.T) {
 			want:   `parse the token URL: parse "https://id.example.com/%zz": invalid URL escape "%zz"`,
 		},
 		{
+			name:   "token URL over http to a remote host",
+			change: func(c *Credentials) { c.TokenURL = "http://id.example.com/token" },
+			want:   `token URL "http://id.example.com/token": use https, or http for a loopback host`,
+		},
+		{
 			name:   "empty client ID",
 			change: func(c *Credentials) { c.ClientID = "" },
 			want:   "the client ID is empty",

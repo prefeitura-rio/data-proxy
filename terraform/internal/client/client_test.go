@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -501,6 +502,10 @@ func TestNew(t *testing.T) {
 		{name: "no host", endpoint: "https://", tokens: staticToken{}, wantErr: `endpoint "https://": the host is empty`},
 		{name: "query", endpoint: "https://data-proxy.example.com?a=1", tokens: staticToken{}, wantErr: `endpoint "https://data-proxy.example.com?a=1": remove the query and the fragment`},
 		{name: "no token source", endpoint: "https://data-proxy.example.com", wantErr: "the token source is nil"},
+		{name: "http to localhost", endpoint: "http://localhost:3000", tokens: staticToken{}},
+		{name: "http to a loopback address", endpoint: "http://127.0.0.1:3000", tokens: staticToken{}},
+		{name: "http to a loopback IPv6 address", endpoint: "http://[::1]:3000", tokens: staticToken{}},
+		{name: "http to a remote host", endpoint: "http://data-proxy.example.com", tokens: staticToken{}, wantErr: `endpoint "http://data-proxy.example.com": use https, or http for a loopback host`},
 	}
 
 	for _, tt := range tests {
@@ -695,5 +700,58 @@ func TestRetryReadsTheReplicaAgain(t *testing.T) {
 
 	if calls.Load() != 3 {
 		t.Errorf("server got %d requests, want 3", calls.Load())
+	}
+}
+
+func TestGetFailsOnATruncatedAnswer(t *testing.T) {
+	tests := []struct {
+		name         string
+		status       int
+		contentRange string
+		wantErr      bool
+	}{
+		{name: "a complete answer", status: http.StatusOK, contentRange: "0-1/*"},
+		{name: "an answer that PostgREST cut at max-rows", status: http.StatusPartialContent, contentRange: "0-999/*", wantErr: true},
+		{name: "a partial answer with a total", status: http.StatusPartialContent, contentRange: "0-999/1500", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Content-Range", tt.contentRange)
+				w.WriteHeader(tt.status)
+
+				if _, err := w.Write([]byte(`[{"id":1},{"id":2}]`)); err != nil {
+					t.Errorf("write the response: %v", err)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			c, err := New(server.URL, staticToken{token: "jwt-123"}, server.Client())
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+
+			var rows []row
+
+			err = c.Get(context.Background(), ConsoleProfile, "projects", nil, &rows)
+
+			if !tt.wantErr {
+				if err != nil {
+					t.Fatalf("Get: %v", err)
+				}
+
+				return
+			}
+
+			if !errors.Is(err, ErrTruncated) {
+				t.Fatalf("error = %v, want one that wraps ErrTruncated", err)
+			}
+
+			if !strings.Contains(err.Error(), tt.contentRange) || !strings.Contains(err.Error(), "maxRows") {
+				t.Errorf("error = %q, want the Content-Range %q and the setting maxRows", err, tt.contentRange)
+			}
+		})
 	}
 }

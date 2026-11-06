@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -84,14 +85,22 @@ func TestSchemaServedOverProtocol(t *testing.T) {
 		}
 	}
 
-	if len(resp.ResourceSchemas) != 0 {
-		t.Errorf("got %d resources, want none", len(resp.ResourceSchemas))
+	wantResources := []string{"data_proxy_access_policy", "data_proxy_project", "data_proxy_schema", "data_proxy_table"}
+	wantSources := []string{
+		"data_proxy_config_history", "data_proxy_export_config", "data_proxy_permissions", "data_proxy_project",
+		"data_proxy_schema", "data_proxy_schema_health", "data_proxy_sync_config", "data_proxy_table",
+		"data_proxy_table_sync_state",
 	}
 
-	permissions, ok := resp.DataSourceSchemas["data_proxy_permissions"]
-	if len(resp.DataSourceSchemas) != 1 || !ok {
-		t.Fatalf("data sources = %v, want only data_proxy_permissions", resp.DataSourceSchemas)
+	if got := slices.Sorted(maps.Keys(resp.ResourceSchemas)); !slices.Equal(got, wantResources) {
+		t.Errorf("resources = %v, want %v", got, wantResources)
 	}
+
+	if got := slices.Sorted(maps.Keys(resp.DataSourceSchemas)); !slices.Equal(got, wantSources) {
+		t.Errorf("data sources = %v, want %v", got, wantSources)
+	}
+
+	permissions := resp.DataSourceSchemas["data_proxy_permissions"]
 
 	if attributes := permissions.Block.Attributes; len(attributes) != 1 || attributes[0].Name != "permissions" || !attributes[0].Computed {
 		t.Errorf("attributes of data_proxy_permissions = %v, want only the computed permissions", attributes)
@@ -129,7 +138,7 @@ func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) 
 }
 
 // ptr returns a pointer to the value.
-func ptr(value string) *string {
+func ptr[T any](value T) *T {
 	return &value
 }
 

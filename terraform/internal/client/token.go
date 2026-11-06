@@ -46,12 +46,8 @@ func NewCredentialsSource(credentials Credentials, httpClient *http.Client) (*Cr
 		return nil, fmt.Errorf("parse the token URL: %w", err)
 	}
 
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, fmt.Errorf("token URL %q: the scheme must be http or https", credentials.TokenURL)
-	}
-
-	if parsed.Host == "" {
-		return nil, fmt.Errorf("token URL %q: the host is empty", credentials.TokenURL)
+	if err := checkAddress("token URL", credentials.TokenURL, parsed); err != nil {
+		return nil, err
 	}
 
 	if credentials.ClientID == "" {

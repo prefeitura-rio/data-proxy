@@ -116,7 +116,7 @@
           TF_ACC_PROVIDER_HOST = "registry.opentofu.org";
           DATA_PROXY_ENDPOINT = data.urls.pgrest;
           DATA_PROXY_TOKEN_URL = "${data.urls.issuer}/protocol/openid-connect/token";
-          DATA_PROXY_CLIENT_ID = "admin";
+          DATA_PROXY_CLIENT_ID = "terraform";
           DATA_PROXY_CLIENT_SECRET = "test-secret";
         };
 
