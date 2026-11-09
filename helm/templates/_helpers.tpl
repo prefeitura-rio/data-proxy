@@ -61,6 +61,16 @@ securityContext:
   {{- toYaml .Values.securityContext.pod | nindent 2 }}
 {{- end }}
 
+{{- /* The pod settings of the sync workers: the normal ones, and the group of the sync user as `fsGroup` when a spill volume is on, so that the user can write to a disk-backed volume. */ -}}
+{{- define "data-proxy.syncPodSecurity" -}}
+{{- $pod := deepCopy .Values.securityContext.pod -}}
+{{- if .Values.sync.duckdb.tempVolume.enabled -}}
+{{- $_ := set $pod "fsGroup" (dig "components" "sync" "runAsGroup" 10001 .Values.securityContext | int64) -}}
+{{- end -}}
+securityContext:
+  {{- toYaml $pod | nindent 2 }}
+{{- end }}
+
 {{- /* The container settings of a component: the defaults, with the settings of the component on top. */ -}}
 {{- define "data-proxy.containerSecurity" -}}
 {{- $defaults := .root.Values.securityContext -}}

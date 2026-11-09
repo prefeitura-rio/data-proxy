@@ -52,20 +52,12 @@ These Helm values set the scale and the concurrency of the sync workers. The tab
 | `sync.autoscaling.targetQueryValue` | `"1.1"` | Target query value. |
 | `sync.autoscaling.activationTargetQueryValue` | `"5"` | Activation threshold. |
 | `sync.dumpQueueWorkerConcurrency` | `2` | Dump concurrency per sync process. |
-| `sync.duckdb.memoryLimit` | `1GB` | Memory of each DuckDB connection. |
-| `sync.duckdb.threads` | `2` | Threads of each DuckDB connection. |
 | `ducklake.secrets.storage` | see values | Shared volume of the DuckDB secrets. |
 | `sync.dumpStepMaxAttempts` | `3` | Dump workflow retry attempts. |
 
-## Memory
+## Dump concurrency
 
-A DuckDB connection takes 80% of the memory of the pod and every thread of the node. A pod has one connection for each dump task and one for each publish. Without a limit, the connections of one pod fill the pod and Kubernetes kills it (`OOMKilled`).
-
-`sync.duckdb.memoryLimit` limits each connection and DuckDB spills to the disk beyond it. Each connection has its own spill folder, because two connections in one folder overwrite the files of each other and DuckDB crashes. Keep `memoryLimit` times (`dumpQueueWorkerConcurrency` + 2) below `sync.resources.limits.memory`. The 2 stands for a publish and a maintenance run.
-
-A row group is in memory while DuckDB writes it. The default of 122880 rows needs more than 3 GB for a table with wide JSON columns. The dump writes row groups of 10000 rows. The publish writes row groups of 122880 rows and stops a row group at 32 MB. The limit in bytes, not the rows, bounds the memory of wide tables. The two widest tables took 1.1 GB with it, and they ran out of memory at 1 GB without it. A narrow table keeps the large row groups, which DuckDB reads about twice as fast as groups of 10000 rows.
-
-A worker takes small batches: two dumps at a time. Four connections of 1 GB (two dumps, a publish and a maintenance run) use 4 GB of the 6 GiB of a pod. KEDA adds pods when more dumps wait.
+A worker takes small batches: two dumps at a time. KEDA adds pods when more dumps wait. Each dump and each publish opens a DuckDB connection, so the concurrency sets how much memory a pod needs. For the memory and spill values, see [DuckDB memory and spill](helm.md#duckdb-memory-and-spill).
 
 The queue stores its limits when it starts for the first time, and a restart keeps them. A change of `sync.dumpQueueWorkerConcurrency` therefore changes only a new installation. To change an installed queue, update the row in the system database. The workers read the row again within seconds, so they need no restart.
 

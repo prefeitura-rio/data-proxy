@@ -22,7 +22,7 @@ spec:
     spec:
       restartPolicy: Always
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
-      {{- include "data-proxy.podSecurity" $ | nindent 6 }}
+      {{- include "data-proxy.syncPodSecurity" $ | nindent 6 }}
       initContainers:
         {{- include "data-proxy.s3WaitInitContainer" . | nindent 8 }}
         - name: wait-for-postgres
@@ -70,6 +70,10 @@ spec:
               mountPath: /scripts
               readOnly: true
             {{ end }}
+            {{- if .Values.sync.duckdb.tempVolume.enabled }}
+            - name: duckdb-temp
+              mountPath: {{ .Values.sync.duckdb.tempDirectory | quote }}
+            {{- end }}
       volumes:
         {{- include "data-proxy.gcpVolume" . | nindent 8 }}
         {{- include "data-proxy.s3BootstrapVolume" . | nindent 8 }}
@@ -79,3 +83,25 @@ spec:
             name: {{ .Values.sync.trigger.configMap }}
             defaultMode: 0555
         {{ end }}
+        {{- with .Values.sync.duckdb.tempVolume }}
+        {{- if .enabled }}
+        - name: duckdb-temp
+          {{- if eq .type "emptyDir" }}
+          emptyDir:
+            sizeLimit: {{ .size | quote }}
+          {{- else if eq .type "ephemeral" }}
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ReadWriteOnce]
+                {{- if .storageClassName }}
+                storageClassName: {{ .storageClassName | quote }}
+                {{- end }}
+                resources:
+                  requests:
+                    storage: {{ .size | quote }}
+          {{- else }}
+          {{- fail (printf "sync.duckdb.tempVolume.type must be emptyDir or ephemeral, not %s" .type) }}
+          {{- end }}
+        {{- end }}
+        {{- end }}

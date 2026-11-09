@@ -1,0 +1,96 @@
+suite: Sync spill volume
+templates:
+  - deployment-sync.yaml
+set:
+  redis.host: redis-writer
+  postgrest.jwtSecret: shared-secret
+tests:
+  - it: adds no spill volume by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: duckdb-temp
+          any: true
+      - notExists:
+          path: spec.template.spec.securityContext.fsGroup
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUCKDB_TEMP_DIRECTORY
+            value: /tmp/duckdb
+
+  - it: mounts an ephemeral claim at the spill folder and sets the group of the sync user
+    set:
+      sync.duckdb.tempVolume.enabled: true
+      sync.duckdb.tempVolume.type: ephemeral
+      sync.duckdb.tempVolume.size: 80Gi
+      sync.duckdb.tempVolume.storageClassName: premium-rwo
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: duckdb-temp
+            ephemeral:
+              volumeClaimTemplate:
+                spec:
+                  accessModes: [ReadWriteOnce]
+                  storageClassName: premium-rwo
+                  resources:
+                    requests:
+                      storage: 80Gi
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: duckdb-temp
+            mountPath: /tmp/duckdb
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 10001
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+
+  - it: leaves the storage class out of an ephemeral claim when it is empty
+    set:
+      sync.duckdb.tempVolume.enabled: true
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes[?(@.name=="duckdb-temp")].ephemeral.volumeClaimTemplate.spec.storageClassName
+
+  - it: limits the size of an emptyDir spill volume
+    set:
+      sync.duckdb.tempVolume.enabled: true
+      sync.duckdb.tempVolume.type: emptyDir
+      sync.duckdb.tempVolume.size: 30Gi
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: duckdb-temp
+            emptyDir:
+              sizeLimit: 30Gi
+
+  - it: moves the spill folder and its mount together
+    set:
+      sync.duckdb.tempDirectory: /spill
+      sync.duckdb.tempVolume.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUCKDB_TEMP_DIRECTORY
+            value: /spill
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: duckdb-temp
+            mountPath: /spill
+
+  - it: refuses an unknown spill volume type
+    set:
+      sync.duckdb.tempVolume.enabled: true
+      sync.duckdb.tempVolume.type: hostPath
+    asserts:
+      - failedTemplate:
+          errorPattern: must be emptyDir or ephemeral

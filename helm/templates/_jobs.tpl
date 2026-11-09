@@ -60,6 +60,8 @@
   value: {{ .Values.sync.duckdb.memoryLimit | quote }}
 - name: DUCKDB_THREADS
   value: {{ .Values.sync.duckdb.threads | quote }}
+- name: DUCKDB_TEMP_DIRECTORY
+  value: {{ .Values.sync.duckdb.tempDirectory | quote }}
 - name: SYNC_QUEUE_CONCURRENCY
   value: {{ .Values.sync.queueConcurrency | quote }}
 - name: AUTH_ANON_ROLE

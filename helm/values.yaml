@@ -35,6 +35,17 @@ sync:
   duckdb:
     memoryLimit: 1GB
     threads: 2
+    ## The folder where DuckDB spills beyond the memory limit. Each connection makes a folder of its own in it.
+    tempDirectory: /tmp/duckdb
+    ## A volume for the spill folder. Disabled, the spill goes to the filesystem of the container, which is the disk of
+    ## the node. `emptyDir` also uses the disk of the node, and `size` limits it. `ephemeral` makes a claim for each
+    ## pod and deletes it with the pod: set `storageClassName` to use a fast disk, or leave it empty for the default
+    ## StorageClass. A disk-backed volume gets the group of the sync user as `fsGroup`.
+    tempVolume:
+      enabled: false
+      type: ephemeral
+      size: 50Gi
+      storageClassName: ""
   ## Recovery of DBOS workflows owned by terminated sync pods.
   recovery:
     enabled: true
