@@ -2,6 +2,16 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.14.0 - 2026-11-09
+
+### Features
+
+- **helm**: add a spill volume for the sync workers (286223f)
+- **terraform**: add the project, schema, table and access policy resources (8247afa)
+
+
+- - -
+
 ## helm-v2.13.0 - 2026-11-05
 
 ### Features
