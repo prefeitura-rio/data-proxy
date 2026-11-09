@@ -99,5 +99,5 @@ sum by (schema) (publish_tables_total{status="success"})
 <!-- nav:start -->
 ---
 
-[Previous: KEDA Scaling](./keda.md) | [Next: Backups](./backups.md) | [Index](./index.md) | [Home](../index.md)
+[Previous: DuckDB Memory and Spill](./duckdb.md) | [Next: Backups](./backups.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

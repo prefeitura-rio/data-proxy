@@ -10,6 +10,7 @@ These pages are for the people who deploy and run Data Proxy. Start with the Hel
 | See which pods run and how they scale | [Topology](topology.md) and [KEDA Scaling](keda.md) |
 | Harden pods, network and images | [Hardening](hardening.md) |
 | Set an environment variable | [Environment Variables](environment.md), [Proxy variables](proxy.md) and [Console variables](./console.md) |
+| Tune the memory and the spill of the sync workers | [DuckDB Memory and Spill](duckdb.md) |
 | Watch the system | [Metrics](metrics.md) |
 | Back up and restore the access policy | [Backups](backups.md) |
 

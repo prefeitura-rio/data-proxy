@@ -167,6 +167,9 @@
           "page": "operations/keda.md"
         },
         {
+          "page": "operations/duckdb.md"
+        },
+        {
           "page": "operations/metrics.md"
         },
         {

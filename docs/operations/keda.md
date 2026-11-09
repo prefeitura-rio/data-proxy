@@ -57,7 +57,7 @@ These Helm values set the scale and the concurrency of the sync workers. The tab
 
 ## Dump concurrency
 
-A worker takes small batches: two dumps at a time. KEDA adds pods when more dumps wait. Each dump and each publish opens a DuckDB connection, so the concurrency sets how much memory a pod needs. For the memory and spill values, see [DuckDB memory and spill](helm.md#duckdb-memory-and-spill).
+A worker takes small batches: two dumps at a time. KEDA adds pods when more dumps wait. Each dump and each publish opens a DuckDB connection, so the concurrency sets how much memory a pod needs. For the memory and spill values, see [DuckDB Memory and Spill](duckdb.md).
 
 The queue stores its limits when it starts for the first time, and a restart keeps them. A change of `sync.dumpQueueWorkerConcurrency` therefore changes only a new installation. To change an installed queue, update the row in the system database. The workers read the row again within seconds, so they need no restart.
 
@@ -97,5 +97,5 @@ DBOS deduplicates the scheduled workflow across orchestrator replicas. The sync 
 <!-- nav:start -->
 ---
 
-[Previous: Console variables](./console.md) | [Next: Metrics](./metrics.md) | [Index](./index.md) | [Home](../index.md)
+[Previous: Console variables](./console.md) | [Next: DuckDB Memory and Spill](./duckdb.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->
