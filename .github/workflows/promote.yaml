@@ -47,6 +47,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
+    concurrency:
+      group: promote-production
+      cancel-in-progress: true
     defaults:
       run:
         shell: devenv --profile chart shell -- bash -e {0}

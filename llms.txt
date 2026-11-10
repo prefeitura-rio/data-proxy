@@ -2994,11 +2994,11 @@ The workflow `promote.yaml` runs after each CI run on `main`. It compares the ne
 3. Approve. The job moves the tag `prod` and writes `prod: 2.11.0 to 2.13.0` in its summary.
 4. Flux deploys the chart to production within five minutes.
 
-Each release makes its own waiting run. An approval of an old run does nothing when a newer chart exists, so approve the newest run and reject the others.
+A newer run with a chart to promote cancels the job that waits. The environment `production` has one waiting job at a time, for the newest chart. An approval of an old run does nothing when a newer chart exists.
 
 ### Roll back or choose a version
 
-Start `promote.yaml` by hand with the input `version`, such as `2.11.0`. The job needs the same approval. A rollback leaves staging alone.
+Start `promote.yaml` by hand with the input `version`, such as `2.11.0`. The job needs the same approval. A rollback leaves staging alone. A CI run on `main` that has a chart to promote cancels a rollback that waits. Approve the rollback before the next merge, or start it again.
 
 ### Commands
 
