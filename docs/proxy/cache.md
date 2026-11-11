@@ -4,10 +4,10 @@ This page explains what the proxy caches and how it builds the cache key. A toke
 
 - The proxy stores only non-empty `GET` answers with status 200. An empty answer can mean three things: access was denied, the data isn't published yet or the access policy changed. The proxy never stores it.
 - An entry stores the body with `X-Source` and `X-DuckLake-Snapshot`, so a cache hit reports what produced the answer. `X-Cache` tells a hit from a miss.
-- OpenResty doesn't cache ranged, write, oversized or non-JSON responses. `/access_policy` and its subpaths are never cached. The OpenAPI document at `/` isn't cached either, because it changes when PostgREST reloads the schema after the cache flush.
-- Cache reads use the Redis reader endpoint. Cache writes use the Redis writer endpoint.
-- The sync service flushes the cache after each sync run.
-- The key has the parts in the table below, and the table also has the two counters that keep the cache current.
+- OpenResty doesn't cache ranged, write, oversized or non-JSON responses. `/access_policy` and its subpaths are never cached. The OpenAPI document at `/` isn't cached either, because it changes when PostgREST reloads the schema after a sync run.
+- The proxy reads and writes the cache through one Redis endpoint.
+- After a sync run, the sync service counts up the data generation of each schema that the run planned. The answers of the other schemas stay in the cache.
+- The key has the parts in the table below, and the table also has the three counters that keep the cache current.
 - When an entry is missing, only one request for that key asks PostgREST. The lock section shows how.
 
 ## The cache key
@@ -19,9 +19,12 @@ This page explains what the proxy caches and how it builds the cache key. A toke
 | The pinned snapshot (`X-DuckLake-Snapshot`) | A pinned read must not share an entry with the latest data. |
 | The scope of the user, or the user, then the schemas and the role | A token with another identity never reads an answer that another token cached. Users with the same grants have the same scope and share their answers. |
 | The access policy generation | A write to `/access_policy` through the proxy raises this counter in Redis. |
+| The data generation of the schema | The sync service counts it up after a run that planned the schema. The proxy reads the counter of the `Accept-Profile` schema, so a run of one schema doesn't empty the cache of another. A request without a profile reads the counter of the empty name, which every run also counts up. |
 | The settings revision | `console.config()` contains it in its document. Any other change of the access policy or the rules moves `rbac.revision`. |
 
 A trigger on `rbac.revision` queues a `reload_proxy` workflow. The sync worker asks every proxy pod to read the settings. A proxy that takes a new document stops serving the old answers immediately. Examples of such a change are a write to the access policy from the console, and a new `rbac.toml` that `configure-db` loads.
+
+Redis keeps the counters as `policy:generation` and `cache:generation:<schema>`. The proxy reads both in one `MGET`. Upgrade the proxy before the sync workers. An older proxy ignores the data generation. It can show an answer that a run changed until the entry expires. The old keys and the new keys never meet, because the key has one more part.
 
 ## The scope
 

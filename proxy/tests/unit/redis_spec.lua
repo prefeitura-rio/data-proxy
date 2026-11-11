@@ -110,9 +110,10 @@ check("redis.warnings", warnings_of, {
 	},
 })
 
---- Run one call of the store on a connection that answers with the given values.
+--- Run one call of the store on a connection that answers with the given values. The call records the keys that
+--- the store asked for in `case.asked`.
 ---@param case table
----@return any result
+---@return any ...
 local function generation_call(case)
 	package.loaded["proxy.redis"] = nil
 	local FreshRedis = require("proxy.redis")
@@ -120,20 +121,88 @@ local function generation_call(case)
 	store.open = function()
 		if case.open_error then return nil, case.open_error end
 		return {
-			get = function() return case.get_reply, case.get_error end,
+			mget = function(_, ...)
+				case.asked = { ... }
+				return case.mget_reply, case.mget_error
+			end,
 			incr = function() return case.incr_reply, case.incr_error end,
 		}
 	end
 	store.release = function() end
+	if case.operation == "generations" then return store:generations(case.profile) end
 	return store[case.operation](store)
 end
 
-check("redis.generation", generation_call, {
-	{ name = "reads the stored number", operation = "generation", get_reply = "7", expected = 7 },
-	{ name = "is 0 when nothing is stored", operation = "generation", get_reply = ngx.null, expected = 0 },
-	{ name = "is 0 when the stored value is not a number", operation = "generation", get_reply = "x", expected = 0 },
-	{ name = "is 0 when the read fails", operation = "generation", get_error = "timeout", expected = 0 },
-	{ name = "is 0 when the connection fails", operation = "generation", open_error = "refused", expected = 0 },
+--- The two counters that one call returns, as a list.
+---@param case table
+---@return integer[]
+local function counters_of(case) return { generation_call(case) } end
+
+check("redis.generations", counters_of, {
+	{
+		name = "reads the policy and the data counters",
+		operation = "generations",
+		profile = "sales",
+		mget_reply = { "7", "3" },
+		expected = { 7, 3 },
+	},
+	{
+		name = "is 0 for a counter that nothing stored",
+		operation = "generations",
+		profile = "sales",
+		mget_reply = { "7", ngx.null },
+		expected = { 7, 0 },
+	},
+	{
+		name = "is 0 for a value that is not a number",
+		operation = "generations",
+		profile = "sales",
+		mget_reply = { "x", "y" },
+		expected = { 0, 0 },
+	},
+	{
+		name = "is 0 for both when the read fails",
+		operation = "generations",
+		profile = "sales",
+		mget_error = "timeout",
+		expected = { 0, 0 },
+	},
+	{
+		name = "is 0 for both when the connection fails",
+		operation = "generations",
+		profile = "sales",
+		open_error = "refused",
+		expected = { 0, 0 },
+	},
+})
+
+describe("redis.generations keys", function()
+	--- The keys that the store asks for, for one profile.
+	---@param profile any
+	---@return string[]
+	local function keys_for(profile)
+		local case = { operation = "generations", profile = profile, mget_reply = { "1", "2" } }
+		generation_call(case)
+		return case.asked
+	end
+
+	it(
+		"asks for the policy counter and the counter of the schema in one call",
+		function() assert.same({ "policy:generation", "cache:generation:sales" }, keys_for("sales")) end
+	)
+
+	it(
+		"asks for the counter of the empty name when there is no profile",
+		function() assert.same({ "policy:generation", "cache:generation:" }, keys_for(nil)) end
+	)
+
+	it(
+		"asks for the counter of the empty name when the profile is longer than a schema name can be",
+		function() assert.same({ "policy:generation", "cache:generation:" }, keys_for(string.rep("a", 64))) end
+	)
+end)
+
+check("redis.bump_generation", generation_call, {
 	{ name = "counts up with incr", operation = "bump_generation", incr_reply = 8, expected = true },
 	{ name = "reports a failed incr", operation = "bump_generation", incr_error = "READONLY", expected = false },
 	{ name = "reports a failed connection", operation = "bump_generation", open_error = "refused", expected = false },

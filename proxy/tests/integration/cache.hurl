@@ -271,3 +271,53 @@ HTTP 200
 X-Cache: HIT
 [Asserts]
 jsonpath "$.n" == 2
+
+# The sync service counts up the data generation of the schema that a run changed. The answers of that
+# schema get a new key, and the answers of the other schemas stay in the cache.
+GET http://{{host}}/people?case=data
+Accept-Profile: sales
+
+HTTP 200
+X-Cache: MISS
+[Asserts]
+jsonpath "$.n" == 1
+
+GET http://{{host}}/people?case=data
+Accept-Profile: hr
+
+HTTP 200
+X-Cache: MISS
+[Asserts]
+jsonpath "$.n" == 2
+
+POST http://{{upstream}}/data/bump?schema=hr
+
+HTTP 200
+
+GET http://{{host}}/people?case=data
+Accept-Profile: sales
+
+HTTP 200
+X-Cache: HIT
+[Asserts]
+jsonpath "$.n" == 1
+
+GET http://{{host}}/people?case=data
+Accept-Profile: hr
+
+HTTP 200
+X-Cache: MISS
+[Asserts]
+jsonpath "$.n" == 3
+
+POST http://{{upstream}}/data/bump?schema=sales
+
+HTTP 200
+
+GET http://{{host}}/people?case=data
+Accept-Profile: sales
+
+HTTP 200
+X-Cache: MISS
+[Asserts]
+jsonpath "$.n" == 4

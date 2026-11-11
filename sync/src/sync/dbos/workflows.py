@@ -170,7 +170,7 @@ async def run_sync(
 
         await logs.info("Sync finalization started")
 
-        await finalize_run()
+        await finalize_run(sorted(plan.schema_name for plan in work.plans))
 
         await logs.info("Sync workflow completed")
 

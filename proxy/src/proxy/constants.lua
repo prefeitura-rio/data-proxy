@@ -86,6 +86,7 @@ return {
 		keepalive_pool_size = 32,
 		warning_interval_s = 30,
 		generation_key = "policy:generation",
+		data_generation_prefix = "cache:generation:",
 	},
 	postgrest = {
 		timeout_ms = 30000,

@@ -41,5 +41,8 @@ LOCATION_FRAMES: Final = 3
 
 PUBLISH_QUEUE: Final = "publish"
 
+# The proxy reads this key: proxy/src/proxy/constants.lua repeats it as `data_generation_prefix`.
+CACHE_GENERATION_PREFIX: Final = "cache:generation:"
+
 MAX_IDENTIFIER_BYTES: Final = 63
 AGGREGATE_FUNCTION_SUFFIX: Final = "_aggregate"

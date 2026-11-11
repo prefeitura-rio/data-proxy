@@ -81,6 +81,7 @@
 ---@field keepalive_pool_size integer
 ---@field warning_interval_s integer Seconds between two warnings about a failed cache operation.
 ---@field generation_key string Redis key of the policy generation, a counter that is part of every cache key.
+---@field data_generation_prefix string Start of the Redis key of the data generation of a schema.
 
 --- Limits for the calls to PostgREST.
 ---@class PostgrestConstants
