@@ -23,7 +23,9 @@ export type QueryEnv = {
 	S3_ADMIN_ACCESS_KEY?: string;
 	S3_ADMIN_SECRET_KEY?: string;
 	S3_IAM_ENDPOINT?: string;
+	KEYS_SECRET?: string;
 	COOKIE_SECRET: string;
+	ORIGIN: string;
 };
 
 /** The settings of the query tab, or null when one is missing, so that the other tabs still work. */
@@ -32,6 +34,12 @@ export function querySettingsFrom(env: QueryEnv): QuerySettings | null {
 
 	if (!NOTEBOOK_ORIGIN || !CATALOG_URL || !S3_ENDPOINT || !S3_BUCKET || !S3_ACCESS_KEY || !S3_SECRET_KEY) {
 		return null;
+	}
+
+	if (new URL(NOTEBOOK_ORIGIN).origin === new URL(env.ORIGIN).origin) {
+		throw new Error(
+			'NOTEBOOK_ORIGIN must be another origin than ORIGIN, because the notebook runs with allow-same-origin and would share the cookies of the console'
+		);
 	}
 
 	return {
@@ -53,6 +61,6 @@ export function querySettingsFrom(env: QueryEnv): QuerySettings | null {
 						secretAccessKey: env.S3_ADMIN_SECRET_KEY // pragma: allowlist secret
 					}
 				: null,
-		keysSecret: `${env.COOKIE_SECRET}:signing-keys`
+		keysSecret: env.KEYS_SECRET ?? `${env.COOKIE_SECRET}:signing-keys` // pragma: allowlist secret
 	};
 }

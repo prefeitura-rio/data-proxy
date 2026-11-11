@@ -83,6 +83,19 @@ tests:
                 name: data-proxy-s3
                 key: S3_READER_ACCESS_KEY
 
+  - it: reads the secret of the storage keys from the console Secret, and runs without it
+    template: deployment-console.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KEYS_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: data-proxy-console
+                key: KEYS_SECRET
+                optional: true
+
   - it: signs the links with the credentials of a Secret when one is set
     template: deployment-console.yaml
     set:
