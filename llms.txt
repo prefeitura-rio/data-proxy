@@ -54,6 +54,7 @@
 - Console variables (operations/console.md)
 - KEDA Scaling (operations/keda.md)
 - DuckDB Memory and Spill (operations/duckdb.md)
+- Lookup Layout (operations/lookups.md)
 - Metrics (operations/metrics.md)
 - Backups (operations/backups.md)
 - Terraform provider (terraform.md)
@@ -178,7 +179,7 @@ flowchart TD
   duckdb -->|"commits snapshots"| catalog
   duckdb -->|"writes Parquet"| s3
   workers --> source
-  workers -->|"flush"| redis
+  workers -->|"new generation"| redis
   app --> postgrest
   app -->|"sign in (OpenID Connect)"| idp
   app -->|"file lists"| catalog
@@ -408,6 +409,10 @@ A publish writes `Publish started`, `DuckLake commit started`, one `Table publis
 
 KEDA reads the length of the DBOS queues in the application database and scales the sync workers. The sync ServiceAccount can read pods and CronJobs, and it can create and watch Jobs, in its namespace. When the Swagger UI is on, it can also read and patch one ConfigMap, the schema list of that page. It has no other rights. The workflow recovery needs the pod list, the provision step needs the CronJob and the Jobs, and the step `publish_swagger_schemas` needs the ConfigMap.
 
+### Release and recovery
+
+The chart keeps `DBOS_APPLICATION_VERSION` (`sync.dbos.applicationVersion`) at `0.1.0` for every release. The recovery Deployment then lets any new pod continue the workflows of a dead pod. A new release replays the saved steps of a workflow that was running. Drain the queues before a release that adds, removes or reorders steps of a workflow, or change `sync.dbos.applicationVersion` for that release. A new version leaves the queued workflows of the old version to the old pods.
+
 ### Sync sequence
 
 The diagram shows one sync run, from the start to the cleanup. It covers provisioning, planning, the dump tasks, the views, publication and the reload of PostgREST.
@@ -451,7 +456,7 @@ sequenceDiagram
     pg-->>api: NOTIFY: reload
   end
   run->>s3: remove scratch objects
-  run->>r: flush cache
+  run->>r: count up the cache generation of each schema
 ```
 
 ### DuckLake write path
@@ -661,7 +666,7 @@ The scheduled `run_sync` workflow plans the changed tables and partitions, dumps
 
 ### DuckLake partitioning and encryption
 
-DuckLake partitioning follows the source partition column by default. A table can override it with transforms such as:
+DuckLake partitioning follows the source partition column by default only for a time partitioned source. An integer range source gives the table no partitioning. The column can have a different value in every row, and DuckLake makes one partition for each value. A table can set its own partitioning with transforms such as:
 
 ```json
 "ducklake": {
@@ -671,6 +676,8 @@ DuckLake partitioning follows the source partition column by default. A table ca
   ]
 }
 ```
+
+An integer range table of a few gigabytes needs no partition key, because the batches of a run are contiguous key ranges. Set a `bucket` transform only for a table with hundreds of files. Never use `identity` on a column with a different value in each row. See the measured layouts.
 
 Changing a table transform triggers a full table rewrite before the writer publishes the new layout. Configure encryption only under the schema-level `ducklake.encrypted` setting. The engine rejects table-level encryption, because DuckLake encryption is catalog scoped.
 
@@ -710,7 +717,7 @@ DuckLake is the fixed local primary source. The configured schema source is the 
 
 ### Partitions
 
-A `full` table creates one dump task. A partitioned table creates one extraction task for its changed physical partitions. Each selection writes one Parquet file.
+A `full` table creates one dump task. A partitioned table creates one extraction task for each batch of contiguous changed partitions. Each batch writes one Parquet file. See Dump batches.
 
 | Source type       | `n`       | `__NULL__`                        |
 | ----------------- | --------- | --------------------------------- |
@@ -1008,10 +1015,10 @@ This page explains what the proxy caches and how it builds the cache key. A toke
 
 - The proxy stores only non-empty `GET` answers with status 200. An empty answer can mean three things: access was denied, the data isn't published yet or the access policy changed. The proxy never stores it.
 - An entry stores the body with `X-Source` and `X-DuckLake-Snapshot`, so a cache hit reports what produced the answer. `X-Cache` tells a hit from a miss.
-- OpenResty doesn't cache ranged, write, oversized or non-JSON responses. `/access_policy` and its subpaths are never cached. The OpenAPI document at `/` isn't cached either, because it changes when PostgREST reloads the schema after the cache flush.
-- Cache reads use the Redis reader endpoint. Cache writes use the Redis writer endpoint.
-- The sync service flushes the cache after each sync run.
-- The key has the parts in the table below, and the table also has the two counters that keep the cache current.
+- OpenResty doesn't cache ranged, write, oversized or non-JSON responses. `/access_policy` and its subpaths are never cached. The OpenAPI document at `/` isn't cached either, because it changes when PostgREST reloads the schema after a sync run.
+- The proxy reads and writes the cache through one Redis endpoint.
+- After a sync run, the sync service counts up the data generation of each schema that the run planned. The answers of the other schemas stay in the cache.
+- The key has the parts in the table below, and the table also has the three counters that keep the cache current.
 - When an entry is missing, only one request for that key asks PostgREST. The lock section shows how.
 
 ### The cache key
@@ -1023,9 +1030,12 @@ This page explains what the proxy caches and how it builds the cache key. A toke
 | The pinned snapshot (`X-DuckLake-Snapshot`) | A pinned read must not share an entry with the latest data. |
 | The scope of the user, or the user, then the schemas and the role | A token with another identity never reads an answer that another token cached. Users with the same grants have the same scope and share their answers. |
 | The access policy generation | A write to `/access_policy` through the proxy raises this counter in Redis. |
+| The data generation of the schema | The sync service counts it up after a run that planned the schema. The proxy reads the counter of the `Accept-Profile` schema, so a run of one schema doesn't empty the cache of another. A request without a profile reads the counter of the empty name, which every run also counts up. |
 | The settings revision | `console.config()` contains it in its document. Any other change of the access policy or the rules moves `rbac.revision`. |
 
 A trigger on `rbac.revision` queues a `reload_proxy` workflow. The sync worker asks every proxy pod to read the settings. A proxy that takes a new document stops serving the old answers immediately. Examples of such a change are a write to the access policy from the console, and a new `rbac.toml` that `configure-db` loads.
+
+Redis keeps the counters as `policy:generation` and `cache:generation:<schema>`. The proxy reads both in one `MGET`. Upgrade the proxy before the sync workers. An older proxy ignores the data generation. It can show an answer that a run changed until the entry expires. The old keys and the new keys never meet, because the key has one more part.
 
 ### The scope
 
@@ -1619,6 +1629,7 @@ This page defines the terms that the other pages use. Each term has one meaning 
 | --- | --- |
 | Access policy | The table `<schema>.access_policy`. Each row names a subject, a unit type and a unit id, and it says which rows that subject may read. |
 | Adapter | The code that reads one kind of source. BigQuery is the only adapter today. |
+| Batch | The contiguous changed partitions of one table that a single dump task extracts with one query and one file. `sync.dumpBatchBytes` limits its size. |
 | Catalog | The DuckLake metadata of one schema. It lives in the `ducklake` database, in a metadata schema with the name of the schema. |
 | Claim | A field in the JSON Web Token. The `role` claim names the role, and the `schemas` claim lists the schemas that the user may use. |
 | Fallback | A table setting. With `fallback: true`, the table function reads the partitions that DuckLake doesn't store from the source. |
@@ -2431,7 +2442,7 @@ The `console` schema contains the views that the console reads through PostgREST
 | `errors` | The errors that the sync recorded, newest first. |
 | `overview` | One row for each schema: its tables, how many have committed state, its last sync run, and the sync runs, failed sync runs, and errors of the last 24 hours. The dashboard reads it in one request. |
 
-The maintenance job deletes a sync run with its tasks and logs after it finishes and `jobs.maintenance.workflowRetentionDays` days pass (90 by default). The views then no longer show it. A sync run that isn't finished stays.
+The maintenance job deletes a sync run with its tasks and logs after it finishes and `jobs.maintenance.workflowRetentionDays` days pass (90 by default). The views then no longer show it. A sync run that isn't finished stays. The job also deletes an error after the same number of days.
 
 ### Reading logs and runs
 
@@ -2495,7 +2506,7 @@ stateDiagram-v2
 
 | Action | Function | Needs | Allowed statuses | Result |
 | --- | --- | --- | --- | --- |
-| Cancel | `cancel_run` | `control_sync` | `PENDING`, `ENQUEUED`, `DELAYED` | Stops the sync run and its tasks at the next step. |
+| Cancel | `cancel_run` | `control_sync` | `PENDING`, `ENQUEUED`, `DELAYED` | Stops the sync run at the next step. A dump stops at its next partition. |
 | Resume | `resume_run` | `control_sync` | `CANCELLED`, `MAX_RECOVERY_ATTEMPTS_EXCEEDED` | Puts the sync run back in the `sync` queue, so the concurrency of that queue still applies. |
 | Run again | `retry_run` | `control_sync` and `start_sync` | `SUCCESS`, `ERROR`, `CANCELLED`, `MAX_RECOVERY_ATTEMPTS_EXCEEDED` | Starts a new sync run through `start_sync`, for the schemas of the old sync run that the token reaches. |
 
@@ -2956,7 +2967,7 @@ CI releases the Helm chart from Conventional Commits with `cog`. The settings ar
 
 A commit that changes only `terraform/`, `docs/` or `llms.txt` never releases the chart, even as a `feat` or a `fix`. A later release still counts it in the version and the changelog.
 
-The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag, and the next run publishes the same version again. If `main` is protected, add the secret `RELEASE_TOKEN` with a token that may push to it. Run `cog bump --auto --dry-run` to print the next tag without a change.
+The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag, and the next run publishes the same version again. `main` is protected, so the secret `RELEASE_TOKEN` must have a token of an actor that bypasses the rule set `protect-main`.
 
 Staging follows every chart. Production follows the chart tag `prod`, which a reviewer moves. See Production deploys.
 
@@ -2968,7 +2979,7 @@ Only the last step is specific to GitHub (`gh release create`). `ci.nu` reads `C
 
 The run on `main` fails at the SonarQube quality gate. The log doesn't name the condition, so read the project dashboard on the SonarQube server. Checkov reports five `CKV_SECRET_6` findings although `.checkov.yaml` skips that check, so the action may not read the file. Checkov also can't render the chart, because `redis.host` has no default.
 
-The branch `main` has no branch protection and no rule set. A required check needs the job names of `ci.yaml`: `Lint and unit tests`, `Sync integration tests`, `Console integration tests` and `Proxy integration tests`.
+The rule set `protect-main` protects `main`. It requires a pull request, one approval and the checks `Lint and unit tests`, `Sync integration tests`, `Console integration tests` and `Proxy integration tests`. Only the repository admin role bypasses it, so no app can merge its own pull request.
 
 ---
 
@@ -3173,6 +3184,7 @@ These pages are for the people who deploy and run Data Proxy. Start with the Hel
 | Harden pods, network and images | Hardening |
 | Set an environment variable | Environment Variables, Proxy variables and Console variables |
 | Tune the memory and the spill of the sync workers | DuckDB Memory and Spill |
+| Make lookups on one value read fewer files | Lookup Layout |
 | Watch the system | Metrics |
 | Back up and restore the access policy | Backups |
 
@@ -3199,7 +3211,7 @@ The chart creates these main objects. Each name starts with the release name.
 | `-swagger-ui-schemas` | ConfigMap | The schema list of the Swagger UI. A sync worker keeps it current. |
 | `-configure-db`, `-migrate-db`, `-provision` | Job | The install Jobs of Initialization. `configure-db` and `provision` also have a suspended CronJob of the same name. |
 | `-s3-bootstrap` | Job | Creates the S3 bucket or waits for it. |
-| `-backup`, `-maintenance` | CronJob | The access policy backup and the database maintenance. Maintenance also deletes the DBOS workflows that finished more than `jobs.maintenance.workflowRetentionDays` days ago (90 by default). |
+| `-backup`, `-maintenance` | CronJob | The access policy backup and the database maintenance. Maintenance also deletes the DBOS workflows that finished, and the errors that the sync recorded, more than `jobs.maintenance.workflowRetentionDays` days ago (90 by default). |
 | `-duckdb` | PersistentVolumeClaim | The shared volume of the DuckDB secrets. |
 
 ### Prerequisites
@@ -3260,8 +3272,8 @@ These values tune the serving layer. The defaults are in `helm/values.yaml`. The
 | `pgdog.poolSize` | `24` | The connections that one PgDog pod opens to the primary, and as many to the standbys. Keep `pgdog.replicas` × `poolSize` well below `max_connections`. |
 | `cnpg.duckdb.maxMemory` | `1GB` | The memory of each DuckDB backend of PostgreSQL. One heavy read took about 1.4 GiB, and six of them stopped a standby with a 6Gi limit. In the worst case, `pgdog.poolSize` × 1.4 GiB must fit `cnpg.resources.limits.memory`. |
 | `redis.host`, `redis.port` | required, `6379` | The Redis address that the proxy uses for its cache. A host name with no dot gets the namespace of the release, because nginx doesn't use the search domains of the pod. |
-| `redis.readKey`, `redis.writeKey`, `redis.passwordKey` | `REDIS_READ`, `REDIS_WRITE`, `REDIS_PASSWORD` | The key names in the Secret `redis.existingSecret` that the sync workers read. |
-| `redis.writerAddress`, `redis.writerHost`, `redis.writerPort`, `redis.readerHost`, `redis.readerPort` | `redis-writer:6379`, `redis-writer`, `6379`, `redis-reader`, `6379` | The addresses that the chart writes into the Redis Secret. It makes the Secret only when `redis.existingSecret` is empty. The reader falls back to the writer. |
+| `redis.writeKey`, `redis.passwordKey` | `REDIS_WRITE`, `REDIS_PASSWORD` | The key names in the Secret `redis.existingSecret` that the sync workers read. |
+| `redis.writerAddress`, `redis.writerHost`, `redis.writerPort` | `redis-writer:6379`, `redis-writer`, `6379` | The address that the chart writes into the Redis Secret. It makes the Secret only when `redis.existingSecret` is empty. |
 
 #### Proxy, mesh and service account
 
@@ -3621,7 +3633,6 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PG_DATABASE_URL` | required | PostgreSQL data source name (DSN) for the target database. |
-| `REDIS_READ` | `redis://localhost:6379/1` | Redis address for cache reads. |
 | `REDIS_WRITE` | `redis://localhost:6379/0` | Redis address for cache writes. |
 | `DBOS_SYSTEM_DATABASE_URL` | required | DBOS system database address. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | unset | BigQuery credentials file. Omit with Workload Identity. |
@@ -3659,6 +3670,7 @@ These variables set the DBOS application and its system database.
 | --- | --- | --- |
 | `DBOS_APPLICATION_NAME` | `data-proxy-sync` | DBOS application name. |
 | `DBOS_APPLICATION_VERSION` | `0.1.0` | DBOS application version. |
+| `DBOS_SHUTDOWN_TIMEOUT_SECONDS` | `300` | Seconds that a worker waits for its running workflows after SIGTERM. The chart gives the pod 30 more seconds. |
 | `DBOS_SYSTEM_SCHEMA` | `dbos` | DBOS metadata schema. |
 | `DBOS_APP_SCHEMA` | `data_proxy` | Application state schema. |
 
@@ -3672,12 +3684,14 @@ These variables set the first values of the DBOS queues and of the sync schedule
 | `SYNC_QUEUE_CONCURRENCY` | `1` | Initial sync workflow concurrency. |
 | `LISTEN_QUEUES` | empty | Queue names, separated by commas, that this worker listens to. Empty means every queue. An unknown name stops the worker. |
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |
+| `MAX_REMOVALS` | `10` | Most tables, or most S3 identities, that one step removes. A larger removal fails and names what it would delete. |
 | `SYNC_STEP_MAX_ATTEMPTS` | `3` | Retry attempts for transient steps. |
 | `DUMP_QUEUE_WORKER_CONCURRENCY` | `2` | Initial dump worker concurrency. |
 | `DUCKDB_MEMORY_LIMIT` | `1GB` | Memory of each DuckDB connection of a sync worker. DuckDB spills to the disk beyond it. |
 | `DUCKDB_THREADS` | `2` | Threads of each DuckDB connection. |
 | `DUCKDB_TEMP_DIRECTORY` | `/tmp/duckdb` | Parent folder of the spill of the DuckDB connections. Each connection spills to a folder of its own in it, and removes the folder when it closes. |
 | `DUMP_QUEUE_RATE_LIMIT` | `0` | Initial dump tasks per minute. `0` turns the limit off. |
+| `DUMP_BATCH_BYTES` | `268435456` | Logical size of the source data of one dump task. The planner joins contiguous changed partitions into one query and one file up to this size. |
 | `DUMP_QUEUE_MAX_ATTEMPTS` | `3` | Dump workflow retry attempts. |
 
 The engine creates the queues and the schedule when they don't exist, and never overwrites them. These values are only the first ones, because a restart keeps the stored values. The console shows the queues and the schedules and doesn't edit them. See Control a run and a schedule for what a schedule allows.
@@ -3752,10 +3766,11 @@ The console server reads these variables. The chart sets them from its values. S
 | `OIDC_ISSUER` | The address of the identity provider. |
 | `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | A confidential client with the redirect URI `<origin>/console/auth/callback`. |
 | `COOKIE_SECRET` | The secret that seals the cookie. |
+| `KEYS_SECRET` | Optional. The secret that seals the storage keys of the schemas. Without it, the console derives one from `COOKIE_SECRET`. A new value, or a new `COOKIE_SECRET` while this one is unset, makes the console create new keys at the next grant. The chart reads it from the key `KEYS_SECRET` of the console Secret. |
 | `POSTGREST_URL` | The address of PostgREST. |
 | `ORIGIN` | The public origin of the API host, with no path. The server compares the `Origin` header of every change with it. The server sets the `Secure` flag on its cookies when it starts with `https`. |
 | `PROTOCOL_HEADER` | The header that contains the scheme to the Node adapter, `x-forwarded-proto` behind the gateway. Without it, the adapter assumes `https` and refuses every form post from an `http` site. |
-| `NOTEBOOK_ORIGIN`, `CATALOG_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | The query tab. Without them, the tab says that it isn't set up. `S3_REGION` is optional. |
+| `NOTEBOOK_ORIGIN`, `CATALOG_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | The query tab. Without them, the tab says that it isn't set up. `S3_REGION` is optional. `NOTEBOOK_ORIGIN` must be another origin than `ORIGIN`, and the console answers every request with an error when both match. |
 | `GRANT_TTL_SECONDS` | Optional. The lifetime of the signed links in seconds. The default is 300. The page renews a grant at 80% of it. |
 | `S3_ADMIN_ACCESS_KEY`, `S3_ADMIN_SECRET_KEY`, `S3_IAM_ENDPOINT` | Optional. They turn on one storage identity for each schema. The IAM endpoint is the storage endpoint by default. |
 
@@ -3818,6 +3833,7 @@ These Helm values set the scale and the concurrency of the sync workers. The tab
 | `sync.autoscaling.activationTargetQueryValue` | `"5"` | Activation threshold. |
 | `sync.dumpQueueWorkerConcurrency` | `2` | Dump concurrency per sync process. |
 | `ducklake.secrets.storage` | see values | Shared volume of the DuckDB secrets. |
+| `sync.dumpBatchBytes` | `268435456` | Logical size of the source data of one dump task. |
 | `sync.dumpStepMaxAttempts` | `3` | Dump workflow retry attempts. |
 
 ### Dump concurrency
@@ -3830,11 +3846,23 @@ The queue stores its limits when it starts for the first time, and a restart kee
 UPDATE dbos.queues SET worker_concurrency = 2 WHERE name = 'dump';
 ```
 
+### Dump batches
+
+A BigQuery table can have thousands of small partitions. One query for each partition makes a run slow, because the delay of a query is longer than the work. The planner joins contiguous changed partitions into one task with one query and one file, until the batch has `sync.dumpBatchBytes` of logical data. An unchanged partition ends a batch, so a batch never reaches rows that the run keeps. A batch is the unit of a failure: if its dump fails, every partition of the batch fails together. The dump queue runs the batches of one table at the same time.
+
+The planner orders partitions by their integer id, so a range with a negative start batches in key order. A partition with no reported size forms a batch of its own, because the planner can't tell how large it is.
+
+An out-of-memory error in the commit step points first to the partitioning of the DuckLake table. See DuckLake partitioning and encryption.
+
 ### Catalogs
 
 The DBOS sync workers write the catalogs in the `ducklake` database, through the primary. PostgreSQL replication copies them to every standby.
 
 Publishing remains parallel across schemas because each schema has a separate metadata schema in the catalog database. Publishing remains sequential within one schema because its DBOS queue has global concurrency one.
+
+### Disruption budgets
+
+The chart keeps one pod of PgDog available during a node drain. It does the same for PostgREST and the proxy when their `autoscaling.minReplicaCount` is 2 or more. A budget on a workload that can run as one pod would block every drain.
 
 ### Configuration
 
@@ -3894,6 +3922,44 @@ Set `sync.duckdb.tempVolume.enabled` to give the folder a disk of its own. Use `
 A disk-backed volume belongs to root. The chart sets `fsGroup` on the sync pod to the group of the sync user, so the sync can write to the volume.
 
 Don't mount a bucket through FUSE as the spill folder. Each connection writes and reads small blocks at random, and a bucket mount is slow for that access. Each connection also needs a folder of its own.
+
+---
+
+Source: operations/lookups.md
+
+## Lookup Layout
+
+These settings change how a DuckLake table is laid out in the bucket, so a lookup on one value reads fewer files. A table with no setting works, and the settings help a large table. Use them in the table configuration. The memory values are on the page DuckDB Memory and Spill.
+
+### Partition key of an integer range table
+
+An integer range table doesn't need a partition key for a table of a few gigabytes. The batches of a run are contiguous key ranges, so the minimum and maximum of each file already skip most files. A test with 2.75 million rows (2.4 GB) at a DuckDB memory limit of 2 GB gave these results.
+
+| Layout | Files | Insert time | Peak memory | Files read by a lookup on one value |
+| --- | --- | --- | --- | --- |
+| No key | 4 | 23 s | 1.2 GB | 1 |
+| `bucket` with 8 | 8 | 26 s | 2.3 GB | 1 |
+| `bucket` with 16 | 16 | 38 s | 2.5 GB | 1 |
+| `SET SORTED BY` the column | none | none | out of memory | none |
+
+A `bucket` key reads every bucket for a range query, because it spreads neighbouring values. Set a `bucket` transform in the table configuration only when the table has hundreds of files and its queries look up one value.
+
+Never use the `identity` transform on a column with a different value in each row. DuckLake makes one partition for each value, and the commit runs out of memory.
+
+### Sort columns of an integer range table
+
+A sort on the key gives each file tight row groups, so a lookup on one value reads one row group. DuckLake sorts the rows of one insert in memory. A sorted table therefore gets one insert for each batch file, and a sort keeps one batch and not the whole table. The same test as above, with the table sorted by the key, gave these results.
+
+| Commit | Files | Time | Peak memory | Row groups read by a lookup |
+| --- | --- | --- | --- | --- |
+| No sort | 4 | 20 s | 1.2 GB | 3.8 |
+| Sorted, one insert for each batch, 2 GB limit | 10 | 12 s | 1.3 GB | 1.0 |
+| Sorted, one insert for all batches, 2 GB limit | none | none | out of memory | none |
+| Sorted, one insert for all batches, 4 GB limit | 5 | 31 s | 4.2 GB | 1.0 |
+
+A sort in the extraction query alone, with no sort on the table, gave 1.9 row groups for a lookup. Set the sort columns of a table in its configuration. Use the console import with `"ducklake": {"sort": ["cnpj_particao"]}`, or the `sort` list of the `ducklake` block of the Terraform resource. A change of the sort or of the partitioning makes the next sync rebuild the table.
+
+The commit of a table runs its delete and its inserts in one DuckLake transaction. A failed insert leaves the table as it was.
 
 ---
 
