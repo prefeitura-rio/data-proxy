@@ -4,7 +4,7 @@ The Terraform provider has its own versions and its own releases. A chart releas
 
 ## How a release happens
 
-CI runs on every push to `main`. When `repo` and `test-terraform` pass, the job `terraform` of CI calls the workflow `terraform.yaml` on the same commit. The workflow decides whether a release is due. The job doesn't wait for the chart release. A failed provider release turns the run red, so the chart stays out of staging.
+CI runs on every push to `main`. When `repo` and `test-terraform` pass, the job `terraform` of CI runs the action `terraform-release` on the same commit. The action decides whether a release is due. The job doesn't wait for the chart release. A failed provider release turns the run red, so the chart stays out of staging.
 
 1. `ci terraform next` reads the commits that changed `terraform/` since the last tag `terraform-v<version>`.
 2. A `feat` or a breaking commit raises the minor version, and a `fix` raises the patch. Other types give no release. The major version stays 0 until a person sets it.
@@ -12,7 +12,7 @@ CI runs on every push to `main`. When `repo` and `test-terraform` pass, the job 
 4. It creates the GitHub Release `terraform-v<version>` with the archives, the checksum file and its signature. The notes list the commit subjects under `terraform/`.
 5. `ci terraform registry` writes the registry files from every release and uploads them to a bucket.
 
-A tag that exists already makes the job fail, so a version never changes after its release. To release a version by hand, run the workflow `terraform.yaml` with the input `version`.
+A tag that exists already makes the job fail, so a version never changes after its release. To release a version by hand, start CI with the input `provider_version`.
 
 ## The registry
 
