@@ -28,6 +28,7 @@ from .sources.partitions import (
 )
 from .state import build_table_states, emit_error, write_table_states
 from .types import DatabaseRow, DuckDBParams
+from .utils import limit_removals
 
 if TYPE_CHECKING:
     from .duckdb import DuckDB
@@ -314,6 +315,7 @@ async def drop_tables_except(duckdb_conn: DuckDB, keep: set[str]) -> list[str]:
     executor = Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn)
     rows = await executor.query("duckdb/list_tables", expect=tuple[str])
     dropped = sorted(name for (name,) in rows if name not in keep)
+    limit_removals(dropped, "tables")
 
     for name in dropped:
         await executor.execute("duckdb/drop_table", mapping={"table": Identifier(name)})

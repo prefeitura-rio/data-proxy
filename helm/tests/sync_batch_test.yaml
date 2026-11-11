@@ -28,3 +28,12 @@ tests:
           path: spec.template.spec.terminationGracePeriodSeconds
           value: 150
 
+  - it: limits the removals of one step
+    set:
+      sync.maxRemovals: 25
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MAX_REMOVALS
+            value: "25"

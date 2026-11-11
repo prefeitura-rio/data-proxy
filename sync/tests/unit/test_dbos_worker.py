@@ -12,6 +12,7 @@ from psycopg import OperationalError
 from sync.dbos import main as dbos_main
 from sync.dbos import utils, workflows
 from sync.settings import settings
+from sync.utils import RemovalLimitError
 from tests.fixtures.types import (
     RecordedOptions,
     RecordingDbos,
@@ -56,6 +57,9 @@ class TestTransientRetryClassification:
             pytest.param(KeyError("app"), False, id="a-missing-key-is-a-bug"),
             pytest.param(TypeError("bad"), False, id="a-wrong-type-is-a-bug"),
             pytest.param(AttributeError("bad"), False, id="a-missing-attribute"),
+            pytest.param(
+                RemovalLimitError("too many"), False, id="a-removal-above-the-limit"
+            ),
         ],
     )
     def test_retries_a_backend_failure_and_not_a_bug(

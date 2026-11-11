@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from aiobotocore.session import AioSession, ClientCreatorContext, get_session
 
 from .settings import settings
+from .utils import limit_removals
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Collection, Iterable
@@ -73,6 +74,7 @@ async def remove_stale_identities(schemas: Collection[str]) -> list[str]:
 
     async with create_iam_client(get_session(), endpoint) as client:
         removed = stale_users(await list_users(client), schemas)
+        limit_removals(removed, "S3 identities")
 
         for user in removed:
             await remove_user(client, user)

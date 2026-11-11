@@ -42,6 +42,7 @@ from sync.sources.partitions import (
 )
 from sync.templates import render_template
 from sync.types import DatabaseRow, DuckDBParams
+from sync.utils import RemovalLimitError
 from tests.constants import PARQUET, TEST_SQL_DIR
 from tests.helpers.core import exactly
 from tests.helpers.ducklake import (
@@ -353,6 +354,27 @@ class TestDropTablesExcept:
         await create_ducklake_table(duckdb, "people")
 
         assert await drop_tables_except(duckdb, {"people"}) == []
+
+    @pytest.mark.asyncio
+    async def test_drops_nothing_when_it_would_drop_more_than_the_limit(
+        self, duckdb: DuckDB, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An empty configuration lists every table as removed, so the step stops before the first drop."""
+        monkeypatch.setattr(settings, "MAX_REMOVALS", 1)
+        await attach_ducklake(duckdb, tmp_path)
+        for name in ("people", "orders"):
+            await create_ducklake_table(duckdb, name)
+
+        with pytest.raises(
+            RemovalLimitError,
+            match=exactly(
+                "2 tables would be removed, above MAX_REMOVALS=1: orders, people"
+            ),
+        ):
+            await drop_tables_except(duckdb, set())
+
+        assert len(await ducklake_columns(duckdb, "people")) > 0
+        assert len(await ducklake_columns(duckdb, "orders")) > 0
 
 
 class TestCustomPartitioningExpression:

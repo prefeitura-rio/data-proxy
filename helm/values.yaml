@@ -27,6 +27,9 @@ sync:
   ## then lets a dump end. The pod gets 30 more seconds before Kubernetes kills it. The recovery Deployment
   ## re-enqueues a workflow that is still running when the wait ends.
   shutdownTimeoutSeconds: 300
+  ## Most tables, or most S3 identities, that one step removes. A larger removal fails and names what it would delete,
+  ## so a wrong or empty configuration cannot erase the data. Raise it for a planned removal of many tables.
+  maxRemovals: 10
   ## Maximum DBOS step retry attempts for one dump task.
   dumpStepMaxAttempts: 3
   ## Maximum attempts for safe transient DBOS steps.

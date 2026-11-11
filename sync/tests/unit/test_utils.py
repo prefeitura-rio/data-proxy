@@ -1,4 +1,8 @@
-from sync.utils import json_digest, sha256_hex
+import pytest
+
+from sync.settings import settings
+from sync.utils import RemovalLimitError, json_digest, limit_removals, sha256_hex
+from tests.helpers.core import exactly
 
 
 class TestDigests:
@@ -27,3 +31,34 @@ class TestDigests:
             json_digest(["x", "y"])
             == "8164c53b977060f6ba568eddee7e120cdac3ff783c0fff7c20e00a227e2c6c50"
         )
+
+
+class TestLimitRemovals:
+    """A step that would remove more than MAX_REMOVALS stops and names what it would remove."""
+
+    @pytest.mark.parametrize(
+        ("names", "message"),
+        [
+            pytest.param([], None, id="nothing-to-remove"),
+            pytest.param(["a", "b"], None, id="at-the-limit"),
+            pytest.param(
+                ["a", "b", "c"],
+                "3 tables would be removed, above MAX_REMOVALS=2: a, b, c",
+                id="one-above-the-limit",
+            ),
+        ],
+    )
+    def test_raises_only_above_the_limit(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        names: list[str],
+        message: str | None,
+    ) -> None:
+        """The limit is the most that one step may remove."""
+        monkeypatch.setattr(settings, "MAX_REMOVALS", 2)
+
+        if message is None:
+            limit_removals(names, "tables")
+        else:
+            with pytest.raises(RemovalLimitError, match=exactly(message)):
+                limit_removals(names, "tables")

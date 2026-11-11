@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 from duckdb import TransactionException
 
+from sync.utils import RemovalLimitError
+
 if TYPE_CHECKING:
     from sync.settings import Settings
 
@@ -57,6 +59,7 @@ def retry_transient(error: BaseException) -> bool:
             | AttributeError()
             | AssertionError()
             | NotImplementedError()
+            | RemovalLimitError()
         ):
             return False
         case Exception():
