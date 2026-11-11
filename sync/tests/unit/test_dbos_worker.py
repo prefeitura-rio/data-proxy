@@ -5,12 +5,15 @@ import importlib
 import inspect
 import signal
 from collections.abc import Callable
+from unittest.mock import AsyncMock
 
 import pytest
+from dbos import error as dbos_error
 from psycopg import OperationalError
 
 from sync.dbos import main as dbos_main
 from sync.dbos import utils, workflows
+from sync.models import DumpStatus
 from sync.settings import settings
 from sync.utils import RemovalLimitError
 from tests.fixtures.types import (
@@ -23,6 +26,7 @@ from tests.helpers.dbos import (
     catalog_commit_error,
     workflow_body,
 )
+from tests.helpers.state import dump_task
 
 STOPPING = [signal.SIGTERM, signal.SIGINT]
 
@@ -200,6 +204,50 @@ class TestServe:
         await dbos_main.serve()
 
         assert RecordingDbos.enqueued == []
+
+
+class TestDumpTask:
+    """A dump that fails records its failure. A dump that DBOS cancelled records nothing and stays cancelled."""
+
+    @pytest.fixture
+    def recorded(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+        """Stand in for the failure record, and return it."""
+        record = AsyncMock()
+        monkeypatch.setattr(workflows, "record_dump_failure", record)
+
+        return record
+
+    @pytest.mark.asyncio
+    async def test_returns_the_failure_of_a_dump_that_failed(
+        self, monkeypatch: pytest.MonkeyPatch, recorded: AsyncMock
+    ) -> None:
+        """The run goes on without the paths of the failed dump."""
+        task = dump_task()
+        monkeypatch.setattr(
+            workflows, "extract_task", AsyncMock(side_effect=RuntimeError("boom"))
+        )
+
+        result = await workflow_body(workflows.dump_task)(task)
+
+        assert result.status == DumpStatus.FAILURE
+        assert result.failed_paths == task.output_paths
+        recorded.assert_awaited_once_with(task, "boom")
+
+    @pytest.mark.asyncio
+    async def test_raises_the_cancellation_and_records_no_failure(
+        self, monkeypatch: pytest.MonkeyPatch, recorded: AsyncMock
+    ) -> None:
+        """DBOS raises a cancel as a BaseException, so the generic handler of the dump never sees it."""
+        monkeypatch.setattr(
+            workflows,
+            "extract_task",
+            AsyncMock(side_effect=dbos_error.DBOSWorkflowCancelledError("w")),
+        )
+
+        with pytest.raises(dbos_error.DBOSWorkflowCancelledError):
+            await workflow_body(workflows.dump_task)(dump_task())
+
+        recorded.assert_not_awaited()
 
 
 class TestShutdown:
