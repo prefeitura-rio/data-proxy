@@ -66,6 +66,8 @@ spec:
             {{- end }}
             - name: DBOS_SHUTDOWN_TIMEOUT_SECONDS
               value: {{ .Values.sync.shutdownTimeoutSeconds | quote }}
+            - name: MAX_REMOVALS
+              value: {{ .Values.sync.maxRemovals | quote }}
           volumeMounts:
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
             {{ if .Values.sync.trigger.enabled }}

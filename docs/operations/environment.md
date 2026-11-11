@@ -59,6 +59,7 @@ These variables set the first values of the DBOS queues and of the sync schedule
 | `SYNC_QUEUE_CONCURRENCY` | `1` | Initial sync workflow concurrency. |
 | `LISTEN_QUEUES` | empty | Queue names, separated by commas, that this worker listens to. Empty means every queue. An unknown name stops the worker. |
 | `SYNC_RUN_TIMEOUT_SECONDS` | `3600` | Maximum duration of one sync run. |
+| `MAX_REMOVALS` | `10` | Most tables, or most S3 identities, that one step removes. A larger removal fails and names what it would delete. |
 | `SYNC_STEP_MAX_ATTEMPTS` | `3` | Retry attempts for transient steps. |
 | `DUMP_QUEUE_WORKER_CONCURRENCY` | `2` | Initial dump worker concurrency. |
 | `DUCKDB_MEMORY_LIMIT` | `1GB` | Memory of each DuckDB connection of a sync worker. DuckDB spills to the disk beyond it. |
