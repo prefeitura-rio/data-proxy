@@ -19,27 +19,22 @@ permissions:
 jobs:
   next:
     name: Find the version to promote
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && contains(fromJSON('["push","workflow_dispatch"]'), github.event.workflow_run.event))
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        shell: devenv --profile chart shell -- bash -e {0}
     outputs:
       version: ${{ steps.next.outputs.version }}
       current: ${{ steps.next.outputs.current }}
       pending: ${{ steps.next.outputs.pending }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: ./.github/actions/cache-nix
-      - uses: ./.github/actions/setup-devenv
-      - name: Compare the newest chart with the chart of production
-        id: next
-        run: ci chart next
-        env:
-          VERSION: ${{ inputs.version }}
-          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CI_REGISTRY_USER: ${{ github.actor }}
+      - id: next
+        uses: ./.github/actions/chart-promote
+        with:
+          command: next
+          version: ${{ inputs.version }}
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
+          registry-user: ${{ github.actor }}
   promote:
     name: Promote to production (${{ needs.next.outputs.current }} to ${{ needs.next.outputs.version }})
     needs: next
@@ -50,17 +45,12 @@ jobs:
     concurrency:
       group: promote-production
       cancel-in-progress: true
-    defaults:
-      run:
-        shell: devenv --profile chart shell -- bash -e {0}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: ./.github/actions/cache-nix
-      - uses: ./.github/actions/setup-devenv
-      - name: Move the tag prod to the chart
-        run: ci chart promote "$VERSION" $LATEST_ONLY
-        env:
-          VERSION: ${{ needs.next.outputs.version }}
-          LATEST_ONLY: ${{ github.event_name == 'workflow_run' && '--if-latest' || '' }}
-          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CI_REGISTRY_USER: ${{ github.actor }}
+      - uses: ./.github/actions/chart-promote
+        with:
+          command: promote
+          version: ${{ needs.next.outputs.version }}
+          latest-only: ${{ github.event_name == 'workflow_run' }}
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
+          registry-user: ${{ github.actor }}

@@ -1,0 +1,51 @@
+name: Promote the chart
+description: Find the chart version that production should run, or move the tag prod to a chart version. The caller checks out the repository first.
+inputs:
+  command:
+    description: next compares the newest chart with the chart of production. promote moves the tag prod.
+    required: true
+  version:
+    description: With next, the version that a person chose, or empty. With promote, the version to promote.
+    default: ""
+  latest-only:
+    description: With promote, skip a version that is not the newest chart.
+    default: "false"
+  registry-token:
+    description: The token that reads and writes the chart registry.
+    required: true
+  registry-user:
+    description: The user of the registry token.
+    required: true
+outputs:
+  version:
+    description: The version to promote.
+    value: ${{ steps.next.outputs.version }}
+  current:
+    description: The version that production runs.
+    value: ${{ steps.next.outputs.current }}
+  pending:
+    description: true when the two versions differ.
+    value: ${{ steps.next.outputs.pending }}
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/cache-nix
+    - uses: ./.github/actions/setup-devenv
+    - name: Compare the newest chart with the chart of production
+      id: next
+      if: inputs.command == 'next'
+      shell: devenv --profile chart shell -- bash -e {0}
+      run: ci chart next
+      env:
+        VERSION: ${{ inputs.version }}
+        CI_REGISTRY_TOKEN: ${{ inputs.registry-token }}
+        CI_REGISTRY_USER: ${{ inputs.registry-user }}
+    - name: Move the tag prod to the chart
+      if: inputs.command == 'promote'
+      shell: devenv --profile chart shell -- bash -e {0}
+      run: ci chart promote "$VERSION" $LATEST_ONLY
+      env:
+        VERSION: ${{ inputs.version }}
+        LATEST_ONLY: ${{ inputs.latest-only == 'true' && '--if-latest' || '' }}
+        CI_REGISTRY_TOKEN: ${{ inputs.registry-token }}
+        CI_REGISTRY_USER: ${{ inputs.registry-user }}
