@@ -2,9 +2,9 @@
 
 from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar, Literal
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import Field, SecretStr, field_validator
-from pydantic.networks import RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from redis.asyncio import Redis
 
@@ -51,7 +51,6 @@ class Settings(BaseSettings):
     OTLP_TRACES_ENDPOINT: str = Field(default="")
     PG_DATABASE_URL: SecretStr = Field(default=...)
     PROXY_CACHE_REDIS_DB: int = Field(default=1, ge=0)
-    REDIS_READ: SecretStr = SecretStr("redis://localhost:6379/1")
     REDIS_WRITE: SecretStr = SecretStr("redis://localhost:6379/0")
     S3_ACCESS_KEY: str = Field(default=...)
     S3_BUCKET: str = "test-bucket"
@@ -86,30 +85,11 @@ class Settings(BaseSettings):
             raise ValueError("DUCKLAKE_SNAPSHOT_EXPIRATION must be like '7d'")
         return v
 
-    def redis(
-        self,
-        db: int | None = None,
-        *,
-        role: Literal["read", "write"] = "write",
-    ) -> Redis:
-        """Return a Redis client for the selected address."""
-        urls = {"read": self.REDIS_READ, "write": self.REDIS_WRITE}
-        url = RedisDsn(urls[role].get_secret_value())
-        db_text = (
-            url.path if url.path is not None and len(url.path) > 0 else "/0"
-        ).lstrip("/")
-        default_db = int(db_text) if len(db_text) > 0 else 0
+    def redis(self, db: int) -> Redis:
+        """Return a Redis client for the write address, on the database that the caller picks."""
+        address = urlsplit(self.REDIS_WRITE.get_secret_value())._replace(path=f"/{db}")
 
-        return Redis(
-            host=url.host
-            if url.host is not None and len(url.host) > 0
-            else "localhost",
-            port=url.port if url.port is not None else 6379,
-            db=db if db is not None else default_db,
-            username=url.username,
-            password=url.password,
-            ssl=url.scheme == "rediss",
-        )
+        return Redis.from_url(urlunsplit(address))
 
 
 settings = Settings()

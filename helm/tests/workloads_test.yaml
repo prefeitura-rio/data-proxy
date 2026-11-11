@@ -152,7 +152,7 @@ tests:
   - it: sync reaches the database, the proxy admin address and its executor identity
     asserts:
       - matchRegex:
-          path: spec.template.spec.containers[0].env[20].value
+          path: spec.template.spec.containers[0].env[19].value
           pattern: data-proxy-rw\.NAMESPACE\.svc\.cluster\.local:5432/data-proxy
         template: deployment-sync.yaml
       - contains:

@@ -1,5 +1,3 @@
-from typing import Literal
-
 import pytest
 from pydantic import ValidationError
 
@@ -11,7 +9,6 @@ SECRETS = {
     "DUCKLAKE_CATALOG_URL": "postgresql://lake:lake-p4ss@db.test/lake",
     "S3_ACCESS_KEY": "s3-key-id",
     "S3_SECRET_KEY": "s3-s3cret",
-    "REDIS_READ": "redis://reader:read-p4ss@cache.test:6379/1",
     "REDIS_WRITE": "redis://writer:write-p4ss@cache.test:6379/0",
 }
 
@@ -21,7 +18,6 @@ PASSWORDS = [
     "dbos-p4ss",
     "lake-p4ss",
     "s3-s3cret",
-    "read-p4ss",
     "write-p4ss",
 ]
 
@@ -78,53 +74,27 @@ class TestDumpQueueLimiter:
 
 
 class TestRedisClient:
-    """Settings.redis() builds a client for the read or the write address."""
+    """Settings.redis() builds a client for the write address, on the database that the caller picks."""
 
     @staticmethod
-    def kwargs(
-        settings: Settings,
-        *,
-        role: Literal["read", "write"] = "write",
-        db: int | None = None,
-    ) -> dict[str, object]:
+    def kwargs(settings: Settings, db: int = 1) -> dict[str, object]:
         """Return the connection arguments of the client that the settings build."""
-        client = settings.redis(db=db, role=role)
+        return dict(settings.redis(db).connection_pool.connection_kwargs)
 
-        return dict(client.connection_pool.connection_kwargs)
-
-    def test_takes_the_host_the_port_the_login_and_the_database_of_the_address(
-        self,
-    ) -> None:
+    def test_takes_the_host_the_port_and_the_login_of_the_address(self) -> None:
         """Read each part of the URL."""
         settings = Settings(REDIS_WRITE="redis://ana:secret@cache.test:6380/3")
 
         found = self.kwargs(settings)
 
-        assert (
-            found["host"],
-            found["port"],
-            found["username"],
-            found["password"],
-            found["db"],
-        ) == (
+        assert (found["host"], found["port"], found["username"], found["password"]) == (
             "cache.test",
             6380,
             "ana",
             "secret",
-            3,
         )
 
-    def test_uses_the_read_address_for_a_reader(self) -> None:
-        """Pick the address by role."""
-        settings = Settings(
-            REDIS_READ="redis://replica.test:6379/1",
-            REDIS_WRITE="redis://primary.test:6379/0",
-        )
-
-        assert self.kwargs(settings, role="read")["host"] == "replica.test"
-        assert self.kwargs(settings)["host"] == "primary.test"
-
-    def test_an_explicit_database_wins_over_the_one_of_the_address(self) -> None:
+    def test_the_database_of_the_caller_wins_over_the_one_of_the_address(self) -> None:
         """Let the cache use its own database on the same server."""
         settings = Settings(REDIS_WRITE="redis://cache.test:6379/3")
 
@@ -132,8 +102,8 @@ class TestRedisClient:
 
     def test_asks_for_a_tls_connection_only_for_the_rediss_scheme(self) -> None:
         """Encrypt the connection when the address says so."""
-        plain = Settings(REDIS_WRITE="redis://cache.test:6379/0").redis()
-        secure = Settings(REDIS_WRITE="rediss://cache.test:6379/0").redis()
+        plain = Settings(REDIS_WRITE="redis://cache.test:6379/0").redis(1)
+        secure = Settings(REDIS_WRITE="rediss://cache.test:6379/0").redis(1)
 
         assert plain.connection_pool.connection_class.__name__ == "Connection"
         assert secure.connection_pool.connection_class.__name__ == "SSLConnection"

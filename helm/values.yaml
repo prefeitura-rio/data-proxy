@@ -287,14 +287,11 @@ redis:
   ## Required. The one Redis endpoint that the proxy uses for its cache.
   host: ""
   port: 6379
-  readKey: REDIS_READ
   writeKey: REDIS_WRITE
   passwordKey: REDIS_PASSWORD
   writerAddress: redis-writer:6379
   writerHost: redis-writer
   writerPort: 6379
-  readerHost: redis-reader
-  readerPort: 6379
 ## Maintenance jobs: backup and maintenance.
 jobs:
   ## Shared image for maintenance jobs.
