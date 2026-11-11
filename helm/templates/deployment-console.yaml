@@ -50,6 +50,12 @@ spec:
                 secretKeyRef:
                   name: {{ include "data-proxy.consoleSecretName" . }}
                   key: COOKIE_SECRET
+            - name: KEYS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "data-proxy.consoleSecretName" . }}
+                  key: KEYS_SECRET
+                  optional: true
             - name: POSTGREST_URL
               value: {{ printf "http://%s-postgrest:3000" (include "data-proxy.fullname" .) | quote }}
             {{- if .Values.notebooks.enabled }}

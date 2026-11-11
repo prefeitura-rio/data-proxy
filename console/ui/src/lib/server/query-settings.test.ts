@@ -8,7 +8,8 @@ const complete: QueryEnv = {
 	S3_BUCKET: 'bucket',
 	S3_ACCESS_KEY: 'reader',
 	S3_SECRET_KEY: 'reader-secret',
-	COOKIE_SECRET: 'cookie'
+	COOKIE_SECRET: 'cookie',
+	ORIGIN: 'https://console.example.test'
 };
 
 describe('querySettingsFrom', () => {
@@ -55,7 +56,30 @@ describe('querySettingsFrom', () => {
 		).toBe('https://iam.example.test');
 	});
 
-	it('derives the secret that seals the keys from the secret of the cookie', () => {
+	it.each([
+		['the same origin', 'https://console.example.test'],
+		['the same origin with a path', 'https://console.example.test/notebooks'],
+		['the same origin with a slash', 'https://console.example.test/']
+	])('refuses a notebook on %s as the console, because the sandbox would not separate them', (_, notebook) => {
+		expect(() => querySettingsFrom({ ...complete, NOTEBOOK_ORIGIN: notebook })).toThrow('another origin than ORIGIN');
+	});
+
+	it.each([
+		['another host', 'https://notebooks.example.test'],
+		['another port', 'https://console.example.test:8443'],
+		['another scheme', 'http://console.example.test']
+	])('accepts a notebook on %s', (_, notebook) => {
+		expect(querySettingsFrom({ ...complete, NOTEBOOK_ORIGIN: notebook })?.notebookOrigin).toBe(notebook);
+	});
+
+	it('derives the secret that seals the keys from the secret of the cookie when KEYS_SECRET is not set', () => {
 		expect(querySettingsFrom(complete)?.keysSecret).toBe('cookie:signing-keys');
+	});
+
+	it('seals the keys with KEYS_SECRET when it is set, so a new cookie secret leaves the keys alone', () => {
+		const sealed = (cookie: string) => querySettingsFrom({ ...complete, COOKIE_SECRET: cookie, KEYS_SECRET: 'own' });
+
+		expect(sealed('cookie')?.keysSecret).toBe('own');
+		expect(sealed('rotated')?.keysSecret).toBe('own');
 	});
 });

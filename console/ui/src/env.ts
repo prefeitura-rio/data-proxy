@@ -33,6 +33,11 @@ export const variables = defineEnvVars({
 	},
 	S3_ADMIN_SECRET_KEY: { schema: optional, description: 'The admin secret key of the storage' },
 	S3_IAM_ENDPOINT: { schema: optional, description: 'The IAM endpoint of the storage, the S3 endpoint by default' },
+	KEYS_SECRET: {
+		schema: optional,
+		description:
+			'The secret that seals the storage keys of the schemas. Without it, a secret derived from COOKIE_SECRET'
+	},
 	GRANT_TTL_SECONDS: {
 		schema: optional,
 		description: 'The lifetime of the signed links in seconds, 300 by default'
