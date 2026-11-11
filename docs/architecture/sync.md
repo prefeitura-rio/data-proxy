@@ -41,6 +41,9 @@ A publish writes `Publish started`, `DuckLake commit started`, one `Table publis
 
 KEDA reads the length of the DBOS queues in the application database and scales the sync workers. The sync ServiceAccount can read pods and CronJobs, and it can create and watch Jobs, in its namespace. When the Swagger UI is on, it can also read and patch one ConfigMap, the schema list of that page. It has no other rights. The workflow recovery needs the pod list, the provision step needs the CronJob and the Jobs, and the step `publish_swagger_schemas` needs the ConfigMap.
 
+## Release and recovery
+
+The chart keeps `DBOS_APPLICATION_VERSION` (`sync.dbos.applicationVersion`) at `0.1.0` for every release. The recovery Deployment then lets any new pod continue the workflows of a dead pod. A new release replays the saved steps of a workflow that was running. Drain the queues before a release that adds, removes or reorders steps of a workflow, or change `sync.dbos.applicationVersion` for that release. A new version leaves the queued workflows of the old version to the old pods.
 
 ## Sync sequence
 

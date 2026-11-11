@@ -15,3 +15,16 @@ tests:
             name: DUMP_BATCH_BYTES
             value: "1073741824"
 
+  - it: waits for the running dumps after SIGTERM, and gives the pod 30 more seconds
+    set:
+      sync.shutdownTimeoutSeconds: 120
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DBOS_SHUTDOWN_TIMEOUT_SECONDS
+            value: "120"
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 150
+
