@@ -5,7 +5,9 @@ templates:
   - scaledobjects.yaml
   - rbac.yaml
 tests:
-  - it: renders the proxy disruption budget
+  - it: renders the proxy disruption budget when two pods always run
+    set:
+      proxy.autoscaling.minReplicaCount: 2
     asserts:
       - equal:
           path: spec.minAvailable
@@ -15,7 +17,9 @@ tests:
           value: data-proxy-proxy
         template: pdbs.yaml
 
-  - it: renders the PostgREST disruption budget
+  - it: renders the PostgREST disruption budget when two pods always run
+    set:
+      postgrest.autoscaling.minReplicaCount: 2
     asserts:
       - equal:
           path: spec.minAvailable
@@ -33,6 +37,16 @@ tests:
         documentSelector:
           path: metadata.name
           value: data-proxy-pgdog
+        template: pdbs.yaml
+
+  - it: renders no budget for a workload that can run as one pod, because the budget would block every node drain
+    set:
+      proxy.autoscaling.minReplicaCount: 1
+      postgrest.autoscaling.minReplicaCount: 1
+      pgdog.replicas: 1
+    asserts:
+      - hasDocuments:
+          count: 0
         template: pdbs.yaml
 
   - it: renders PostgREST KEDA scaler

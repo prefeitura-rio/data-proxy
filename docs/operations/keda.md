@@ -80,6 +80,9 @@ The DBOS sync workers write the catalogs in the `ducklake` database, through the
 
 Publishing remains parallel across schemas because each schema has a separate metadata schema in the catalog database. Publishing remains sequential within one schema because its DBOS queue has global concurrency one.
 
+## Disruption budgets
+
+The chart keeps one pod of PgDog available during a node drain. It does the same for PostgREST and the proxy when their `autoscaling.minReplicaCount` is 2 or more. A budget on a workload that can run as one pod would block every drain.
 
 ## Configuration
 

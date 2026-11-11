@@ -1,3 +1,4 @@
+{{- if ge (.Values.pgdog.replicas | int) 2 }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -12,6 +13,8 @@ spec:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: pgdog
+{{- end }}
+{{- if ge (.Values.postgrest.autoscaling.minReplicaCount | int) 2 }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -27,6 +30,8 @@ spec:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: postgrest
+{{- end }}
+{{- if ge (.Values.proxy.autoscaling.minReplicaCount | int) 2 }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -42,3 +47,4 @@ spec:
     matchLabels:
       {{- include "data-proxy.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: proxy
+{{- end }}
