@@ -218,6 +218,23 @@ class TestMigrationsOnExistingData:
         assert await names(rbac, "SELECT name FROM console.projects") == ["default"]
         assert await names(rbac, "SELECT schema FROM console.tables") == ["sales"]
 
+    async def test_00013_gives_require_claim_its_definer_rights_back_with_a_pinned_search_path(
+        self, rbac: Postgres, dbos_schema: str
+    ) -> None:
+        """Migration 00011 replaced the function and dropped both settings that 00005 had set."""
+        found = (
+            "SELECT prosecdef, proconfig FROM pg_proc WHERE proname = 'require_claim'"
+        )
+        await migrate(rbac, migrations_until(12))
+
+        cursor = await rbac.connection.execute(found.encode())
+        assert await cursor.fetchall() == [(False, None)]
+
+        await migrate(rbac, [migration(13)])
+
+        cursor = await rbac.connection.execute(found.encode())
+        assert await cursor.fetchall() == [(True, ["search_path=pg_catalog, pg_temp"])]
+
     @pytest.mark.parametrize(
         ("schedule_name", "expected"),
         [
@@ -315,9 +332,9 @@ class TestMigrationOrder:
         self, rbac: Postgres, dbos_schema: str
     ) -> None:
         """Go back to the start with the Down parts alone."""
-        await migrate(rbac, migrations_until(12))
+        await migrate(rbac, migrations_until(13))
 
-        for number in range(12, 0, -1):
+        for number in range(13, 0, -1):
             down = migration_down(migration(number))
             if len(down.strip()) > 0:
                 await rbac.connection.execute(down.encode())
