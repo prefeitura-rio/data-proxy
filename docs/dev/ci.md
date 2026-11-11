@@ -81,7 +81,7 @@ CI releases the Helm chart from Conventional Commits with `cog`. The settings ar
 
 A commit that changes only `terraform/`, `docs/` or `llms.txt` never releases the chart, even as a `feat` or a `fix`. A later release still counts it in the version and the changelog.
 
-The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag, and the next run publishes the same version again. If `main` is protected, add the secret `RELEASE_TOKEN` with a token that may push to it. Run `cog bump --auto --dry-run` to print the next tag without a change.
+The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag, and the next run publishes the same version again. `main` is protected, so the secret `RELEASE_TOKEN` must have a token of an actor that bypasses the rule set `protect-main`.
 
 Staging follows every chart. Production follows the chart tag `prod`, which a reviewer moves. See [Production deploys](./promote.md).
 
@@ -93,7 +93,7 @@ Only the last step is specific to GitHub (`gh release create`). `ci.nu` reads `C
 
 The run on `main` fails at the SonarQube quality gate. The log doesn't name the condition, so read the project dashboard on the SonarQube server. Checkov reports five `CKV_SECRET_6` findings although `.checkov.yaml` skips that check, so the action may not read the file. Checkov also can't render the chart, because `redis.host` has no default.
 
-The branch `main` has no branch protection and no rule set. A required check needs the job names of `ci.yaml`: `Lint and unit tests`, `Sync integration tests`, `Console integration tests` and `Proxy integration tests`.
+The rule set `protect-main` protects `main`. It requires a pull request, one approval and the checks `Lint and unit tests`, `Sync integration tests`, `Console integration tests` and `Proxy integration tests`. Only the repository admin role bypasses it, so no app can merge its own pull request.
 
 <!-- nav:start -->
 ---
