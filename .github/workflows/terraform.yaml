@@ -1,28 +1,27 @@
 name: Terraform provider
 on:
-  workflow_run:
-    workflows:
-      - CI
-    types:
-      - completed
-    branches:
-      - main
+  workflow_call:
+    inputs:
+      version:
+        description: The provider version to release, such as 0.2.0. Leave it empty to follow the commits.
+        type: string
+        required: false
   workflow_dispatch:
     inputs:
       version:
         description: The provider version to release, such as 0.2.0. Leave it empty to follow the commits.
         type: string
         required: false
-concurrency:
-  group: terraform-release
-  cancel-in-progress: false
 permissions:
   contents: write
   id-token: write
 jobs:
   release:
     name: Release the provider
-    if: vars.TERRAFORM_REGISTRY_HOST != '' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
+    if: vars.TERRAFORM_REGISTRY_HOST != ''
+    concurrency:
+      group: terraform-release
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -36,7 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
