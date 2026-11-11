@@ -1,0 +1,19 @@
+name: Delete the caches of a ref
+description: Delete every GitHub Actions cache that a branch or a pull request made.
+inputs:
+  ref:
+    description: The ref of the caches, such as refs/heads/feature or refs/pull/12/merge.
+    required: true
+  token:
+    description: A token that may delete caches (actions write).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Delete the caches
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        GH_REPO: ${{ github.repository }}
+        CACHE_REF: ${{ inputs.ref }}
+      run: gh cache list --ref "$CACHE_REF" --limit 500 --json id --jq '.[].id' | xargs --no-run-if-empty --max-args 1 gh cache delete
