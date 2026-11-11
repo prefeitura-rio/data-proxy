@@ -59,7 +59,29 @@ export function writeSession(cookies: Cookies, session: Session, secure: boolean
 	});
 }
 
-/** Return a session that is fresh enough to use, or null when the user must sign in again. */
+const refreshing = new Map<string, Promise<Session>>();
+
+/**
+ * Refresh a session once for all the requests that carry the same refresh token. The identity provider may accept
+ * a refresh token only once, and the page sends parallel requests close to the end of a session.
+ */
+function refreshed(session: Session): Promise<Session> {
+	let running = refreshing.get(session.refreshToken);
+
+	if (running === undefined) {
+		running = provider()
+			.then((discovered) => refreshSession(discovered, oidcConfig(), session.refreshToken))
+			.finally(() => refreshing.delete(session.refreshToken));
+		refreshing.set(session.refreshToken, running);
+	}
+
+	return running;
+}
+
+/**
+ * Return a session that is fresh enough to use, or null when the user must sign in again. A failed refresh keeps the
+ * cookies while the token has time left, so a short failure of the identity provider does not sign the user out.
+ */
 export async function freshSession(cookies: Cookies, secure: boolean): Promise<Session | null> {
 	const session = readSession(cookies);
 
@@ -72,13 +94,17 @@ export async function freshSession(cookies: Cookies, secure: boolean): Promise<S
 	}
 
 	try {
-		const refreshed = await refreshSession(await provider(), oidcConfig(), session.refreshToken);
-		writeSession(cookies, refreshed, secure);
+		const next = await refreshed(session);
+		writeSession(cookies, next, secure);
 
-		return refreshed;
+		return next;
 	} catch {
+		if (!isExpired(session)) {
+			return session;
+		}
+
 		clearSession(cookies);
 
-		return isExpired(session) ? null : session;
+		return null;
 	}
 }
