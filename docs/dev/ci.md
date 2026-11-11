@@ -6,7 +6,7 @@ The workflow `.github/workflows/ci.yaml` checks, tests, builds and releases. A s
 
 The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `terraform/`, `nix/`, `k3d/`, `k6/`, `scripts/`, the workflows, the container files and the linter and devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
 
-A manual start has two inputs. `force_checks` runs every check and test without the saved task state. `force_full` does the same, builds every image and starts the release job. The release job still needs a release-level commit and a chart or image change.
+A manual start has three inputs. `force_checks` runs every check and test without the saved task state. `force_full` does the same, builds every image and starts the release job, which still needs a release-level commit and a chart or image change. `provider_version` sets the version of the provider release.
 
 ## Jobs
 
@@ -53,9 +53,10 @@ flowchart LR
 | `build-images` | Builds each changed image and pushes nothing. It fills the layer cache while the tests run. |
 | `push-images` | Waits for every test job. It builds each image again from the cache, pushes it and signs it, so no image of an untested commit reaches the registry. |
 | `helm` | Releases the chart when the chart or an image changed. |
-| `terraform` | Calls `terraform.yaml` on main after `repo` and `test-terraform` pass. The provider tag is `terraform-v*`. See [Provider releases](./provider.md). |
+| `terraform` | Runs the action `terraform-release` on main after `repo` and `test-terraform` pass. The provider tag is `terraform-v*`. See [Provider releases](./provider.md). |
+| `cache-branch`, `cache-pr` | Delete the caches of a deleted branch and of a closed pull request. They're the only jobs that run on those events. |
 
-Each job restores the task state of the last green run of `main` before it runs, and only a run on `main` saves it. Caches keep the uv cache, the pnpm store and the Nix fetcher files between runs, keyed by the lock files. The workflow `cache-cleanup.yaml` deletes the caches of a deleted branch and of a closed pull request.
+Each job restores the task state of the last green run of `main` before it runs, and only a run on `main` saves it. Caches keep the uv cache, the pnpm store and the Nix fetcher files between runs, keyed by the lock files.
 
 ## Images
 
@@ -68,11 +69,9 @@ Each job restores the task state of the last green run of `main` before it runs,
 | `data-proxy-console` | `console/ui/`, `console/notebooks/` |
 | `data-proxy-jobs`, `data-proxy-postgres` | The Containerfile of the image |
 
-The k6 image is for the local cluster only.
-
 ## Chart releases
 
-CI releases the Helm chart from Conventional Commits with `cog`. The settings are in `cog.toml`. `cog` reads the commit subjects since the last `helm-v*` tag. A type with `!` makes a major version, `feat` a minor version and `fix` a patch version. Other types make no release.
+CI releases the Helm chart from Conventional Commits with `cog`. `cog` reads the commit subjects since the last `helm-v*` tag. A type with `!` makes a major version, `feat` a minor version and `fix` a patch version. Other types make no release.
 
 | Command | Work |
 | --- | --- |
@@ -89,7 +88,7 @@ The chart is published before the push. A failed publish leaves no tag, so run t
 
 Staging follows every chart. Production follows the chart tag `prod`, which a reviewer moves. See [Production deploys](./promote.md).
 
-Only the last step is specific to GitHub (`gh release create`). `ci.nu` reads `CI_REPOSITORY`, `CI_REGISTRY`, `CI_REGISTRY_USER`, `CI_REGISTRY_TOKEN`, `CI_BOT_NAME`, `CI_BOT_EMAIL` and `CI_OUTPUT_FILE`, and it uses the GitHub Actions values when they're missing.
+`ci.nu` reads `CI_REPOSITORY`, `CI_REGISTRY`, `CI_REGISTRY_USER`, `CI_REGISTRY_TOKEN`, `CI_BOT_NAME`, `CI_BOT_EMAIL` and `CI_OUTPUT_FILE`, and it uses the GitHub Actions values when they're missing.
 
 ## Security scan
 
