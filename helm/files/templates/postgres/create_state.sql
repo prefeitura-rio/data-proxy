@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS {{ schema }}.errors (
     recorded_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS errors_by_time ON {{ schema }}.errors (recorded_at DESC);
+
 CREATE TABLE IF NOT EXISTS {{ schema }}.scope (
     workflow_id text NOT NULL,
     run_id text NOT NULL,

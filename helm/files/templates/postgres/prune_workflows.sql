@@ -1,7 +1,7 @@
 {#
 {
   "kind": "template",
-  "description": "Create a procedure that deletes the DBOS workflows that finished before the retention interval, and the scope rows of the workflows that no longer exist.",
+  "description": "Create a procedure that deletes the DBOS workflows that finished before the retention interval, the error rows that are older than it, and the scope rows of the workflows that no longer exist.",
   "inputs": {
     "schema": "PostgreSQL schema that owns the procedure and the scope table."
   }
@@ -24,6 +24,9 @@ BEGIN
       )::bigint;
 
     GET DIAGNOSTICS pruned_count = ROW_COUNT;
+
+    DELETE FROM {{ schema }}.errors
+    WHERE recorded_at < clock_timestamp() - p_retention;
 
     DELETE FROM {{ schema }}.scope AS scope
     WHERE NOT EXISTS (
