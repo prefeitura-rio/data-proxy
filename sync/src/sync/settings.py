@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     DBOS_APPLICATION_NAME: str = "data-proxy-sync"
     DBOS_APPLICATION_VERSION: str = "0.1.0"
     DBOS_APP_SCHEMA: str = "data_proxy"
+    DBOS_SHUTDOWN_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
     DBOS_SYSTEM_DATABASE_URL: SecretStr = Field(default=...)
     DBOS_SYSTEM_SCHEMA: str = "dbos"
     DUCKLAKE_CATALOG_PATH: str = "ducklake"

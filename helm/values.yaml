@@ -23,6 +23,10 @@ sync:
   ## partitions of a table into one task with one query and one file, until the size reaches this value. A larger
   ## value means fewer and larger files and queries. The size is the uncompressed size that the source reports.
   dumpBatchBytes: 268435456
+  ## How long a sync worker waits for its running workflows after SIGTERM, in seconds. A scale-down or a rollout
+  ## then lets a dump end. The pod gets 30 more seconds before Kubernetes kills it. The recovery Deployment
+  ## re-enqueues a workflow that is still running when the wait ends.
+  shutdownTimeoutSeconds: 300
   ## Maximum DBOS step retry attempts for one dump task.
   dumpStepMaxAttempts: 3
   ## Maximum attempts for safe transient DBOS steps.

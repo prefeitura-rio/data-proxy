@@ -204,9 +204,15 @@ class RecordingDbos:
     listened: ClassVar[list[str]] = []
     deduplicated: ClassVar[bool] = False
     options: ClassVar[list[dict[str, object]]] = []
+    destroyed: ClassVar[list[int]] = []
 
     def __init__(self, **_: object) -> None:
         """Accept the configuration."""
+
+    @classmethod
+    def destroy(cls, *, workflow_completion_timeout_sec: int) -> None:
+        """Record the time that the shutdown waits for running workflows."""
+        cls.destroyed.append(workflow_completion_timeout_sec)
 
     @classmethod
     def listen_queues(cls, queues: list[str]) -> None:
@@ -245,6 +251,9 @@ class RecordingDbos:
 
 class ReturnsAtOnce:
     """An event that never blocks, so that serve returns."""
+
+    def set(self) -> None:
+        """Ignore the signal."""
 
     async def wait(self) -> None:
         """Return at once."""

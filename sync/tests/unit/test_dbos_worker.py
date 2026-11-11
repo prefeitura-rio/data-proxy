@@ -3,6 +3,8 @@
 import asyncio
 import importlib
 import inspect
+import signal
+from collections.abc import Callable
 
 import pytest
 from psycopg import OperationalError
@@ -20,6 +22,8 @@ from tests.helpers.dbos import (
     catalog_commit_error,
     workflow_body,
 )
+
+STOPPING = [signal.SIGTERM, signal.SIGINT]
 
 WORKFLOWS = [
     name
@@ -108,6 +112,7 @@ class TestServe:
         RecordingDbos.listened = []
         RecordingDbos.deduplicated = False
         RecordingDbos.options = []
+        RecordingDbos.destroyed = []
         monkeypatch.setattr(dbos_main, "DBOS", RecordingDbos)
         monkeypatch.setattr(dbos_main, "SetEnqueueOptions", RecordedOptions)
         monkeypatch.setattr(dbos_main, "Event", ReturnsAtOnce)
@@ -191,6 +196,43 @@ class TestServe:
         await dbos_main.serve()
 
         assert RecordingDbos.enqueued == []
+
+
+class TestShutdown:
+    """A worker that gets SIGTERM stops taking work and gives the running workflows time to end."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("stopping", STOPPING)
+    async def test_waits_for_the_running_workflows_when_a_signal_comes(
+        self, monkeypatch: pytest.MonkeyPatch, stopping: signal.Signals
+    ) -> None:
+        """Kubernetes sends SIGTERM at a rollout. DBOS stops its queues in destroy, and waits for the workflows that it holds."""
+        RecordingDbos.destroyed = []
+        handlers: dict[signal.Signals, Callable[[], None]] = {}
+        registered = asyncio.Event()
+
+        class Loop:
+            def add_signal_handler(
+                self, sent: signal.Signals, callback: Callable[[], None]
+            ) -> None:
+                handlers[sent] = callback
+                if len(handlers) == len(STOPPING):
+                    registered.set()
+
+        monkeypatch.setattr(dbos_main, "DBOS", RecordingDbos)
+        monkeypatch.setattr(dbos_main, "SetEnqueueOptions", RecordedOptions)
+        monkeypatch.setattr(dbos_main, "get_running_loop", Loop)
+        monkeypatch.setattr(settings, "DBOS_SHUTDOWN_TIMEOUT_SECONDS", 42)
+        serving = asyncio.create_task(dbos_main.serve())
+        async with asyncio.timeout(2):
+            await registered.wait()
+
+        assert RecordingDbos.destroyed == []
+
+        handlers[stopping]()
+        await serving
+
+        assert RecordingDbos.destroyed == [42]
 
 
 class TestListenedQueues:

@@ -1,9 +1,11 @@
 """Start the DBOS sync application and run it until stopped."""
 
-from asyncio import Event
+from asyncio import Event, get_running_loop
 from contextlib import suppress
+from signal import SIGINT, SIGTERM
 
 import uvloop
+from asyncer import asyncify
 from dbos import DBOS, DBOSConfig, SetEnqueueOptions
 from dbos import error as dbos_error
 
@@ -88,7 +90,17 @@ async def serve() -> None:
     await enqueue_reconcile()
 
     logger.info("Sync application started")
-    await Event().wait()
+
+    stop = Event()
+    for signal in (SIGTERM, SIGINT):
+        get_running_loop().add_signal_handler(signal, stop.set)
+
+    await stop.wait()
+
+    logger.info("Sync application stopping")
+    await asyncify(DBOS.destroy)(
+        workflow_completion_timeout_sec=settings.DBOS_SHUTDOWN_TIMEOUT_SECONDS
+    )
 
 
 def main() -> None:

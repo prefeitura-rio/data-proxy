@@ -21,6 +21,7 @@ spec:
         app.kubernetes.io/component: sync
     spec:
       restartPolicy: Always
+      terminationGracePeriodSeconds: {{ add (.Values.sync.shutdownTimeoutSeconds | int) 30 }}
       serviceAccountName: {{ include "data-proxy.serviceAccountName" . }}
       {{- include "data-proxy.syncPodSecurity" $ | nindent 6 }}
       initContainers:
@@ -63,6 +64,8 @@ spec:
             - name: SWAGGER_SCHEMAS_CONFIGMAP
               value: {{ printf "%s-swagger-ui-schemas" (include "data-proxy.fullname" .) | quote }}
             {{- end }}
+            - name: DBOS_SHUTDOWN_TIMEOUT_SECONDS
+              value: {{ .Values.sync.shutdownTimeoutSeconds | quote }}
           volumeMounts:
             {{- include "data-proxy.gcpVolumeMount" . | nindent 12 }}
             {{ if .Values.sync.trigger.enabled }}
