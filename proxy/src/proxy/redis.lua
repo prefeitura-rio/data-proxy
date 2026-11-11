@@ -80,24 +80,42 @@ function Redis:read(key)
 	return (schemas.cached_entry:validate(cjson.decode(raw)))
 end
 
---- Read the policy generation: a counter that grows each time the access policy changes.
---- Every cache key includes it, so a change makes all earlier entries unreachable.
----@return integer generation 0 if no change was counted, or if Redis does not answer.
-function Redis:generation()
+--- The longest profile that can name a schema, in bytes. A longer one is not a schema, so it gets no key of its own.
+local max_profile_bytes = 63
+
+--- The schema that a profile names, or the empty name if the profile is missing or too long to be a schema.
+---@param profile string|nil
+---@return string
+local function schema_of(profile)
+	if type(profile) == "string" and #profile <= max_profile_bytes then return profile end
+	return ""
+end
+
+--- Read the two counters that are part of every cache key, with one request: the policy generation, which grows each
+--- time the access policy changes, and the data generation of the schema of the request, which the sync service
+--- grows after each run that changed the schema. A change of either makes all earlier entries unreachable.
+--- A request without a profile, or with one that no schema can have, reads the counter of the empty name, which every
+--- run also grows.
+---@param profile string|nil Value of the Accept-Profile header.
+---@return integer policy Policy generation. 0 if no change was counted, or if Redis does not answer.
+---@return integer data Data generation of the schema. 0 if no run was counted, or if Redis does not answer.
+function Redis:generations(profile)
 	local connection, open_error = self:open()
 	if not connection then
 		warn("connection", open_error)
-		return 0
+		return 0, 0
 	end
 
-	local raw, read_error = connection:get(constants.redis.generation_key)
+	local keys = constants.redis
+	local data_key = keys.data_generation_prefix .. schema_of(profile)
+	local replies, read_error = connection:mget(keys.generation_key, data_key)
 	self:release(connection)
-	if read_error then
+	if read_error or type(replies) ~= "table" then
 		warn("read", read_error)
-		return 0
+		return 0, 0
 	end
 
-	return tonumber(raw) or 0
+	return tonumber(replies[1]) or 0, tonumber(replies[2]) or 0
 end
 
 --- Count one change of the access policy.

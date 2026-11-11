@@ -242,16 +242,16 @@ def record(
 
 
 class FakeRedis:
-    """A Redis client that records when it flushes a database."""
+    """A Redis client that records when it counts up a key."""
 
     def __init__(self, db: int | None, events: list[str]) -> None:
         """Keep the database that the client opened and the list that records the calls."""
         self.db = db
         self.events = events
 
-    async def flushdb(self) -> None:
-        """Record that the client flushed the database."""
-        self.events.append(f"flush:{self.db}")
+    async def incr(self, key: str) -> None:
+        """Record that the client counted up a key."""
+        self.events.append(f"incr:{self.db}:{key}")
 
 
 def stub_cache_redis(monkeypatch: pytest.MonkeyPatch, cache_db: int) -> list[str]:

@@ -9,6 +9,7 @@
 ---@field headers_in table<string,string|nil> Request headers sent by the client.
 ---@field headers_out table<string,string> Response headers that the proxy writes back.
 ---@field generation integer Policy generation that the store reports. 0 if unknown, or for a write.
+---@field data_generation integer Data generation of the schema that the store reports. 0 if unknown, or for a write.
 ---@field cache_ttl string|nil Default cache lifetime in seconds, from config.cache_ttl.
 ---@field max_body string|number|nil Largest cacheable body in bytes, from config.max_body. 0 means no limit.
 ---@field postgrest string Base URL of the PostgREST service, from config.postgrest.

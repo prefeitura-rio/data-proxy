@@ -17,6 +17,7 @@
 ---@field role string Role claim of the JWT. Empty if absent.
 ---@field profile string Value of the Accept-Profile header. Empty if absent.
 ---@field generation integer Policy generation. A change of the access policy gives every cached answer a new key.
+---@field data_generation integer Data generation of the schema. A sync run of the schema gives its answers a new key.
 ---@field revision integer|nil Revision of the access policy and the rules. A change gives every answer a new key.
 ---@field headers table<string,string|nil> Request headers that are forwarded to PostgREST.
 

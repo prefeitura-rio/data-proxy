@@ -83,6 +83,24 @@ class TestRunSyncReloadsPostgrest:
         assert events == ["enqueue:one", "enqueue:two", "wait:one", "wait:two"]
 
     @pytest.mark.asyncio
+    async def test_gives_the_cached_answers_of_the_planned_schemas_a_new_key(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Only the schemas of the plans change, so the cache of another schema survives the run."""
+        stub_sync_run(
+            monkeypatch,
+            postgrest_reload_required=False,
+            snapshot_id=None,
+            plans=[SyncPlan(schema_name="two"), SyncPlan(schema_name="one")],
+        )
+        finalize = AsyncMock()
+        monkeypatch.setattr(workflows, "finalize_run", finalize)
+
+        await run_sync()
+
+        finalize.assert_awaited_once_with(["one", "two"])
+
+    @pytest.mark.asyncio
     async def test_enqueues_all_dumps_before_waiting_for_results(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

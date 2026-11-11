@@ -88,7 +88,7 @@ sequenceDiagram
     pg-->>api: NOTIFY: reload
   end
   run->>s3: remove scratch objects
-  run->>r: flush cache
+  run->>r: count up the cache generation of each schema
 ```
 
 ## DuckLake write path

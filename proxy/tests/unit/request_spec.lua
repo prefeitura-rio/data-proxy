@@ -462,6 +462,12 @@ check("request.make_context", function(case) return context_of(case.input)[case.
 		expected = 5,
 	},
 	{
+		name = "copies the data generation from the nginx request",
+		input = { method = "GET", uri = "/other", headers_in = {}, data_generation = 4 },
+		field = "data_generation",
+		expected = 4,
+	},
+	{
 		name = "copies the revision of the access policy and the rules from the settings",
 		input = { method = "GET", uri = "/other", headers_in = {} },
 		field = "revision",
@@ -538,6 +544,7 @@ local function key_parts()
 		role = "dp_api",
 		profile = "test",
 		generation = 0,
+		data_generation = 0,
 		revision = 0,
 		headers = {},
 	}
@@ -572,6 +579,7 @@ describe("request.cache_identity", function()
 			"0",
 			"dp_api",
 			"0",
+			"0",
 		}, request.cache_identity(parts))
 	end)
 
@@ -592,6 +600,7 @@ describe("request.cache_identity", function()
 				"",
 				"0",
 				"dp_api",
+				"0",
 				"0",
 			}, request.cache_identity(key_parts()))
 		end
@@ -652,6 +661,11 @@ describe("request.cache_identity", function()
 		},
 		{ name = "the profile", change = function(parts) parts.profile = "other" end, not_expected = base },
 		{ name = "the policy generation", change = function(parts) parts.generation = 1 end, not_expected = base },
+		{
+			name = "the data generation of the schema",
+			change = function(parts) parts.data_generation = 1 end,
+			not_expected = base,
+		},
 		{
 			name = "the revision of the access policy and the rules",
 			change = function(parts) parts.revision = 1 end,

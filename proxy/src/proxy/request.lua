@@ -223,6 +223,11 @@ local function subject_part(parts)
 	return "sub:" .. parts.sub
 end
 
+--- Write a counter of the key as text, 0 if it is missing.
+---@param value integer|nil
+---@return string
+local function counter(value) return tostring(value or 0) end
+
 --- List the values that decide the answer, in the order of the cache key.
 --- Subjects with the same scope have the same grants, so they share the entries. A subject without a scope has its own.
 --- The order of the values is part of the key format. Do not change the order.
@@ -241,9 +246,10 @@ function request.cache_identity(parts)
 		parts.headers.Prefer or "",
 		request.normalize_accept(parts.headers.Accept or ""),
 		parts.headers["X-DuckLake-Snapshot"] or "",
-		tostring(parts.generation or 0),
+		counter(parts.generation),
 		parts.role or "",
-		tostring(parts.revision or 0),
+		counter(parts.revision),
+		counter(parts.data_generation),
 	}
 end
 
@@ -295,6 +301,7 @@ function request.make_context(input, deps)
 		role = identity.role,
 		profile = input.headers_in["Accept-Profile"] or "",
 		generation = input.generation,
+		data_generation = input.data_generation,
 		revision = deps.config.revision,
 		headers = request.make_headers(input, filter),
 		aggregate_path = request.aggregate_path(input, filter),

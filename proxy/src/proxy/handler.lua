@@ -39,6 +39,7 @@ local function read_nginx_request(config)
 		args = ngx.var.args or "",
 		body = read_body(),
 		generation = 0,
+		data_generation = 0,
 		headers_in = ngx.req.get_headers() --[[@as table<string,string|nil>]],
 		headers_out = ngx.header --[[@as table<string,string>]],
 		cache_ttl = config.cache_ttl,
@@ -64,7 +65,10 @@ function handler.handle(loaded_config, config)
 	end
 
 	local store = Redis(config)
-	if constants.http.read_methods[ngx_request.method] then ngx_request.generation = store:generation() end
+	if constants.http.read_methods[ngx_request.method] then
+		ngx_request.generation, ngx_request.data_generation =
+			store:generations(ngx_request.headers_in["Accept-Profile"])
+	end
 	local context = request.make_context(ngx_request, { config = loaded_config, now = ngx.now() })
 	local cache_key = request.cache_key(context)
 	local inflight = ngx.shared[constants.limiter.dict]

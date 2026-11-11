@@ -46,7 +46,7 @@ flowchart TD
   duckdb -->|"commits snapshots"| catalog
   duckdb -->|"writes Parquet"| s3
   workers --> source
-  workers -->|"flush"| redis
+  workers -->|"new generation"| redis
   app --> postgrest
   app -->|"sign in (OpenID Connect)"| idp
   app -->|"file lists"| catalog

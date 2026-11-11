@@ -6,7 +6,7 @@ from dbos import DBOS
 from dbos import error as dbos_error
 from httpx2 import AsyncClient as HttpClient
 
-from sync.cache import clear_cache
+from sync.cache import bump_cache_generations
 from sync.duckdb import DuckDB
 from sync.ducklake import (
     DuckLakePaths,
@@ -418,14 +418,14 @@ async def reload_postgrest() -> None:
 
 
 @transient_step
-async def finalize_run() -> None:
-    """Flush scratch Parquet files and the response cache."""
+async def finalize_run(schemas: list[str]) -> None:
+    """Flush scratch Parquet files, and give the cached answers of the schemas of the run a new key."""
     await logs.info("Sync finalization started")
 
     await clear_s3_prefix(settings.S3_SCRATCH_PREFIX)
 
-    await clear_cache()
-    await logs.info("Sync finalization completed")
+    await bump_cache_generations(schemas)
+    await logs.info("Sync finalization completed", schemas=",".join(schemas))
 
 
 @transient_step

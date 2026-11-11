@@ -115,6 +115,7 @@ in
     HURL_VARIABLE_admin = host "proxy" "admin";
     HURL_VARIABLE_admin_reload = host "proxy-reload" "admin";
     HURL_VARIABLE_console_reload = host "proxy-reload" "postgrest";
+    HURL_VARIABLE_upstream = host "proxy" "postgrest";
   };
 
   files = lib.mergeAttrsList (
