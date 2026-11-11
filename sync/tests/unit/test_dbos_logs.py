@@ -5,6 +5,7 @@ import pytest
 
 from sync.dbos import logs
 from sync.log import SCHEMA, TABLE
+from tests.helpers.core import exactly
 from tests.helpers.dbos import workflow, written
 
 
@@ -91,7 +92,9 @@ class TestWrite:
         """Stop a field from overwriting an attribute of the record."""
         stream = workflow(monkeypatch, "wf-1")
 
-        with pytest.raises(ValueError, match="Reserved log field names"):
+        with pytest.raises(
+            ValueError, match=exactly(f"Reserved log field names: ['{name}']")
+        ):
             await logs.write(INFO, "Clash", **{name: "x"})
 
         stream.assert_not_awaited()

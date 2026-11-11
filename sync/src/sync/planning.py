@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, assert_never
 
+from .batching import runs
 from .executor import Executor
 from .log import logger
 from .models import (
@@ -24,7 +25,6 @@ from .sources.partitions import (
     AllSelection,
     PartitionRequest,
     PhysicalPartition,
-    order_partition_ids,
 )
 from .sources.source import PartitionedSource, Source
 from .state import read_table_signature, read_table_state
@@ -193,27 +193,34 @@ def build_partition_tasks(
     sync_id: str,
     s3_bucket: str,
     json_columns: list[str],
-) -> tuple[dict[str, PartitionChange], DumpTask]:
-    """Fill extraction paths on add/update changes and return the updated diff and task."""
-    extractable_ids = order_partition_ids(
-        {pid for pid, c in changes.items() if c.kind in {"add", "update"}}
-    )
+    batch_bytes: int,
+) -> tuple[dict[str, PartitionChange], list[DumpTask]]:
+    """Fill extraction paths on add/update changes and return the updated diff and one task for each batch.
 
-    task = table.to_task(
-        sync_id,
-        s3_bucket,
-        settings.S3_SCRATCH_PREFIX,
-        [current[partition_id].selection for partition_id in extractable_ids],
-        "batches/0",
-        json_columns,
-    )
+    Contiguous changed partitions form a batch of about batch_bytes of logical size. A batch is one selection,
+    so one query and one file cover many partitions, and every partition of a batch has the path of its file.
+    """
+    extractable = {pid for pid, c in changes.items() if c.kind in {"add", "update"}}
+    tasks: list[DumpTask] = []
+    updated = dict(changes)
 
-    updated = changes | {
-        partition_id: changes[partition_id].model_copy(update={"path": path})
-        for partition_id, path in zip(extractable_ids, task.output_paths, strict=True)
-    }
+    for index, run in enumerate(runs(current, extractable, batch_bytes)):
+        task = table.to_task(
+            sync_id,
+            s3_bucket,
+            settings.S3_SCRATCH_PREFIX,
+            [run.selection],
+            f"batches/{index}",
+            json_columns,
+        )
+        tasks.append(task)
 
-    return updated, task
+        for partition_id in run.partition_ids:
+            updated[partition_id] = updated[partition_id].model_copy(
+                update={"path": task.output_paths[0]}
+            )
+
+    return updated, tasks
 
 
 async def plan_partitioned_table(
@@ -241,15 +248,16 @@ async def plan_partitioned_table(
     tasks: list[DumpTask] = []
     if any(c.kind in {"add", "update"} for c in changes.values()):
         json_columns = await discover_json_columns(duckdb_conn, source, table.name)
-        changes, task = build_partition_tasks(
+        changes, batch_tasks = build_partition_tasks(
             table,
             current,
             changes,
             sync_id,
             s3_bucket,
             json_columns,
+            settings.DUMP_BATCH_BYTES,
         )
-        tasks.append(task)
+        tasks.extend(batch_tasks)
 
     full_rebuild = stored is None or stored.signature != table_sig
 
@@ -393,9 +401,10 @@ class PlanningContext:
             return SyncWork(plans=[], tasks=[])
 
         logger.info(
-            "Sync plan completed: full_tables=%d partitioned_tables=%d",
+            "Sync plan completed: full_tables=%d partitioned_tables=%d dump_tasks=%d",
             len(self.signatures),
             len(self.partitioned),
+            len(self.tasks),
         )
 
         return SyncWork(

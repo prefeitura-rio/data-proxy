@@ -160,7 +160,7 @@ Applies to: `sync/**/*.py`.
 
 - **PY-01** Type a password, a key or an address with a password as `SecretStr`, and call `get_secret_value()` only where the code connects. [must, review]
 - **PY-02** Give a credential no default. [must, review]
-- **PY-03** Use dataclasses for plain data. Use Pydantic models only for validation at boundaries. [must, review]
+- **PY-03** Use dataclasses for plain data. Use Pydantic models for validation at boundaries, such as a model that DBOS passes between workflows or that sync stores as JSON. [must, review]
 - **PY-04** Model closed alternatives as tagged unions, and match every case. Use `_` only for open sets. [must, review]
 - **PY-05** Don't prefix internal names with `_`. Use `_` only for a required but unused parameter. [must, review]
 - **PY-06** Keep `__init__.py` to one docstring line, and import from submodules. [must, ruff]

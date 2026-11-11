@@ -3,6 +3,7 @@
 from typing import TYPE_CHECKING
 
 from dbos import DBOS
+from dbos import error as dbos_error
 from httpx2 import AsyncClient as HttpClient
 
 from sync.cache import clear_cache
@@ -220,8 +221,24 @@ async def extract_task(task: DumpTask) -> None:
         "Extraction started", task_id=task.task_id, paths=len(task.output_paths)
     )
 
+    async def stop_when_cancelled() -> None:
+        """Stop the dump when DBOS cancelled its workflow, because a step never sees a cancel by itself."""
+        workflow_id = DBOS.workflow_id
+        status = (
+            None
+            if workflow_id is None
+            else await DBOS.get_workflow_status_async(workflow_id)
+        )
+
+        if status is not None and status.status == "CANCELLED":
+            await logs.warning("Extraction cancelled", task_id=task.task_id)
+            raise dbos_error.DBOSWorkflowCancelledError(
+                f"Workflow {workflow_id} was cancelled"
+            )
+
     async def report(message: str, /, **fields: str | float | bool) -> None:
         await logs.info(message, task_id=task.task_id, **fields)
+        await stop_when_cancelled()
 
     try:
         async with DuckDB.connect() as duckdb_conn:

@@ -19,6 +19,7 @@ from sync.settings import settings
 from sync.templates import render_template
 from sync.types import TemplateValue
 from sync.views import stages
+from tests.helpers.core import exactly
 
 
 class TestSourceMappings:
@@ -425,7 +426,9 @@ class TestCreateTableViews:
             AsyncMock(return_value=[]),
         )
 
-        with pytest.raises(RuntimeError, match="no columns"):
+        with pytest.raises(
+            RuntimeError, match=exactly("DuckDB returned no columns for table .people")
+        ):
             await stages.create_table_views(
                 AsyncMock(),
                 "app",

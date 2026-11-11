@@ -31,7 +31,7 @@ stateDiagram-v2
 
 | Action | Function | Needs | Allowed statuses | Result |
 | --- | --- | --- | --- | --- |
-| Cancel | `cancel_run` | `control_sync` | `PENDING`, `ENQUEUED`, `DELAYED` | Stops the sync run and its tasks at the next step. |
+| Cancel | `cancel_run` | `control_sync` | `PENDING`, `ENQUEUED`, `DELAYED` | Stops the sync run at the next step. A dump stops at its next partition. |
 | Resume | `resume_run` | `control_sync` | `CANCELLED`, `MAX_RECOVERY_ATTEMPTS_EXCEEDED` | Puts the sync run back in the `sync` queue, so the concurrency of that queue still applies. |
 | Run again | `retry_run` | `control_sync` and `start_sync` | `SUCCESS`, `ERROR`, `CANCELLED`, `MAX_RECOVERY_ATTEMPTS_EXCEEDED` | Starts a new sync run through `start_sync`, for the schemas of the old sync run that the token reaches. |
 

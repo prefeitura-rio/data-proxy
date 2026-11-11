@@ -19,8 +19,10 @@ from sync.models import (
 )
 from sync.postgres import Postgres
 from sync.settings import settings
+from tests.helpers.core import exactly
 from tests.helpers.dbos import (
     run_sync,
+    stored_schedule,
     stub_sync_run,
     workflow_body,
 )
@@ -126,20 +128,6 @@ class TestScheduleWorkflows:
     """The workflows that keep one schedule for each schema, and that change the cron of one."""
 
     @staticmethod
-    def schedule(name: str, **fields: object) -> dict[str, object]:
-        """Return a stored schedule the way DBOS gives it."""
-        stored: dict[str, object] = {
-            "schedule_name": name,
-            "schedule": "0 2 * * *",
-            "status": "ACTIVE",
-            "context": {"schemas": [name.removeprefix("sync-")], "tables": []},
-            "queue_name": "sync",
-            "cron_timezone": None,
-            "automatic_backfill": False,
-        }
-        return stored | fields
-
-    @staticmethod
     def stub_dbos(
         monkeypatch: pytest.MonkeyPatch,
         stored: list[dict[str, object]],
@@ -201,7 +189,7 @@ class TestScheduleWorkflows:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A new schema runs at the default cron, for its own tables, in the queue of the sync runs."""
-        calls = self.stub_dbos(monkeypatch, [self.schedule("sync-hr")])
+        calls = self.stub_dbos(monkeypatch, [stored_schedule("sync-hr")])
         self.stub_config(monkeypatch, ["hr", "sales"])
         monkeypatch.setattr(settings, "SYNC_SCHEDULE", "30 3 * * *")
 
@@ -227,9 +215,9 @@ class TestScheduleWorkflows:
         calls = self.stub_dbos(
             monkeypatch,
             [
-                self.schedule("sync"),
-                self.schedule("sync-hr"),
-                self.schedule("sync-gone"),
+                stored_schedule("sync"),
+                stored_schedule("sync-hr"),
+                stored_schedule("sync-gone"),
             ],
         )
         self.stub_config(monkeypatch, ["hr"])
@@ -244,7 +232,7 @@ class TestScheduleWorkflows:
         """Keep the cron and the paused state that a user set."""
         calls = self.stub_dbos(
             monkeypatch,
-            [self.schedule("sync-hr", schedule="1 1 * * *", status="PAUSED")],
+            [stored_schedule("sync-hr", schedule="1 1 * * *", status="PAUSED")],
         )
         self.stub_config(monkeypatch, ["hr"])
 
@@ -271,7 +259,7 @@ class TestScheduleWorkflows:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The new schedule has the same name, context and queue, and the new cron."""
-        stored = self.schedule("sync-hr", cron_timezone="America/Sao_Paulo")
+        stored = stored_schedule("sync-hr", cron_timezone="America/Sao_Paulo")
         calls = self.stub_dbos(monkeypatch, [stored])
 
         workflow_body(workflows.set_schedule)("sync-hr", "30 3 * * 1")
@@ -296,7 +284,9 @@ class TestScheduleWorkflows:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A new schedule starts active, so the workflow pauses it again."""
-        calls = self.stub_dbos(monkeypatch, [self.schedule("sync-hr", status="PAUSED")])
+        calls = self.stub_dbos(
+            monkeypatch, [stored_schedule("sync-hr", status="PAUSED")]
+        )
 
         workflow_body(workflows.set_schedule)("sync-hr", "30 3 * * 1")
 
@@ -308,7 +298,7 @@ class TestScheduleWorkflows:
         """A refused create must not leave the schema without a schedule, or without its pause."""
         calls = self.stub_dbos(
             monkeypatch,
-            [self.schedule("sync-hr", status="PAUSED")],
+            [stored_schedule("sync-hr", status="PAUSED")],
             refused_cron="30 3 * * 1",
         )
 
@@ -323,9 +313,14 @@ class TestScheduleWorkflows:
     @pytest.mark.parametrize(
         ("name", "cron", "reason"),
         [
-            pytest.param("sync-hr", "30 3 *", "Not a cron expression", id="bad-cron"),
             pytest.param(
-                "sync-gone", "30 3 * * 1", "No such schedule", id="no-schedule"
+                "sync-hr", "30 3 *", "Not a cron expression: 30 3 *", id="bad-cron"
+            ),
+            pytest.param(
+                "sync-gone",
+                "30 3 * * 1",
+                "No such schedule: sync-gone",
+                id="no-schedule",
             ),
         ],
     )
@@ -333,9 +328,9 @@ class TestScheduleWorkflows:
         self, monkeypatch: pytest.MonkeyPatch, name: str, cron: str, reason: str
     ) -> None:
         """A refusal leaves the stored schedule alone, because the workflow checks first."""
-        calls = self.stub_dbos(monkeypatch, [self.schedule("sync-hr")])
+        calls = self.stub_dbos(monkeypatch, [stored_schedule("sync-hr")])
 
-        with pytest.raises(ValueError, match=reason):
+        with pytest.raises(ValueError, match=exactly(reason)):
             workflow_body(workflows.set_schedule)(name, cron)
 
         assert calls == []

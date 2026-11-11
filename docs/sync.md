@@ -65,7 +65,7 @@ The scheduled `run_sync` workflow plans the changed tables and partitions, dumps
 
 ## DuckLake partitioning and encryption
 
-DuckLake partitioning follows the source partition column by default. A table can override it with transforms such as:
+DuckLake partitioning follows the source partition column by default only for a time partitioned source. An integer range source gives the table no partitioning. The column can have a different value in every row, and DuckLake makes one partition for each value. A table can set its own partitioning with transforms such as:
 
 ```json
 "ducklake": {
@@ -75,6 +75,8 @@ DuckLake partitioning follows the source partition column by default. A table ca
   ]
 }
 ```
+
+An integer range table of a few gigabytes needs no partition key, because the batches of a run are contiguous key ranges. Set a `bucket` transform only for a table with hundreds of files. Never use `identity` on a column with a different value in each row. See [the measured layouts](operations/lookups.md#partition-key-of-an-integer-range-table).
 
 Changing a table transform triggers a full table rewrite before the writer publishes the new layout. Configure encryption only under the schema-level `ducklake.encrypted` setting. The engine rejects table-level encryption, because DuckLake encryption is catalog scoped.
 
@@ -114,7 +116,7 @@ DuckLake is the fixed local primary source. The configured schema source is the 
 
 ## Partitions
 
-A `full` table creates one dump task. A partitioned table creates one extraction task for its changed physical partitions. Each selection writes one Parquet file.
+A `full` table creates one dump task. A partitioned table creates one extraction task for each batch of contiguous changed partitions. Each batch writes one Parquet file. See [Dump batches](operations/keda.md#dump-batches).
 
 | Source type       | `n`       | `__NULL__`                        |
 | ----------------- | --------- | --------------------------------- |

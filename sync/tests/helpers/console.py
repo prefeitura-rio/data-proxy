@@ -121,3 +121,59 @@ async def role_setting(pg: Postgres, role: str) -> str | None:
     row = await cursor.fetchone()
 
     return None if row is None else str(row[0])
+
+
+def member(project: str, short_name: str) -> Document:
+    """Build the export of one schema of a project, with one table that carries the names of both."""
+    table: Document = {"name": f"p.d.{project}_{short_name}", "strategy": "full"}
+
+    return {"claim": "cpf", "source": {"type": "bigquery"}, "tables": [table]}
+
+
+def projects_document(*schemas: tuple[str, str]) -> Document:
+    """Build a document of the projects form from (project, short name) pairs, with an empty project `empty`."""
+    projects: dict[str, dict[str, JsonValue]] = {"empty": {}}
+    for project, short_name in schemas:
+        projects.setdefault(project, {})[short_name] = {
+            "claim": "cpf",
+            "tables": member(project, short_name)["tables"],
+        }
+
+    return {
+        "projects": {name: {"schemas": members} for name, members in projects.items()}
+    }
+
+
+ADD_PROJECT = "INSERT INTO console.projects (name) VALUES (%s)"
+ADD_SCHEMA = "INSERT INTO console.schemas (project, short_name) VALUES (%s, %s)"
+
+
+async def add_projects(pg: Postgres, *projects: str) -> None:
+    """Add projects to the console."""
+    for project in projects:
+        await pg.connection.execute(ADD_PROJECT.encode(), (project,))
+
+
+async def add_schemas(pg: Postgres, *schemas: tuple[str, str]) -> None:
+    """Add schemas to the console, each as a project and a short name."""
+    for project, short_name in schemas:
+        await pg.connection.execute(ADD_SCHEMA.encode(), (project, short_name))
+
+
+async def load_claims(
+    pg: Postgres, *, schemas: str = "", projects: str = "", role: str = "dp_admin"
+) -> str:
+    """Give the connection the claims of a token, run `rbac.load()` as the pre-request function does, and return the schemas that it sets."""
+    await pg.connection.execute(
+        """
+        SELECT
+            set_config('app.claim_role', %s, true),
+            set_config('app.claim_schemas', %s, true),
+            set_config('app.claim_projects', %s, true),
+            set_config('request.jwt.claims', '{"preferred_username": "ana"}', true)
+        """,
+        (role, schemas, projects),
+    )
+    await pg.connection.execute(b"SELECT rbac.load()")
+
+    return str(await scalar(pg, "SELECT current_setting('rbac.schemas')"))

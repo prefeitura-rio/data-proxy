@@ -7,7 +7,7 @@ from sync.settings import Settings
 
 SECRETS = {
     "PG_DATABASE_URL": "postgresql://app:pg-p4ss@db.test/app",
-    "DBOS_SYSTEM_DATABASE_URL": "postgresql://dbos:dbos-p4ss@db.test/dbos",
+    "DBOS_SYSTEM_DATABASE_URL": "postgresql://dbos:dbos-p4ss@db.test/dbos",  # pragma: allowlist secret
     "DUCKLAKE_CATALOG_URL": "postgresql://lake:lake-p4ss@db.test/lake",
     "S3_ACCESS_KEY": "s3-key-id",
     "S3_SECRET_KEY": "s3-s3cret",
@@ -52,6 +52,14 @@ class TestSnapshotExpiration:
         """Name the setting and the form that it needs."""
         with pytest.raises(ValidationError, match="must be like '7d'"):
             Settings(DUCKLAKE_SNAPSHOT_EXPIRATION=value)
+
+
+class TestDumpBatchBytes:
+    """A dump batch holds about 256 MB of source data, and the size must be positive."""
+
+    def test_refuses_zero(self) -> None:
+        with pytest.raises(ValidationError):
+            Settings.model_validate({"DUMP_BATCH_BYTES": 0})
 
 
 class TestDumpQueueLimiter:

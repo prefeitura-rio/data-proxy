@@ -8,6 +8,7 @@ This page defines the terms that the other pages use. Each term has one meaning 
 | --- | --- |
 | Access policy | The table `<schema>.access_policy`. Each row names a subject, a unit type and a unit id, and it says which rows that subject may read. |
 | Adapter | The code that reads one kind of source. BigQuery is the only adapter today. |
+| Batch | The contiguous changed partitions of one table that a single dump task extracts with one query and one file. `sync.dumpBatchBytes` limits its size. |
 | Catalog | The DuckLake metadata of one schema. It lives in the `ducklake` database, in a metadata schema with the name of the schema. |
 | Claim | A field in the JSON Web Token. The `role` claim names the role, and the `schemas` claim lists the schemas that the user may use. |
 | Fallback | A table setting. With `fallback: true`, the table function reads the partitions that DuckLake doesn't store from the source. |

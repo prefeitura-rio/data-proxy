@@ -56,19 +56,16 @@ async def install_console(pg: Postgres) -> None:
             "create_pre_request", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
         ).encode()
     )
-
-    for name, mapping in (
-        ("grant_console_usage", {"user_role": Identifier(settings.AUTH_USER_ROLE)}),
-        (
+    await pg.connection.execute(
+        helm_sql(
             "grant_app_usage",
             {
                 "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
                 "anonymous_role": Identifier("anon"),
                 "user_role": Identifier(settings.AUTH_USER_ROLE),
             },
-        ),
-    ):
-        await pg.connection.execute(helm_sql(name, mapping).encode())
+        ).encode()
+    )
 
 
 @pytest.fixture

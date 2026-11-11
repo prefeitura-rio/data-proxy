@@ -2,7 +2,6 @@ import json
 
 import pytest
 from psycopg.types.json import Jsonb
-from pydantic import JsonValue
 
 from sync.models import PartitionedTable, SyncConfig
 from sync.state import read_sync_config
@@ -22,7 +21,9 @@ from tests.helpers.console import (
     export_config,
     exported,
     hr_schema,
+    member,
     preview,
+    projects_document,
 )
 from tests.helpers.core import scalar
 
@@ -287,27 +288,6 @@ class TestImportConfig:
         )
 
         assert state == CHECK_VIOLATION
-
-
-def member(project: str, short_name: str) -> Document:
-    """Build the export of one schema of a project, with one table that carries the names of both."""
-    table: Document = {"name": f"p.d.{project}_{short_name}", "strategy": "full"}
-
-    return {"claim": "cpf", "source": {"type": "bigquery"}, "tables": [table]}
-
-
-def projects_document(*schemas: tuple[str, str]) -> Document:
-    """Build a document of the projects form from (project, short name) pairs, with an empty project `empty`."""
-    projects: dict[str, dict[str, JsonValue]] = {"empty": {}}
-    for project, short_name in schemas:
-        projects.setdefault(project, {})[short_name] = {
-            "claim": "cpf",
-            "tables": member(project, short_name)["tables"],
-        }
-
-    return {
-        "projects": {name: {"schemas": members} for name, members in projects.items()}
-    }
 
 
 @pytest.mark.postgres

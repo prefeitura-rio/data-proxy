@@ -18,6 +18,7 @@ from sync.sources.partitions import (
 )
 from sync.sources.registry import sources
 from sync.templates import to_sql
+from tests.helpers.core import exactly
 from tests.helpers.dbos import silent
 from tests.helpers.state import dump_task
 
@@ -82,7 +83,7 @@ class TestExtractionStatements:
         ]
         task = dump_task(selections=[AllSelection(), AllSelection()])
 
-        with pytest.raises(RuntimeError, match="write failed"):
+        with pytest.raises(RuntimeError, match=exactly("write failed")):
             await run_extraction(connection, task, silent)
 
         assert connection.query.await_count == 3

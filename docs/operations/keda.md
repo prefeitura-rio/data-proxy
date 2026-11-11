@@ -53,6 +53,7 @@ These Helm values set the scale and the concurrency of the sync workers. The tab
 | `sync.autoscaling.activationTargetQueryValue` | `"5"` | Activation threshold. |
 | `sync.dumpQueueWorkerConcurrency` | `2` | Dump concurrency per sync process. |
 | `ducklake.secrets.storage` | see values | Shared volume of the DuckDB secrets. |
+| `sync.dumpBatchBytes` | `268435456` | Logical size of the source data of one dump task. |
 | `sync.dumpStepMaxAttempts` | `3` | Dump workflow retry attempts. |
 
 ## Dump concurrency
@@ -65,11 +66,20 @@ The queue stores its limits when it starts for the first time, and a restart kee
 UPDATE dbos.queues SET worker_concurrency = 2 WHERE name = 'dump';
 ```
 
+## Dump batches
+
+A BigQuery table can have thousands of small partitions. One query for each partition makes a run slow, because the delay of a query is longer than the work. The planner joins contiguous changed partitions into one task with one query and one file, until the batch has `sync.dumpBatchBytes` of logical data. An unchanged partition ends a batch, so a batch never reaches rows that the run keeps. A batch is the unit of a failure: if its dump fails, every partition of the batch fails together. The dump queue runs the batches of one table at the same time.
+
+The planner orders partitions by their integer id, so a range with a negative start batches in key order. A partition with no reported size forms a batch of its own, because the planner can't tell how large it is.
+
+An out-of-memory error in the commit step points first to the partitioning of the DuckLake table. See [DuckLake partitioning and encryption](../sync.md#ducklake-partitioning-and-encryption).
+
 ## Catalogs
 
 The DBOS sync workers write the catalogs in the `ducklake` database, through the primary. PostgreSQL replication copies them to every standby.
 
 Publishing remains parallel across schemas because each schema has a separate metadata schema in the catalog database. Publishing remains sequential within one schema because its DBOS queue has global concurrency one.
+
 
 ## Configuration
 

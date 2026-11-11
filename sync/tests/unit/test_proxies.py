@@ -2,6 +2,7 @@ import pytest
 from httpx2 import AsyncClient, MockTransport, Request, Response
 
 from sync.proxies import ProxyReloadError, proxy_addresses, reload_proxies
+from tests.helpers.core import exactly
 from tests.helpers.dbos import client_answering
 
 URL = "http://proxy-admin.ns.svc:8081/reload"
@@ -27,7 +28,9 @@ class TestReloadProxies:
         """One bad pod doesn't keep the others on the old settings, and DBOS retries the step."""
         seen: list[Request] = []
         async with client_answering({"10.0.0.2": 502}, seen) as client:
-            with pytest.raises(ProxyReloadError, match=r"10\.0\.0\.2"):
+            with pytest.raises(
+                ProxyReloadError, match=exactly("Proxy pods did not reload: 10.0.0.2")
+            ):
                 await reload_proxies(client, URL, ["10.0.0.1", "10.0.0.2", "10.0.0.3"])
 
         assert [r.url.host for r in seen] == ["10.0.0.1", "10.0.0.2", "10.0.0.3"]
@@ -39,7 +42,9 @@ class TestReloadProxies:
             raise ConnectionError(request.url.host)
 
         async with AsyncClient(transport=MockTransport(refuse)) as client:
-            with pytest.raises(ProxyReloadError, match=r"10\.0\.0\.1"):
+            with pytest.raises(
+                ProxyReloadError, match=exactly("Proxy pods did not reload: 10.0.0.1")
+            ):
                 await reload_proxies(client, URL, ["10.0.0.1"])
 
     async def test_nothing_to_do_without_pods(self) -> None:

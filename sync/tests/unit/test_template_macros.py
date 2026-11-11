@@ -2,16 +2,7 @@
 
 import pytest
 
-from sync.constants import SQL_DIR
-from sync.templates import jinja_environment
-
-
-def render(expression: str, **values: object) -> str:
-    """Render one macro call of the macros file."""
-    source = (
-        '{% from "postgres/macros.sql" import sql_array, name_array %}' + expression
-    )
-    return jinja_environment(SQL_DIR).from_string(source).render(values)
+from tests.helpers.core import render_macro
 
 
 class TestListMacros:
@@ -34,7 +25,9 @@ class TestListMacros:
     ) -> None:
         """Renders the literals as they are, in the order of the list."""
         assert (
-            render("{{ sql_array(columns | map(attribute='key')) }}", columns=columns)
+            render_macro(
+                "{{ sql_array(columns | map(attribute='key')) }}", columns=columns
+            )
             == expected
         )
 
@@ -47,7 +40,7 @@ class TestListMacros:
         ]
 
         assert (
-            render(
+            render_macro(
                 "{{ sql_array(columns | selectattr('sortable') | map(attribute='key')) }}",
                 columns=columns,
             )
@@ -68,4 +61,4 @@ class TestListMacros:
         self, names: list[str], expected: str
     ) -> None:
         """Renders each name as a text literal."""
-        assert render("{{ name_array(names) }}", names=names) == expected
+        assert render_macro("{{ name_array(names) }}", names=names) == expected

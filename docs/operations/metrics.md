@@ -99,5 +99,5 @@ sum by (schema) (publish_tables_total{status="success"})
 <!-- nav:start -->
 ---
 
-[Previous: DuckDB Memory and Spill](./duckdb.md) | [Next: Backups](./backups.md) | [Index](./index.md) | [Home](../index.md)
+[Previous: Lookup Layout](./lookups.md) | [Next: Backups](./backups.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

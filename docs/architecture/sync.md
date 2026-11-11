@@ -41,6 +41,7 @@ A publish writes `Publish started`, `DuckLake commit started`, one `Table publis
 
 KEDA reads the length of the DBOS queues in the application database and scales the sync workers. The sync ServiceAccount can read pods and CronJobs, and it can create and watch Jobs, in its namespace. When the Swagger UI is on, it can also read and patch one ConfigMap, the schema list of that page. It has no other rights. The workflow recovery needs the pod list, the provision step needs the CronJob and the Jobs, and the step `publish_swagger_schemas` needs the ConfigMap.
 
+
 ## Sync sequence
 
 The diagram shows one sync run, from the start to the cleanup. It covers provisioning, planning, the dump tasks, the views, publication and the reload of PostgREST.

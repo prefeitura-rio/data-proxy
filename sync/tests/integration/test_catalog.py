@@ -11,17 +11,23 @@ from sync.ducklake import (
     DuckLakePaths,
     apply_maintenance,
     attach_catalog,
+    commit_table,
     configure_catalog,
     current_snapshot_id,
     publish_tables,
 )
-from sync.models import FullTable, SyncPlan
+from sync.models import (
+    FullTable,
+    PartitionChange,
+    PartitionedTablePlan,
+    SyncPlan,
+)
 from sync.postgres import Postgres
 from sync.settings import settings
 from sync.state import read_table_signature
 from tests.constants import PARQUET
-from tests.helpers.ducklake import attach_ducklake
-from tests.helpers.state import sync_config
+from tests.helpers.ducklake import attach_ducklake, write_tagged_rows
+from tests.helpers.state import partition, sync_config
 
 pytestmark = pytest.mark.postgres
 
@@ -129,6 +135,93 @@ async def test_a_failed_publish_keeps_the_state_of_the_tables_that_committed(
         "sig-p.d.b",
         None,
     ]
+
+
+class TestBatchedPartitionCommit:
+    """One file can hold several contiguous partitions, and a commit replaces only the partitions of the batches."""
+
+    @pytest.mark.parametrize(
+        ("batches", "expected_new"),
+        [
+            pytest.param(
+                [["0", "10"]],
+                list(range(20)),
+                id="one-batch-of-contiguous-partitions",
+            ),
+            pytest.param(
+                [["0"], ["20"]],
+                [*range(10), *range(20, 30)],
+                id="an-unchanged-partition-between-two-batches-keeps-its-rows",
+            ),
+        ],
+    )
+    async def test_replaces_only_the_rows_of_the_changed_partitions(
+        self,
+        duckdb: DuckDB,
+        catalog_paths: DuckLakePaths,
+        tmp_path: Path,
+        batches: list[list[str]],
+        expected_new: list[int],
+    ) -> None:
+        duckdb.connection.execute(limits_sql(tmp_path / "spill"))
+        await configure_catalog(duckdb, catalog_paths, encrypted=False)
+        table = FullTable(
+            name="p.d.people", resolved_schema=catalog_paths.metadata_schema
+        )
+        physical = {pid: partition(pid) for pid in ("0", "10", "20")}
+        first = write_tagged_rows(tmp_path / "first.parquet", 0, 30, "old")
+        await commit_table(
+            duckdb,
+            table,
+            [first],
+            PartitionedTablePlan(
+                table_signature="sig",
+                full_rebuild=True,
+                current_partitions=physical,
+                changes={
+                    pid: PartitionChange(
+                        kind="add", partition_id=pid, current=item, path=first
+                    )
+                    for pid, item in physical.items()
+                },
+            ),
+        )
+
+        paths: list[str] = []
+        changes: dict[str, PartitionChange] = {}
+        for index, batch in enumerate(batches):
+            path = write_tagged_rows(
+                tmp_path / f"batch-{index}.parquet",
+                int(batch[0]),
+                int(batch[-1]) + 10,
+                "new",
+            )
+            paths.append(path)
+            for pid in batch:
+                changes[pid] = PartitionChange(
+                    kind="update",
+                    partition_id=pid,
+                    current=physical[pid],
+                    previous=physical[pid],
+                    path=path,
+                )
+
+        await commit_table(
+            duckdb,
+            table,
+            paths,
+            PartitionedTablePlan(
+                table_signature="sig",
+                full_rebuild=False,
+                current_partitions=physical,
+                changes=changes,
+            ),
+        )
+
+        rows = await duckdb.query("SELECT cpf, tag FROM dl.people ORDER BY cpf")
+        assert rows == [
+            (cpf, "new" if cpf in expected_new else "old") for cpf in range(30)
+        ]
 
 
 class TestApplyMaintenance:

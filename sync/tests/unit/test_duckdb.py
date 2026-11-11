@@ -1,8 +1,10 @@
+import asyncio
 from pathlib import Path
 
 import duckdb
+import pytest
 
-from sync.duckdb import limits_sql, spill_directory
+from sync.duckdb import DuckDB, limits_sql, spill_directory
 from sync.settings import settings
 
 
@@ -46,3 +48,31 @@ def test_limits_set_the_memory_the_threads_and_the_spill_folder_of_the_settings(
             str(spill),
         )
     ]
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected_rows"),
+    [
+        pytest.param(None, [(1,)], id="success-commits"),
+        pytest.param(RuntimeError("boom"), [], id="error-rolls-back"),
+        pytest.param(asyncio.CancelledError(), [], id="cancellation-rolls-back"),
+    ],
+)
+async def test_atomic_commits_on_success_and_rolls_back_on_any_failure(
+    failure: BaseException | None, expected_rows: list[tuple[int]]
+) -> None:
+    """A cancelled dump or commit must leave no half-written rows, so the block rolls back on a BaseException."""
+    connection = duckdb.connect(":memory:")
+    connection.execute("CREATE TABLE items (id INTEGER)")
+    database = DuckDB(connection=connection)
+
+    try:
+        async with database.atomic():
+            await database.execute("INSERT INTO items VALUES (1)")
+            if failure is not None:
+                raise failure
+    except RuntimeError, asyncio.CancelledError:
+        pass
+
+    assert await database.query("SELECT id FROM items") == expected_rows
+    connection.close()

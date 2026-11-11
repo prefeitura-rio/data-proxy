@@ -271,3 +271,17 @@ def stub_cache_redis(monkeypatch: pytest.MonkeyPatch, cache_db: int) -> list[str
         SimpleNamespace(PROXY_CACHE_REDIS_DB=cache_db, redis=redis),
     )
     return events
+
+
+def stored_schedule(name: str, **fields: object) -> dict[str, object]:
+    """Return a stored schedule the way DBOS gives it."""
+    stored: dict[str, object] = {
+        "schedule_name": name,
+        "schedule": "0 2 * * *",
+        "status": "ACTIVE",
+        "context": {"schemas": [name.removeprefix("sync-")], "tables": []},
+        "queue_name": "sync",
+        "cron_timezone": None,
+        "automatic_backfill": False,
+    }
+    return stored | fields

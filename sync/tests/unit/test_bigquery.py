@@ -36,6 +36,7 @@ from sync.sources.partitions import (
     TimeGranularity,
     TimeRangeSelection,
 )
+from tests.helpers.core import exactly
 from tests.helpers.state import metadata_row
 from tests.strategies import identifiers, ordered_bounds
 
@@ -121,7 +122,10 @@ class TestTimeBounds:
             TimeConfig(field="ts", granularity=granularity), "p.d.t", "signature"
         )
 
-        with pytest.raises(ValueError, match=r"Invalid time partition ID"):
+        with pytest.raises(
+            ValueError,
+            match=exactly(f"Invalid time partition ID {partition_id}: p.d.t"),
+        ):
             normalizer.time_bounds(partition_id, granularity)
 
 
@@ -159,7 +163,9 @@ class TestTableModified:
             {"tableReference": {"projectId": "p", "datasetId": "d", "tableId": "t"}}
         )
 
-        with pytest.raises(ValueError, match="Missing BigQuery modification time"):
+        with pytest.raises(
+            ValueError, match=exactly("Missing BigQuery modification time: p.d.t")
+        ):
             await table_modified(conn, "p.d.t")
 
 
@@ -184,7 +190,9 @@ class TestRangeConfiguration:
         metadata = RangePartitioning(
             field=field, range_=PartitionRange(start=start, end=None, interval=None)
         )
-        with pytest.raises(ValueError, match="Incomplete range partition metadata"):
+        with pytest.raises(
+            ValueError, match=exactly("Incomplete range partition metadata: p.d.t")
+        ):
             range_config(metadata, "p.d.t")
 
     def test_rejects_non_string_range_field(self) -> None:
@@ -194,7 +202,9 @@ class TestRangeConfiguration:
             range_=PartitionRange(start=0, end=10, interval=1),
         )
 
-        with pytest.raises(ValueError, match="Incomplete range partition metadata"):
+        with pytest.raises(
+            ValueError, match=exactly("Incomplete range partition metadata: p.d.t")
+        ):
             range_config(metadata, "p.d.t")
 
     @pytest.mark.parametrize(
@@ -215,7 +225,7 @@ class TestRangeConfiguration:
         )
 
         with pytest.raises(
-            ValueError, match=r"Invalid range partition metadata: p\.d\.t"
+            ValueError, match=exactly("Invalid range partition metadata: p.d.t")
         ):
             range_config(metadata, "p.d.t")
 
@@ -235,17 +245,29 @@ class TestTimeConfiguration:
 
     def test_rejects_ingestion_time_metadata(self) -> None:
         """Reject time metadata without an explicit field."""
-        with pytest.raises(ValueError, match="Ingestion-time"):
+        with pytest.raises(
+            ValueError,
+            match=exactly(
+                "Ingestion-time partitioning without an explicit field is unsupported: p.d.t"
+            ),
+        ):
             time_config(TimePartitioning(field=None), "p.d.t")
 
     def test_rejects_non_string_time_field(self) -> None:
         """Reject a non-string time field returned by the SDK."""
-        with pytest.raises(ValueError, match="field"):
+        with pytest.raises(
+            ValueError, match=exactly("Invalid time partition field: p.d.t")
+        ):
             time_config(TimePartitioning(field=123), "p.d.t")
 
     @pytest.mark.parametrize("granularity", ["WEEK", "MINUTE", "UNKNOWN"])
     def test_rejects_unsupported_time_granularity(self, granularity: str) -> None:
-        with pytest.raises(ValueError, match="Unsupported"):
+        with pytest.raises(
+            ValueError,
+            match=exactly(
+                f"Unsupported time partition granularity {granularity}: p.d.t"
+            ),
+        ):
             time_config(
                 TimePartitioning(type_=granularity, field="created_at"), "p.d.t"
             )
@@ -285,7 +307,12 @@ class TestPartitionKindConfiguration:
                 "type": "TABLE",
             }
         )
-        with pytest.raises(ValueError, match="time- or range-partitioned"):
+        with pytest.raises(
+            ValueError,
+            match=exactly(
+                "partitioned requires a time- or range-partitioned table: p.d.t"
+            ),
+        ):
             partition_kind_config(metadata, "p.d.t")
 
     def test_rejects_nonphysical_table(self) -> None:
@@ -295,7 +322,10 @@ class TestPartitionKindConfiguration:
                 "type": "VIEW",
             }
         )
-        with pytest.raises(ValueError, match="physically partitioned"):
+        with pytest.raises(
+            ValueError,
+            match=exactly("partitioned requires a physically partitioned table: p.d.t"),
+        ):
             partition_kind_config(metadata, "p.d.t")
 
 
@@ -396,7 +426,12 @@ class TestPhysicalPartitions:
     @pytest.mark.asyncio
     async def test_rejects_n_for_range_partitions(self, bigquery: BigQuery) -> None:
         """Reject a retention count for range-partitioned tables."""
-        with pytest.raises(ValueError, match="only supported"):
+        with pytest.raises(
+            ValueError,
+            match=exactly(
+                "n is only supported for time-partitioned tables: test.dataset.range_buckets"
+            ),
+        ):
             await physical_partitions(
                 bigquery,
                 "test.dataset.range_buckets",
@@ -451,7 +486,10 @@ class TestRangePartitionNormalization:
     )
     def test_rejects_invalid_range_bucket(self, partition_id: int) -> None:
         """Reject an out-of-range or unaligned bucket."""
-        with pytest.raises(ValueError, match="Invalid range partition ID"):
+        with pytest.raises(
+            ValueError,
+            match=exactly(f"Invalid range partition ID {partition_id}: p.d.t"),
+        ):
             PartitionNormalizer(
                 RangeConfig(field="id", start=0, end=100, interval=10),
                 "p.d.t",
@@ -472,7 +510,9 @@ class TestRangePartitionNormalization:
 
     def test_rejects_aligned_upper_boundary_with_nonzero_start(self) -> None:
         """Reject an aligned bucket at a nonzero exclusive upper bound."""
-        with pytest.raises(ValueError, match="Invalid range partition ID"):
+        with pytest.raises(
+            ValueError, match=exactly("Invalid range partition ID 103: p.d.t")
+        ):
             PartitionNormalizer(
                 RangeConfig(field="id", start=3, end=103, interval=10),
                 "p.d.t",
@@ -533,7 +573,9 @@ class TestTimePartitionNormalization:
 
     def test_rejects_missing_modification_time(self) -> None:
         """Reject metadata without a modification timestamp."""
-        with pytest.raises(TypeError, match="Missing partition modification time"):
+        with pytest.raises(
+            TypeError, match=exactly("Missing partition modification time 0: p.d.t")
+        ):
             PartitionNormalizer(
                 RangeConfig(field="id", start=0, end=100, interval=10),
                 "p.d.t",

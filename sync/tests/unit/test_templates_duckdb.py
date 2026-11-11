@@ -231,6 +231,37 @@ class TestDuckdbTemplates:
         assert (configured, reset) == ([("cpf",)], [])
 
     @pytest.mark.asyncio
+    async def test_metadata_get_partitioning_counts_the_active_partition_keys(
+        self, duckdb: DuckDB, tmp_path: Path
+    ) -> None:
+        """Count the partition keys of a table: one after a set, none after a reset."""
+        await attach_ducklake(duckdb, tmp_path)
+        await create_ducklake_table(duckdb, "people")
+        executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb)
+
+        async def keys() -> list[tuple[int]]:
+            return await executor.query(
+                "duckdb/get_partitioning",
+                {"metadata": "__ducklake_metadata_dl"},
+                params=["people"],
+                expect=tuple[int],
+            )
+
+        before = await keys()
+        await executor.execute(
+            "duckdb/set_partitioned_by",
+            mapping={"table": Identifier("people"), "partitioning": '"cpf"'},
+        )
+        after_set = await keys()
+        await executor.execute(
+            "duckdb/set_partitioned_by",
+            mapping={"table": Identifier("people"), "partitioning": ""},
+        )
+        after_reset = await keys()
+
+        assert (before, after_set, after_reset) == ([(0,)], [(1,)], [(0,)])
+
+    @pytest.mark.asyncio
     async def test_metadata_describe_parquet_returns_column_names_and_types(
         self, duckdb: DuckDB
     ) -> None:
