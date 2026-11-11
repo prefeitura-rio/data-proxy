@@ -59,7 +59,7 @@ class Postgres:
         """Commit on success and roll back on exception."""
         try:
             yield
-        except Exception:
+        except BaseException:
             await self.connection.rollback()
             raise
         await self.connection.commit()
