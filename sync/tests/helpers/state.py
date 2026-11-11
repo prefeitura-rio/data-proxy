@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from typing import Final
+from typing import Literal as ChangeLiteral
 
 import pytest
 from psycopg import AsyncConnection
@@ -131,6 +132,43 @@ def metadata_row(
     )
 
 
+def partitioned_table() -> PartitionedTable:
+    """Build the partitioned table p.d.t of the schema app, from the source bigquery."""
+    return PartitionedTable(
+        name="p.d.t", resolved_schema="app", resolved_source="bigquery"
+    )
+
+
+def ranged(index: int, size: int) -> PhysicalPartition:
+    """Build the integer range partition that starts at index * 10, with a size in bytes."""
+    lower = index * 10
+    return partition(
+        str(lower),
+        RangeSelection(
+            partition_id=str(lower), column="cpf", lower=lower, upper=lower + 10
+        ),
+        logical_bytes=size,
+    )
+
+
+def daily(day: int, size: int) -> PhysicalPartition:
+    """Build the time partition of one day of September 2026, with a size in bytes."""
+    return partition(
+        f"202609{day:02d}",
+        TimeRangeSelection(
+            column="date",
+            lower=f"2026-09-{day:02d}",
+            upper=f"2026-09-{day + 1:02d}",
+        ),
+        logical_bytes=size,
+    )
+
+
+def universe(*partitions: PhysicalPartition) -> dict[str, PhysicalPartition]:
+    """Index partitions by id, in the order that the source lists them."""
+    return {item.partition_id: item for item in partitions}
+
+
 def table_plan(
     *,
     full_rebuild: bool = False,
@@ -246,3 +284,29 @@ async def reconcile_one_table(
     monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
     await initialize_schemas(postgres.backend, config)
     await reconcile_views(postgres.backend, config)
+
+
+type ChangeKind = ChangeLiteral["add", "update", "remove", "same"]
+
+
+def plan_of_kinds(
+    stored: dict[str, ChangeKind], current: dict[str, ChangeKind]
+) -> PartitionedTablePlan:
+    """Build a plan from the kind of change of each partition id, where 'same' means no change."""
+    partitions = {pid: partition(pid) for pid in {*stored, *current}}
+    changes: dict[str, PartitionChange] = {}
+
+    for pid, kind in {**stored, **current}.items():
+        if kind == "same":
+            continue
+        changes[pid] = PartitionChange(
+            kind=kind,
+            partition_id=pid,
+            current=None if kind == "remove" else partitions[pid],
+            previous=partitions[pid] if kind in {"update", "remove"} else None,
+            path="" if kind == "remove" else "p",
+        )
+
+    return table_plan(
+        current={pid: partitions[pid] for pid in current}, changes=changes
+    )

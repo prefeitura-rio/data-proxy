@@ -2,6 +2,7 @@
 
 import fcntl
 import json
+import re
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from typing import LiteralString
@@ -11,7 +12,8 @@ import pytest
 from psycopg import AsyncCursor
 from psycopg.sql import SQL, Identifier
 
-from sync.templates import render_template
+from sync.constants import SQL_DIR
+from sync.templates import jinja_environment, render_template
 from sync.types import (
     DatabaseRow,
     DatabaseValue,
@@ -183,3 +185,16 @@ def clone_database(
             )
 
     return name
+
+
+def render_macro(expression: str, **values: object) -> str:
+    """Render one macro call of the macros file."""
+    source = (
+        '{% from "postgres/macros.sql" import sql_array, name_array %}' + expression
+    )
+    return jinja_environment(SQL_DIR).from_string(source).render(values)
+
+
+def exactly(message: str) -> str:
+    """Return a `match` pattern that accepts only this whole message."""
+    return f"^{re.escape(message)}$"

@@ -5,6 +5,7 @@ from lightkube.models.meta_v1 import ObjectMeta
 from lightkube.resources.core_v1 import ConfigMap
 
 from sync.kubernetes import job_from_cronjob, publish_schemas, schemas_script
+from tests.helpers.core import exactly
 from tests.helpers.dbos import cronjob
 
 
@@ -75,7 +76,7 @@ class TestJobFromCronjob:
         self, metadata: ObjectMeta, missing: str
     ) -> None:
         """Name the field that the CronJob lacks."""
-        with pytest.raises(ValueError, match=f"The CronJob has no {missing}"):
+        with pytest.raises(ValueError, match=exactly(f"The CronJob has no {missing}")):
             job_from_cronjob(cronjob(metadata=metadata), "provision-ab12")
 
 

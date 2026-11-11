@@ -103,3 +103,49 @@ async def snapshot_count(duckdb: DuckDB) -> int:
     count = rows[0][0]
     assert isinstance(count, int)
     return count
+
+
+def write_unsorted_batches(directory: Path, count: int) -> list[str]:
+    """Write one Parquet file for each batch, with rows of a contiguous key range in random order."""
+    paths: list[str] = []
+    connection = duckdb.connect()
+
+    for batch in range(count):
+        path = str(directory / f"batch-{batch}.parquet")
+        connection.execute(
+            f"""
+            COPY (
+                SELECT {batch} * 1000000 + (hash(i) % 1000000)::BIGINT AS cpf, i AS number
+                FROM range({batch * 30000}, {(batch + 1) * 30000}) AS t (i)
+                ORDER BY hash(i + 1)
+            ) TO '{path}' (FORMAT parquet, ROW_GROUP_SIZE 10000)
+            """
+        )
+        paths.append(path)
+
+    connection.close()
+
+    return paths
+
+
+def write_tagged_rows(path: Path, lower: int, upper: int, tag: str) -> str:
+    """Write one Parquet file with one row for each integer of [lower, upper), marked with the tag."""
+    connection = duckdb.connect()
+    connection.execute(
+        f"COPY (SELECT i AS cpf, '{tag}' AS tag FROM range({lower}, {upper}) AS t (i)) "
+        f"TO '{path}' (FORMAT parquet)"
+    )
+    connection.close()
+
+    return str(path)
+
+
+async def data_files(duckdb: DuckDB) -> int:
+    """Return the number of data files of the table people."""
+    rows = await duckdb.query(
+        "SELECT count(*) FROM ducklake_list_files('dl', 'people')"
+    )
+    count = rows[0][0]
+    assert isinstance(count, int)
+
+    return count

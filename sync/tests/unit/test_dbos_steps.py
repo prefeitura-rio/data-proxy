@@ -2,11 +2,13 @@
 
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from dbos import error as dbos_error
 
-from sync.dbos import steps
+from sync.dbos import steps, utils
 from sync.duckdb import DuckDB
 from sync.ducklake import DuckLakePaths
 from sync.models import (
@@ -23,6 +25,7 @@ from tests.fixtures.types import (
     Calls,
     Counted,
 )
+from tests.helpers.core import exactly
 from tests.helpers.dbos import (
     publish,
     workflow_body,
@@ -277,12 +280,86 @@ class TestExtractTaskLogs:
 
         monkeypatch.setattr(steps, "run_extraction", extract)
 
-        with pytest.raises(RuntimeError, match="write failed"):
+        with pytest.raises(RuntimeError, match=exactly("write failed")):
             await workflow_body(steps.extract_task)(task)
 
         level, message, fields = lines[-1]
         assert (level, message) == ("warning", "Extraction attempt failed")
         assert str(fields["error"]).startswith("RuntimeError: write failed")
+
+
+class TestExtractTaskCancellation:
+    """A dump that a run timeout or a console user cancelled stops at its next partition."""
+
+    @staticmethod
+    def stub_status(monkeypatch: pytest.MonkeyPatch, statuses: list[str]) -> AsyncMock:
+        """Answer each status check with the next status of the list, and the last one after that."""
+        answers = iter(statuses)
+        last = statuses[-1]
+
+        async def status(workflow_id: str) -> SimpleNamespace:
+            return SimpleNamespace(status=next(answers, last))
+
+        read = AsyncMock(side_effect=status)
+        monkeypatch.setattr(
+            steps,
+            "DBOS",
+            SimpleNamespace(workflow_id="dump-1", get_workflow_status_async=read),
+        )
+        return read
+
+    @pytest.mark.parametrize(
+        ("statuses", "written", "cancelled"),
+        [
+            pytest.param(["PENDING"], 5, False, id="never-cancelled"),
+            pytest.param(
+                ["PENDING", "PENDING", "CANCELLED"],
+                3,
+                True,
+                id="cancelled-on-the-third",
+            ),
+            pytest.param(["CANCELLED"], 1, True, id="cancelled-at-once"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_stops_after_the_partition_that_it_wrote_when_the_dump_is_cancelled(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        statuses: list[str],
+        written: int,
+        cancelled: bool,
+    ) -> None:
+        lines = TestExtractTaskLogs.record(monkeypatch)
+        self.stub_status(monkeypatch, statuses)
+        done: list[int] = []
+
+        async def extract(
+            connection: object, task: object, report: Callable[..., Awaitable[None]]
+        ) -> None:
+            for number in range(1, 6):
+                done.append(number)
+                await report("Partition written", partition_number=number)
+
+        monkeypatch.setattr(steps, "run_extraction", extract)
+
+        if cancelled:
+            with pytest.raises(dbos_error.DBOSWorkflowCancelledError):
+                await workflow_body(steps.extract_task)(dump_task())
+        else:
+            await workflow_body(steps.extract_task)(dump_task())
+
+        messages = [message for _, message, _ in lines]
+        assert len(done) == written
+        assert ("Extraction cancelled" in messages) is cancelled
+        assert ("Extraction completed" in messages) is not cancelled
+        assert "Extraction attempt failed" not in messages
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_a_cancelled_dump(self) -> None:
+        """The error that DBOS raises for a cancel is not a backend failure, so the step never retries it."""
+        error = dbos_error.DBOSWorkflowCancelledError("cancelled")
+
+        assert utils.retry_transient(error) is False
 
 
 class TestStepMetrics:
@@ -328,7 +405,7 @@ class TestStepMetrics:
             steps, "run_extraction", AsyncMock(side_effect=RuntimeError("boom"))
         )
 
-        with pytest.raises(RuntimeError, match="boom"):
+        with pytest.raises(RuntimeError, match=exactly("boom")):
             await workflow_body(steps.extract_task)(dump_task())
 
         assert counter["dump_tasks_total"].adds == []

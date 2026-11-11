@@ -7,7 +7,8 @@ from urllib.parse import quote
 
 from psycopg.sql import Composable, Identifier, Literal
 
-from .conditions import partition_condition
+from .batching import runs
+from .conditions import selection_condition
 from .executor import Executor
 from .models import (
     DuckLakePartition,
@@ -57,11 +58,13 @@ def planned_paths(
     """Return scratch paths for one table."""
     match partitioned:
         case PartitionedTablePlan():
-            return [
-                change.path
-                for change in partitioned.changes.values()
-                if change.kind in {"add", "update"}
-            ]
+            return list(
+                dict.fromkeys(
+                    change.path
+                    for change in partitioned.changes.values()
+                    if change.kind in {"add", "update"}
+                )
+            )
         case None:
             return plan.paths.get(table, [])
         case _:
@@ -153,17 +156,20 @@ def custom_partitioning_expression(partitions: list[DuckLakePartition]) -> str:
 
 
 def source_partition_column(partitioned: PartitionedTablePlan) -> str | None:
-    """Return the source partition column, if any partitions exist."""
+    """Return the DuckLake partition column that a source gives, or None for no partitioning.
+
+    A time source partitions the table by its time column. An integer range source gives none: the column can
+    hold a different value in each row, and DuckLake makes one partition for each value, so a commit of a large
+    table runs out of memory and leaves one file for each row.
+    """
     if len(partitioned.current_partitions) == 0:
         return None
     selection = next(iter(partitioned.current_partitions.values())).selection
     match selection:
         case TimeRangeSelection(column=column):
             return Identifier(column).as_string(None)
-        case RangeSelection(column=column):
-            return Identifier(column).as_string(None)
-        case RemainderSelection(column=column):
-            return Identifier(column).as_string(None)
+        case RangeSelection() | RemainderSelection():
+            return None
         case _:
             assert_never(selection)
 
@@ -273,6 +279,20 @@ async def current_sort(duckdb_conn: DuckDB, table: TableConfig) -> list[str]:
     return [row[0].strip('"') for row in rows]
 
 
+async def has_partitioning(duckdb_conn: DuckDB, table: TableConfig) -> bool:
+    """Return whether a DuckLake table has a partition key."""
+    rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).query(
+        "duckdb/get_partitioning",
+        {
+            "metadata": f"__ducklake_metadata_dl.{Identifier(table.resolved_schema).as_string(None)}"
+        },
+        params=[table.table_name],
+        expect=tuple[int],
+    )
+
+    return len(rows) > 0 and rows[0][0] > 0
+
+
 async def table_exists(duckdb_conn: DuckDB, table_name: str) -> bool:
     """Return whether a DuckLake table already exists."""
     rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).query(
@@ -360,7 +380,9 @@ async def apply_partitioning(
     else:
         partitioning = None
 
-    if partitioning is not None or (existing and partitioned is None):
+    if partitioning is not None or (
+        existing and await has_partitioning(duckdb_conn, table)
+    ):
         await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
             "duckdb/set_partitioned_by",
             mapping={
@@ -393,22 +415,23 @@ async def ensure_table(
     await apply_partitioning(duckdb_conn, name, table, partitioned, existing)
 
 
-def delete_predicate(partition: PhysicalPartition) -> str:
-    """Render one safe partition predicate."""
-    return partition_condition(partition).as_string(None)
-
-
 def affected_predicates(partitioned: PartitionedTablePlan) -> list[str]:
-    """Return delete predicates for changed and removed partitions."""
-    predicates: list[str] = []
+    """Return one delete predicate for each run of contiguous changed or removed partitions.
 
-    for change in partitioned.changes.values():
-        physical = change.current if change.current is not None else change.previous
+    An unchanged partition ends a run, so a predicate never reaches rows that this commit keeps.
+    """
+    physical = dict(partitioned.current_partitions)
 
-        if physical is not None:
-            predicates.append(delete_predicate(physical))
+    for partition_id, change in partitioned.changes.items():
+        replaced = change.current if change.current is not None else change.previous
 
-    return predicates
+        if replaced is not None:
+            physical[partition_id] = replaced
+
+    return [
+        selection_condition(run.selection).as_string(None)
+        for run in runs(physical, partitioned.changes.keys(), None)
+    ]
 
 
 async def delete_existing_rows(
@@ -433,13 +456,28 @@ async def delete_existing_rows(
     )
 
 
+def insert_batches(table: TableConfig, paths: list[str]) -> list[list[str]]:
+    """Return the files of each insert: one insert for each file of a sorted table, and one for the others."""
+    if len(paths) == 0:
+        return []
+
+    if len(table_sort(table)) > 0:
+        return [[path] for path in paths]
+
+    return [paths]
+
+
 async def commit_table(
     duckdb_conn: DuckDB,
     table: TableConfig,
     paths: list[str],
     partitioned: PartitionedTablePlan | None,
 ) -> None:
-    """Replace or append scratch files in one DuckLake transaction."""
+    """Replace or append scratch files in one DuckLake transaction.
+
+    A sorted table gets one insert for each file. DuckLake sorts the rows of an insert in memory, so a sort holds
+    one batch and not the whole table, and each file keeps tight row groups. A table without sort columns gets one insert.
+    """
     if len(paths) == 0 and (
         partitioned is None
         or (not partitioned.full_rebuild and len(partitioned.changes) == 0)
@@ -450,14 +488,15 @@ async def commit_table(
     if len(paths) > 0:
         await ensure_table(duckdb_conn, table, paths[0], partitioned)
 
-    await delete_existing_rows(duckdb_conn, name, partitioned)
+    async with duckdb_conn.atomic():
+        await delete_existing_rows(duckdb_conn, name, partitioned)
 
-    if len(paths) > 0:
-        await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
-            "duckdb/insert_parquet",
-            mapping={"table": name},
-            params=[paths],
-        )
+        for batch in insert_batches(table, paths):
+            await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
+                "duckdb/insert_parquet",
+                mapping={"table": name},
+                params=[batch],
+            )
 
 
 async def attach_catalog(

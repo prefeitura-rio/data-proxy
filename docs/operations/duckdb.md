@@ -33,5 +33,5 @@ Don't mount a bucket through FUSE as the spill folder. Each connection writes an
 <!-- nav:start -->
 ---
 
-[Previous: KEDA Scaling](./keda.md) | [Next: Metrics](./metrics.md) | [Index](./index.md) | [Home](../index.md)
+[Previous: KEDA Scaling](./keda.md) | [Next: Lookup Layout](./lookups.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

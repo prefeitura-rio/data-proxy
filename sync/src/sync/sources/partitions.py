@@ -191,9 +191,9 @@ def partitioned_table_signature(
     return json_digest({"config": config_json, **asdict(kind_config), "schema": schema})
 
 
-def partition_sort_key(partition_id: str) -> tuple[int, int | str]:
-    """Return the publication order key with __NULL__ last."""
-    return (1, "") if not partition_id.isdigit() else (0, int(partition_id))
+def partition_sort_key(partition_id: str) -> tuple[int, int]:
+    """Return the publication order key, which sorts integers by value and puts __NULL__ last."""
+    return (1, 0) if partition_id == "__NULL__" else (0, int(partition_id))
 
 
 def order_partition_ids(changed: set[str]) -> list[str]:

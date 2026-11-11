@@ -170,6 +170,9 @@
           "page": "operations/duckdb.md"
         },
         {
+          "page": "operations/lookups.md"
+        },
+        {
           "page": "operations/metrics.md"
         },
         {

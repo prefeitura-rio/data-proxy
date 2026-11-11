@@ -1,0 +1,17 @@
+suite: Sync dump batches
+templates:
+  - deployment-sync.yaml
+set:
+  redis.host: redis-writer
+  postgrest.jwtSecret: shared-secret
+tests:
+  - it: takes the batch size from the values
+    set:
+      sync.dumpBatchBytes: 1073741824
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DUMP_BATCH_BYTES
+            value: "1073741824"
+

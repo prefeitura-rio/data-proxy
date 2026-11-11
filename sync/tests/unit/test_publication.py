@@ -182,3 +182,35 @@ class TestPlanPublication:
         assert failed == {}
         assert reduced.signatures == plan.signatures
         assert "1" in reduced.partitioned_tables["p.d.part"].changes
+
+    def test_restores_every_partition_of_a_failed_batch_and_no_other(self) -> None:
+        """A failed batch file fails all of its partitions together, and no partition of another batch."""
+        old = {pid: partition(pid, signature="old") for pid in ("0", "10", "20")}
+        plan = SyncPlan(
+            schema_name="app",
+            partitioned_tables={
+                "p.d.t": table_plan(
+                    full_rebuild=False,
+                    current={pid: partition(pid, signature="new") for pid in old},
+                    changes={
+                        "0": add_change(
+                            "0", path="s3://b/batch0.parquet", previous=old["0"]
+                        ),
+                        "10": add_change(
+                            "10", path="s3://b/batch0.parquet", previous=old["10"]
+                        ),
+                        "20": add_change(
+                            "20", path="s3://b/batch1.parquet", previous=old["20"]
+                        ),
+                    },
+                )
+            },
+        )
+        reduced, blocked, failed = plan_publication(plan, {"s3://b/batch0.parquet"})
+        table = reduced.partitioned_tables["p.d.t"]
+        assert blocked == set()
+        assert failed == {"p.d.t": {"0", "10"}}
+        assert set(table.changes) == {"20"}
+        assert table.current_partitions["0"] == old["0"]
+        assert table.current_partitions["10"] == old["10"]
+        assert table.current_partitions["20"].signature == "new"

@@ -214,12 +214,9 @@ async def physical_partitions(
     metadata: Table = await bq_conn.get_table(table)
     config = partition_kind_config(metadata, table)
 
-    match config:
-        case config if config.kind == "range" and n is not None:
-            msg = f"n is only supported for time-partitioned tables: {table}"
-            raise ValueError(msg)
-        case _:
-            pass
+    if config.kind == "range" and n is not None:
+        msg = f"n is only supported for time-partitioned tables: {table}"
+        raise ValueError(msg)
 
     signature = partitioned_table_signature(metadata, config_json, config)
     normalizer = PartitionNormalizer(

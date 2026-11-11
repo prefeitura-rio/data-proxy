@@ -2,47 +2,20 @@ import pytest
 
 from tests.fixtures.console import as_token, refusal, use_database_role
 from tests.fixtures.types import Postgres
-from tests.helpers.core import names, scalar
+from tests.helpers.console import (
+    ADD_PROJECT,
+    ADD_SCHEMA,
+    add_projects,
+    add_schemas,
+    load_claims,
+)
+from tests.helpers.core import names
 
 CHECK_VIOLATION = "23514"
 FOREIGN_KEY_VIOLATION = "23503"
 UNIQUE_VIOLATION = "23505"
 RESTRICT_VIOLATION = "23001"
 INSUFFICIENT = "42501"
-
-ADD_PROJECT = "INSERT INTO console.projects (name) VALUES (%s)"
-ADD_SCHEMA = "INSERT INTO console.schemas (project, short_name) VALUES (%s, %s)"
-
-
-async def add_projects(pg: Postgres, *projects: str) -> None:
-    """Add projects to the console."""
-    for project in projects:
-        await pg.connection.execute(ADD_PROJECT.encode(), (project,))
-
-
-async def add_schemas(pg: Postgres, *schemas: tuple[str, str]) -> None:
-    """Add schemas to the console, each as a project and a short name."""
-    for project, short_name in schemas:
-        await pg.connection.execute(ADD_SCHEMA.encode(), (project, short_name))
-
-
-async def load_claims(
-    pg: Postgres, *, schemas: str = "", projects: str = "", role: str = "dp_admin"
-) -> str:
-    """Give the connection the claims of a token, run `rbac.load()` as the pre-request function does, and return the schemas that it sets."""
-    await pg.connection.execute(
-        """
-        SELECT
-            set_config('app.claim_role', %s, true),
-            set_config('app.claim_schemas', %s, true),
-            set_config('app.claim_projects', %s, true),
-            set_config('request.jwt.claims', '{"preferred_username": "ana"}', true)
-        """,
-        (role, schemas, projects),
-    )
-    await pg.connection.execute(b"SELECT rbac.load()")
-
-    return str(await scalar(pg, "SELECT current_setting('rbac.schemas')"))
 
 
 @pytest.mark.postgres

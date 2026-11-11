@@ -42,11 +42,9 @@ def listened_queues(queues: list[str], configured: str) -> list[str]:
 
 def retry_catalog_locked(error: BaseException) -> bool:
     """Retry only while another process holds the DuckLake catalog write lock."""
-    match error:
-        case TransactionException() if "database is locked" in str(error):
-            return True
-        case _:
-            return False
+    return isinstance(error, TransactionException) and "database is locked" in str(
+        error
+    )
 
 
 def retry_transient(error: BaseException) -> bool:

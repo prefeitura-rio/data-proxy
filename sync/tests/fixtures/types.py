@@ -11,6 +11,7 @@ from psycopg.sql import SQL, Identifier
 from pydantic import JsonValue
 
 from sync.postgres import Postgres as Pg
+from sync.sources.partitions import PhysicalPartition
 from tests.constants import POSTGRES_HOST, POSTGRES_PORT
 
 
@@ -170,6 +171,16 @@ class FilterCase(TypedDict):
 
     name: str
     expected: dict[str, JsonValue] | None
+
+
+@dataclass(frozen=True, slots=True)
+class RunCase:
+    """One grouping case: the partitions, the changed ids, the byte limit and the expected ids of each run."""
+
+    partitions: dict[str, PhysicalPartition]
+    changed: set[str]
+    max_bytes: int | None
+    expected: list[list[str]]
 
 
 class Counted:

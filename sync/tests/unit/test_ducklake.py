@@ -1,16 +1,23 @@
+import asyncio
 from pathlib import Path
 from typing import Final
+from unittest.mock import AsyncMock
 
+import duckdb as duckdb_module
 import pytest
 from psycopg.sql import Identifier, Literal
 
+from sync import ducklake as ducklake_module
 from sync.duckdb import DuckDB
 from sync.ducklake import (
     DuckLakePaths,
+    affected_predicates,
+    apply_partitioning,
     commit_table,
     custom_partitioning_expression,
     drop_tables_except,
     evolve_table_schema,
+    planned_paths,
     same_column_type,
     source_partition_column,
     table_prefix,
@@ -25,6 +32,7 @@ from sync.models import (
     FullTable,
     PartitionChange,
     PartitionedTablePlan,
+    SyncPlan,
 )
 from sync.settings import settings
 from sync.sources.partitions import (
@@ -35,14 +43,17 @@ from sync.sources.partitions import (
 from sync.templates import render_template
 from sync.types import DatabaseRow, DuckDBParams
 from tests.constants import PARQUET, TEST_SQL_DIR
+from tests.helpers.core import exactly
 from tests.helpers.ducklake import (
     attach_ducklake,
     create_ducklake_table,
+    data_files,
     ducklake_columns,
     ducklake_row_count,
     snapshot_count,
+    write_unsorted_batches,
 )
-from tests.helpers.state import partition, table_plan
+from tests.helpers.state import partition, plan_of_kinds, table_plan
 
 
 @pytest.mark.parametrize("schema", ["app", "bigquery_a"])
@@ -102,6 +113,113 @@ class TestDucklakePartitionCommit:
         await commit_table(duckdb, table, [], removed)
 
         assert await ducklake_row_count(duckdb, "people") == 0
+
+
+class TestSortedCommitInsertsOneBatchAtATime:
+    """A sorted table inserts each batch file by itself, so a sort holds one batch and not the whole table."""
+
+    @pytest.mark.asyncio
+    async def test_a_sorted_table_gets_one_file_for_each_batch_with_sorted_row_groups(
+        self, duckdb: DuckDB, tmp_path: Path
+    ) -> None:
+        await attach_ducklake(duckdb, tmp_path)
+        paths = write_unsorted_batches(tmp_path, 3)
+        table = FullTable(
+            name="p.d.people",
+            resolved_schema="app",
+            ducklake=DuckLakeTableConfig(sort=["cpf"]),
+        )
+
+        await commit_table(duckdb, table, paths, None)
+
+        assert await ducklake_row_count(duckdb, "people") == 90000
+        assert await data_files(duckdb) == 3
+        overlaps = await duckdb.query(
+            f"""
+            WITH groups AS (
+                SELECT file_name, row_group_id,
+                       stats_min_value::BIGINT AS lo, stats_max_value::BIGINT AS hi
+                FROM parquet_metadata('{tmp_path}/data/**/*.parquet')
+                WHERE path_in_schema = 'cpf'
+            )
+            SELECT count(*) FROM groups AS a JOIN groups AS b
+              ON a.file_name = b.file_name AND a.row_group_id < b.row_group_id
+             AND a.lo <= b.hi AND b.lo <= a.hi
+            """
+        )
+        assert overlaps == [(0,)]
+
+    @pytest.mark.asyncio
+    async def test_a_table_without_sort_columns_keeps_one_insert(
+        self, duckdb: DuckDB, tmp_path: Path
+    ) -> None:
+        await attach_ducklake(duckdb, tmp_path)
+        paths = write_unsorted_batches(tmp_path, 3)
+        table = FullTable(name="p.d.people", resolved_schema="app")
+
+        await commit_table(duckdb, table, paths, None)
+
+        assert await ducklake_row_count(duckdb, "people") == 90000
+        assert await data_files(duckdb) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_failed_second_insert_rolls_the_whole_commit_back(
+        self, duckdb: DuckDB, tmp_path: Path
+    ) -> None:
+        await attach_ducklake(duckdb, tmp_path)
+        first, second = write_unsorted_batches(tmp_path, 2)
+        table = FullTable(
+            name="p.d.people",
+            resolved_schema="app",
+            ducklake=DuckLakeTableConfig(sort=["cpf"]),
+        )
+
+        with pytest.raises(duckdb_module.IOException):
+            await commit_table(
+                duckdb, table, [first, second, str(tmp_path / "missing.parquet")], None
+            )
+
+        assert await ducklake_row_count(duckdb, "people") == 0
+        assert await data_files(duckdb) == 0
+
+
+class TestRangeSourceKeepsTheTableUnpartitioned:
+    """A table from an integer range source gets no partition key, so the commit makes few files."""
+
+    @pytest.mark.asyncio
+    async def test_commit_of_a_range_source_sets_no_partition_key(
+        self, duckdb: DuckDB, tmp_path: Path
+    ) -> None:
+        """The column cpf has a different value in each row, and a key on it would make one partition for each row."""
+        await attach_ducklake(duckdb, tmp_path)
+        table = FullTable(name="p.d.people", resolved_schema="app")
+        physical = partition("10")
+        plan = PartitionedTablePlan(
+            table_signature="sig",
+            full_rebuild=True,
+            current_partitions={"10": physical},
+            changes={
+                "10": PartitionChange(
+                    kind="add", partition_id="10", current=physical, path=PARQUET
+                )
+            },
+        )
+
+        await commit_table(duckdb, table, [PARQUET], plan)
+
+        keys = await duckdb.query(
+            """
+            SELECT count(*)
+            FROM __ducklake_metadata_dl.ducklake_partition_column AS key
+            JOIN __ducklake_metadata_dl.ducklake_partition_info AS info
+              ON key.partition_id = info.partition_id
+            WHERE info.end_snapshot IS NULL
+            """
+        )
+        files = await duckdb.query(
+            "SELECT count(*) FROM ducklake_list_files('dl', 'people')"
+        )
+        assert (keys, files) == ([(0,)], [(1,)])
 
 
 @pytest.mark.parametrize(
@@ -290,15 +408,20 @@ class TestCustomPartitioningExpression:
 
 
 class TestSourcePartitionColumn:
-    """source_partition_column takes the partition column from the partitions that the source has."""
+    """source_partition_column names a DuckLake partition column only for a time source."""
+
+    def test_names_the_column_of_a_time_partition(self) -> None:
+        """Return the quoted column, so a day of the source is a partition of the table."""
+        selection = TimeRangeSelection(
+            column="dt", lower="2026-01-01", upper="2026-01-02"
+        )
+        plan = table_plan(current={"20260101": partition("20260101", selection)})
+
+        assert source_partition_column(plan) == '"dt"'
 
     @pytest.mark.parametrize(
         "selection",
         [
-            pytest.param(
-                TimeRangeSelection(column="dt", lower="2026-01-01", upper="2026-01-02"),
-                id="time-range",
-            ),
             pytest.param(
                 RangeSelection(partition_id="10", column="dt", lower=10, upper=20),
                 id="range",
@@ -308,17 +431,143 @@ class TestSourcePartitionColumn:
             ),
         ],
     )
-    def test_names_the_column_of_the_first_partition(
-        self, selection: TimeRangeSelection | RangeSelection | RemainderSelection
+    def test_names_no_column_for_an_integer_range_source(
+        self, selection: RangeSelection | RemainderSelection
     ) -> None:
-        """Return the quoted column, whatever the kind of selection."""
+        """The value of an integer range column can be unique in each row, and a partition for each value breaks the commit."""
         plan = table_plan(current={"10": partition("10", selection)})
 
-        assert source_partition_column(plan) == '"dt"'
+        assert source_partition_column(plan) is None
 
     def test_names_no_column_when_the_source_has_no_partition(self) -> None:
         """Leave the table unpartitioned."""
         assert source_partition_column(table_plan()) is None
+
+
+class TestApplyPartitioning:
+    """The partitioning of a table follows the configuration and the source, and a stale one is reset."""
+
+    @staticmethod
+    def run(
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        configured: list[DuckLakePartition] | None,
+        plan: PartitionedTablePlan | None,
+        existing: bool,
+        stored: bool,
+    ) -> list[str]:
+        """Apply the partitioning and return the partitioning of each statement that ran."""
+        statements: list[str] = []
+
+        async def has_partitioning(conn: object, table: object) -> bool:
+            return stored
+
+        async def execute(
+            self: Executor[DuckDBParams, list[DatabaseRow]],
+            path: str,
+            mapping: dict[str, object] | None = None,
+            **_: object,
+        ) -> None:
+            statements.append(
+                str({} if mapping is None else mapping.get("partitioning"))
+            )
+
+        monkeypatch.setattr(ducklake_module, "has_partitioning", has_partitioning)
+        monkeypatch.setattr(Executor, "execute", execute)
+        table = FullTable(
+            name="p.d.t",
+            resolved_schema="app",
+            ducklake=DuckLakeTableConfig(partitioning=configured),
+        )
+
+        asyncio.run(
+            apply_partitioning(
+                AsyncMock(spec=DuckDB), Identifier("t"), table, plan, existing
+            )
+        )
+
+        return statements
+
+    @pytest.mark.parametrize(
+        ("kind", "existing", "stored", "expected"),
+        [
+            pytest.param(
+                "range", False, False, [], id="new-range-table-stays-unpartitioned"
+            ),
+            pytest.param(
+                "range", True, False, [], id="range-table-without-a-key-is-left-alone"
+            ),
+            pytest.param(
+                "range", True, True, [""], id="range-table-with-a-stale-key-is-reset"
+            ),
+            pytest.param(
+                "time",
+                False,
+                False,
+                ['"dt"'],
+                id="time-table-is-partitioned-by-the-source-column",
+            ),
+            pytest.param(
+                "full", True, False, [], id="full-table-without-a-key-is-left-alone"
+            ),
+            pytest.param(
+                "full", True, True, [""], id="full-table-with-a-stale-key-is-reset"
+            ),
+        ],
+    )
+    def test_follows_the_source_and_resets_a_stale_key(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        kind: str,
+        existing: bool,
+        stored: bool,
+        expected: list[str],
+    ) -> None:
+        selections: dict[str, RangeSelection | TimeRangeSelection | None] = {
+            "range": RangeSelection(partition_id="10", column="dt", lower=10, upper=20),
+            "time": TimeRangeSelection(
+                column="dt", lower="2026-01-01", upper="2026-01-02"
+            ),
+            "full": None,
+        }
+        selection = selections[kind]
+        plan = (
+            None
+            if selection is None
+            else table_plan(current={"10": partition("10", selection)})
+        )
+
+        assert (
+            self.run(
+                monkeypatch,
+                configured=None,
+                plan=plan,
+                existing=existing,
+                stored=stored,
+            )
+            == expected
+        )
+
+    def test_a_configured_partitioning_wins_over_the_source(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        plan = table_plan(
+            current={
+                "10": partition(
+                    "10",
+                    RangeSelection(partition_id="10", column="dt", lower=10, upper=20),
+                )
+            }
+        )
+        configured = [
+            DuckLakePartition(
+                column="id", transform=DuckLakePartitionTransform.BUCKET, buckets=8
+            )
+        ]
+
+        assert self.run(
+            monkeypatch, configured=configured, plan=plan, existing=True, stored=True
+        ) == ['bucket(8, "id")']
 
 
 class TestConfiguredSort:
@@ -346,7 +595,9 @@ class TestConfiguredSort:
             ducklake=DuckLakeTableConfig(sort=["z", "a", "y"]),
         )
 
-        with pytest.raises(ValueError, match="Unknown DuckLake sort columns: y, z"):
+        with pytest.raises(
+            ValueError, match=exactly("Unknown DuckLake sort columns: y, z")
+        ):
             validate_sort_columns(table, {"a", "b"})
 
     def test_accepts_sort_columns_that_the_source_has(self) -> None:
@@ -358,3 +609,63 @@ class TestConfiguredSort:
         )
 
         validate_sort_columns(table, {"a", "b"})
+
+
+class TestPlannedPaths:
+    """Many partitions share the file of their batch, and the insert reads each file once."""
+
+    def test_lists_each_batch_file_once_in_order(self) -> None:
+        changes = {
+            pid: PartitionChange(
+                kind="add", partition_id=pid, current=partition(pid), path=path
+            )
+            for pid, path in (("0", "a"), ("10", "a"), ("20", "b"), ("30", "b"))
+        }
+        plan = table_plan(
+            current={pid: partition(pid) for pid in changes}, changes=changes
+        )
+
+        assert planned_paths(SyncPlan(schema_name="app"), "t", plan) == ["a", "b"]
+
+    def test_leaves_out_a_removed_partition(self) -> None:
+        changes = {
+            "0": PartitionChange(
+                kind="add", partition_id="0", current=partition("0"), path="a"
+            ),
+            "10": PartitionChange(
+                kind="remove", partition_id="10", previous=partition("10")
+            ),
+        }
+
+        plan = table_plan(current={"0": partition("0")}, changes=changes)
+
+        assert planned_paths(SyncPlan(schema_name="app"), "t", plan) == ["a"]
+
+
+class TestAffectedPredicates:
+    """The delete of an incremental commit has one predicate for each run of contiguous partitions."""
+
+    def test_joins_contiguous_changed_partitions_into_one_predicate(self) -> None:
+        plan = plan_of_kinds(
+            stored={"20": "remove"},
+            current={"0": "add", "10": "update", "30": "add"},
+        )
+
+        assert affected_predicates(plan) == [
+            '("cpf" >= 0 AND "cpf" < 40)',
+        ]
+
+    def test_an_unchanged_partition_splits_the_predicate(self) -> None:
+        plan = plan_of_kinds(
+            stored={}, current={"0": "add", "10": "same", "20": "update"}
+        )
+
+        assert affected_predicates(plan) == [
+            '("cpf" >= 0 AND "cpf" < 10)',
+            '("cpf" >= 20 AND "cpf" < 30)',
+        ]
+
+    def test_has_no_predicate_when_nothing_changed(self) -> None:
+        assert (
+            affected_predicates(plan_of_kinds(stored={}, current={"0": "same"})) == []
+        )

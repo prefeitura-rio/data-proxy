@@ -29,10 +29,15 @@ from sync.planning import (
     table_signature,
 )
 from sync.postgres import Postgres
-from sync.sources.partitions import order_partition_ids
+from sync.sources.partitions import (
+    RangeSelection,
+    order_partition_ids,
+    partition_sort_key,
+)
 from sync.sources.source import Source
 from tests.fixtures.types import FullOnlySource
-from tests.helpers.state import partition
+from tests.helpers.core import exactly
+from tests.helpers.state import partition, partitioned_table
 
 
 class TestPartitionChanges:
@@ -331,7 +336,10 @@ class TestSourceCapabilities:
             MagicMock(return_value=FullOnlySource()),
         )
 
-        with pytest.raises(TypeError, match="does not support partitioned tables"):
+        with pytest.raises(
+            TypeError,
+            match=exactly("Source 'full-only' does not support partitioned tables"),
+        ):
             await planning.plan_partitioned_tables(
                 AsyncMock(spec=Postgres),
                 AsyncMock(spec=DuckDB),
@@ -342,25 +350,84 @@ class TestSourceCapabilities:
 
 
 class TestPartitionBatching:
-    def test_builds_paths_and_tasks_for_changed_partitions(self) -> None:
-        table = PartitionedTable(
-            name="p.d.t", resolved_schema="app", resolved_source="bigquery"
-        )
+    def test_makes_one_task_with_one_merged_selection_for_a_contiguous_run(
+        self,
+    ) -> None:
         current = {
             partition_id: partition(partition_id, logical_bytes=300)
-            for partition_id in ("1", "2", "3", "4")
+            for partition_id in ("0", "10", "20", "30")
         }
         changes = find_partition_changes(current, None, "s")
-        changes, task = build_partition_tasks(
-            table, current, changes, "run", "bucket", []
+
+        changes, tasks = build_partition_tasks(
+            partitioned_table(), current, changes, "run", "bucket", [], 10_000
         )
-        assert {pid: change.path for pid, change in changes.items()} == {
-            "1": "s3://bucket/tmp/app/t/batches/0/data-0.parquet",
-            "2": "s3://bucket/tmp/app/t/batches/0/data-1.parquet",
-            "3": "s3://bucket/tmp/app/t/batches/0/data-2.parquet",
-            "4": "s3://bucket/tmp/app/t/batches/0/data-3.parquet",
-        }
-        assert len(task.selections) == 4
+
+        assert {pid: change.path for pid, change in changes.items()} == dict.fromkeys(
+            ("0", "10", "20", "30"), "s3://bucket/tmp/app/t/batches/0/data.parquet"
+        )
+        assert [task.selections for task in tasks] == [
+            [RangeSelection(partition_id="0", column="cpf", lower=0, upper=40)]
+        ]
+
+    @pytest.mark.parametrize(
+        ("count", "size", "target", "expected_sizes"),
+        [
+            pytest.param(1, 600, 1000, [1], id="one-partition"),
+            pytest.param(
+                3847, 630_000, 256_000_000, [406] * 9 + [193], id="large-table"
+            ),
+            pytest.param(5, 100, 250, [2, 2, 1], id="small-target"),
+            pytest.param(3, 500, 250, [1, 1, 1], id="every-partition-over-the-target"),
+        ],
+    )
+    def test_splits_a_large_table_into_batches_by_size(
+        self, count: int, size: int, target: int, expected_sizes: list[int]
+    ) -> None:
+        ids = [str(number * 10) for number in range(count)]
+        current = {pid: partition(pid, logical_bytes=size) for pid in ids}
+        changes = find_partition_changes(current, None, "s")
+
+        changes, tasks = build_partition_tasks(
+            partitioned_table(), current, changes, "run", "bucket", [], target
+        )
+
+        assert [
+            sum(1 for change in changes.values() if change.path == task.output_paths[0])
+            for task in tasks
+        ] == expected_sizes
+        assert [task.bucket_path for task in tasks] == [
+            f"s3://bucket/tmp/app/t/batches/{index}/data.parquet"
+            for index in range(len(expected_sizes))
+        ]
+        assert all(len(task.selections) == 1 for task in tasks)
+        assert all(len(change.path) > 0 for change in changes.values())
+
+    def test_does_not_extract_a_partition_that_did_not_change(self) -> None:
+        current = {pid: partition(pid, logical_bytes=1) for pid in ("0", "10", "20")}
+        stored = TableState(
+            strategy=Strategy.PARTITIONED,
+            signature="s",
+            partitions={"10": current["10"]},
+        )
+        changes = find_partition_changes(current, stored, "s")
+
+        changes, tasks = build_partition_tasks(
+            partitioned_table(), current, changes, "run", "bucket", [], 10_000
+        )
+
+        assert [task.selections for task in tasks] == [
+            [current["0"].selection],
+            [current["20"].selection],
+        ]
+        assert sorted(changes) == ["0", "20"]
+
+    def test_plans_no_task_when_no_partition_needs_extraction(self) -> None:
+        changes, tasks = build_partition_tasks(
+            partitioned_table(), {}, {}, "run", "bucket", [], 10_000
+        )
+
+        assert (changes, tasks) == ({}, [])
 
 
 class TestTableSignature:
@@ -462,6 +529,24 @@ class TestPartitionOrdering:
         assert numeric == sorted(numeric, key=int)
         if "__NULL__" in changed:
             assert ordered[-1] == "__NULL__"
+
+    @pytest.mark.parametrize(
+        ("ids", "expected"),
+        [
+            pytest.param(
+                ["10", "__NULL__", "-10", "0"],
+                ["-10", "0", "10", "__NULL__"],
+                id="negative-ids-sort-by-value-and-the-remainder-is-last",
+            ),
+            pytest.param(
+                ["20260902", "20260901"],
+                ["20260901", "20260902"],
+                id="time-ids-sort-ascending",
+            ),
+        ],
+    )
+    def test_sorts_ids_by_value(self, ids: list[str], expected: list[str]) -> None:
+        assert sorted(ids, key=partition_sort_key) == expected
 
 
 class TestSchemaPlanGrouping:

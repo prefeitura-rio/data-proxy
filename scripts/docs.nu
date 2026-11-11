@@ -15,6 +15,7 @@ const LLMS_SUMMARY = 'Data Proxy serves BigQuery data through PostgreSQL, DuckLa
 const SENTENCE_WORDS = 25
 const PAGE_WORDS = 1000
 const LONG_PAGES = [
+    docs/glossary.md
     docs/model.md
     docs/style.md
 ]

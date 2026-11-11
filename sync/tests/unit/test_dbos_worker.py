@@ -15,6 +15,7 @@ from tests.fixtures.types import (
     RecordingDbos,
     ReturnsAtOnce,
 )
+from tests.helpers.core import exactly
 from tests.helpers.dbos import (
     catalog_commit_error,
     workflow_body,
@@ -212,7 +213,7 @@ class TestListenedQueues:
 
     def test_refuses_an_unknown_queue(self) -> None:
         """A typo must stop the worker, not leave work in a queue that nobody reads."""
-        with pytest.raises(ValueError, match="Unknown queues: z"):
+        with pytest.raises(ValueError, match=exactly("Unknown queues: z")):
             utils.listened_queues(["a", "b"], "a,z")
 
 

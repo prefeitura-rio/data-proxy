@@ -64,6 +64,8 @@
   value: {{ .Values.sync.duckdb.tempDirectory | quote }}
 - name: SYNC_QUEUE_CONCURRENCY
   value: {{ .Values.sync.queueConcurrency | quote }}
+- name: DUMP_BATCH_BYTES
+  value: {{ .Values.sync.dumpBatchBytes | int64 | quote }}
 - name: AUTH_ANON_ROLE
   value: {{ .Values.auth.anonRole | quote }}
 - name: AUTH_USER_ROLE

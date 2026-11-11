@@ -64,6 +64,7 @@ These variables set the first values of the DBOS queues and of the sync schedule
 | `DUCKDB_THREADS` | `2` | Threads of each DuckDB connection. |
 | `DUCKDB_TEMP_DIRECTORY` | `/tmp/duckdb` | Parent folder of the spill of the DuckDB connections. Each connection spills to a folder of its own in it, and removes the folder when it closes. |
 | `DUMP_QUEUE_RATE_LIMIT` | `0` | Initial dump tasks per minute. `0` turns the limit off. |
+| `DUMP_BATCH_BYTES` | `268435456` | Logical size of the source data of one dump task. The planner joins contiguous changed partitions into one query and one file up to this size. |
 | `DUMP_QUEUE_MAX_ATTEMPTS` | `3` | Dump workflow retry attempts. |
 
 The engine creates the queues and the schedule when they don't exist, and never overwrites them. These values are only the first ones, because a restart keeps the stored values. The console shows the queues and the schedules and doesn't edit them. See [Control a run and a schedule](../console/runs.md) for what a schedule allows.

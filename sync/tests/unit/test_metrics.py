@@ -2,6 +2,7 @@ import pytest
 
 from sync.metrics import observe
 from sync.types import RunStatus
+from tests.helpers.core import exactly
 
 
 class TestObserveSync:
@@ -35,6 +36,6 @@ class TestObserveSync:
         async def workflow() -> None:
             raise RuntimeError("failed")
 
-        with pytest.raises(RuntimeError, match="failed"):
+        with pytest.raises(RuntimeError, match=exactly("failed")):
             await workflow()
         assert recorded == ["failure"]

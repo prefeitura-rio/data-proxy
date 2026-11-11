@@ -9,6 +9,7 @@ from sync.sources.partitions import RangeConfig, RemainderSelection, TimeConfig
 from sync.sources.registry import sources
 from sync.sources.source import Sources
 from sync.templates import to_sql
+from tests.helpers.core import exactly
 
 
 class TestSources:
@@ -38,7 +39,9 @@ class TestSources:
         registry = Sources()
         registry.register([BigQuerySource()])
 
-        with pytest.raises(ValueError, match="already registered"):
+        with pytest.raises(
+            ValueError, match=exactly("source already registered: bigquery")
+        ):
             registry.register([BigQuerySource()])
 
     def test_rejects_an_unknown_source(self) -> None:
@@ -46,7 +49,8 @@ class TestSources:
         registry = Sources().register([BigQuerySource()])
 
         with pytest.raises(
-            ValueError, match=r"unknown source: missing \(known sources: bigquery\)"
+            ValueError,
+            match=exactly("unknown source: missing (known sources: bigquery)"),
         ):
             registry.configure("missing", {})
 
@@ -84,7 +88,9 @@ class TestBigQuerySource:
     )
     def test_rejects_an_invalid_table_reference(self, reference: str) -> None:
         """Reject references outside the BigQuery project.dataset.table format."""
-        with pytest.raises(ValueError, match="Invalid BigQuery table reference"):
+        with pytest.raises(
+            ValueError, match=exactly(f"Invalid BigQuery table reference: {reference}")
+        ):
             BigQuerySource().validate(reference)
 
 

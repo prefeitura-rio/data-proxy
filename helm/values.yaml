@@ -19,6 +19,10 @@ sync:
   ## Maximum concurrent run_sync workflows across all workers.
   ## One at a time prevents overlapping sync runs.
   queueConcurrency: 1
+  ## Logical size of the source data that one dump task extracts, in bytes. The planner joins contiguous changed
+  ## partitions of a table into one task with one query and one file, until the size reaches this value. A larger
+  ## value means fewer and larger files and queries. The size is the uncompressed size that the source reports.
+  dumpBatchBytes: 268435456
   ## Maximum DBOS step retry attempts for one dump task.
   dumpStepMaxAttempts: 3
   ## Maximum attempts for safe transient DBOS steps.
