@@ -25,6 +25,10 @@ const DefaultTimeout = 30 * time.Second
 // maxErrorBody limits how much of an error response the client reads.
 const maxErrorBody = 1 << 20
 
+// maxBody limits how much of a successful response the client reads. A longer body cannot come from a page that
+// the provider asks for, so it is a wrong endpoint or a filter that matches too much.
+const maxBody = 64 << 20
+
 // reservedParameters are the query parameters of PostgREST. A filter on a column with one of these names would not
 // filter the rows, so a Patch or a Delete would touch the whole table.
 var reservedParameters = map[string]struct{}{
@@ -313,9 +317,14 @@ func (c *Client) do(ctx context.Context, r request, out any) error {
 			r.method, r.path, ErrTruncated, resp.Header.Get("Content-Range"))
 	}
 
-	raw, err := io.ReadAll(resp.Body)
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
 		return fmt.Errorf("%s %s: read the response: %w", r.method, r.path, err)
+	}
+
+	if len(raw) > maxBody {
+		return fmt.Errorf("%s %s: %w: the response is longer than %d bytes, so narrow the filter",
+			r.method, r.path, ErrTooLarge, maxBody)
 	}
 
 	if out == nil || len(bytes.TrimSpace(raw)) == 0 {
