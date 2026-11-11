@@ -205,6 +205,17 @@ jobs:
         with:
           group: terraform
           profile: terraform
+  terraform:
+    name: Release the provider
+    needs:
+      - repo
+      - test-terraform
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.TERRAFORM_REGISTRY_HOST != '' && needs.repo.result == 'success' && needs.test-terraform.result == 'success'
+    permissions:
+      contents: write
+      id-token: write
+    uses: ./.github/workflows/terraform.yaml
+    secrets: inherit
   profile-sizes:
     name: Profile sizes
     runs-on: ubuntu-latest
