@@ -5,7 +5,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 COPY --from=docker.io/node:24.22.0-bookworm-slim@sha256:91acba91b842bec0bf7ea6f5e09c644c7ccad72c4996ed9616d861d1c7cd60d4 /usr/local /usr/local
 COPY --from=ghcr.io/astral-sh/uv:0.9.30@sha256:538e0b39736e7feae937a65983e49d2ab75e1559d35041f9878b7b7e51de91e4 /uv /usr/local/bin/uv
 
-RUN curl -fsSL https://github.com/nushell/nushell/releases/download/0.116.0/nu-0.116.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /usr/local/bin --strip-components=1 \
+RUN curl -fsSL -o /tmp/nu.tar.gz https://github.com/nushell/nushell/releases/download/0.116.0/nu-0.116.0-x86_64-unknown-linux-gnu.tar.gz \
+    && echo "9f73a6913f9515a621bd916dc91d7f3e0494e488161c2d686f6b98ffa0555945  /tmp/nu.tar.gz" | sha256sum --check - \
+    && tar xzf /tmp/nu.tar.gz -C /usr/local/bin --strip-components=1 \
+    && rm /tmp/nu.tar.gz \
     && npm install --global pnpm@11.25.0
 
 WORKDIR /app
