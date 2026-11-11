@@ -2,7 +2,7 @@ module terraform-provider-data-proxy
 
 go 1.26.0
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	github.com/hashicorp/terraform-plugin-framework v1.19.0
