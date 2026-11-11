@@ -7,7 +7,6 @@ Application defaults apply outside Helm. Helm sets the same values through the c
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PG_DATABASE_URL` | required | PostgreSQL data source name (DSN) for the target database. |
-| `REDIS_READ` | `redis://localhost:6379/1` | Redis address for cache reads. |
 | `REDIS_WRITE` | `redis://localhost:6379/0` | Redis address for cache writes. |
 | `DBOS_SYSTEM_DATABASE_URL` | required | DBOS system database address. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | unset | BigQuery credentials file. Omit with Workload Identity. |

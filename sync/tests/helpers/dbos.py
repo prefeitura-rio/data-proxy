@@ -259,7 +259,7 @@ def stub_cache_redis(monkeypatch: pytest.MonkeyPatch, cache_db: int) -> list[str
     events: list[str] = []
 
     @asynccontextmanager
-    async def redis(db: int | None = None) -> AsyncGenerator[FakeRedis]:
+    async def redis(db: int) -> AsyncGenerator[FakeRedis]:
         events.append(f"open:{db}")
         try:
             yield FakeRedis(db, events)

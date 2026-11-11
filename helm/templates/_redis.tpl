@@ -9,13 +9,8 @@
 {{- .Values.redis.passwordKey | default "REDIS_PASSWORD" }}
 {{- end }}
 
-{{- /* Return the variables `REDIS_READ` and `REDIS_WRITE` from the Redis Secret. */ -}}
+{{- /* Return the variable `REDIS_WRITE` from the Redis Secret. */ -}}
 {{- define "data-proxy.redisConfigEnv" -}}
-- name: REDIS_READ
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "data-proxy.redisSecretName" . }}
-      key: {{ .Values.redis.readKey | default "REDIS_READ" }}
 - name: REDIS_WRITE
   valueFrom:
     secretKeyRef:
