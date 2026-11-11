@@ -84,20 +84,46 @@ describe('freshSession', () => {
 		expect(unseal(store.get('session.0') ?? '', 'cookie')).toEqual(fresh);
 	});
 
-	it('keeps a session that has time left when the refresh fails, and clears the cookies', async () => {
+	it('keeps a session that has time left, and its cookies, when the refresh fails', async () => {
 		vi.mocked(discover).mockResolvedValue(IDP);
 		vi.mocked(refreshSession).mockRejectedValue(new Error('down'));
 		const { cookies, store } = jar(stored(session(30_000)));
 
 		expect(await freshSession(cookies, false)).toMatchObject({ accessToken: 'access' });
+		expect(unseal(store.get('session.0') ?? '', 'cookie')).toMatchObject({ accessToken: 'access' });
+	});
+
+	it('sends the user to sign in again, and clears the cookies, when the refresh fails after the session ended', async () => {
+		vi.mocked(discover).mockResolvedValue(IDP);
+		vi.mocked(refreshSession).mockRejectedValue(new Error('down'));
+		const { cookies, store } = jar(stored(session(-1000)));
+
+		expect(await freshSession(cookies, false)).toBeNull();
 		expect(store.size).toBe(0);
 	});
 
-	it('sends the user to sign in again when the refresh fails after the session ended', async () => {
+	it('refreshes once for parallel requests that carry the same refresh token', async () => {
+		const fresh = { accessToken: 'new', refreshToken: 'new-refresh', expiresAt: NOW + 10 * 60_000 };
 		vi.mocked(discover).mockResolvedValue(IDP);
-		vi.mocked(refreshSession).mockRejectedValue(new Error('down'));
+		vi.mocked(refreshSession).mockResolvedValue(fresh);
+		const requests = [jar(stored(session(30_000))), jar(stored(session(30_000)))];
 
-		expect(await freshSession(jar(stored(session(-1000))).cookies, false)).toBeNull();
+		const answers = await Promise.all(requests.map(({ cookies }) => freshSession(cookies, false)));
+
+		expect(answers).toEqual([fresh, fresh]);
+		expect(refreshSession).toHaveBeenCalledTimes(1);
+		expect(requests.map(({ store }) => unseal(store.get('session.0') ?? '', 'cookie'))).toEqual([fresh, fresh]);
+	});
+
+	it('refreshes again for a later request, because the first refresh has ended', async () => {
+		const fresh = { accessToken: 'new', refreshToken: 'new-refresh', expiresAt: NOW + 10 * 60_000 };
+		vi.mocked(discover).mockResolvedValue(IDP);
+		vi.mocked(refreshSession).mockResolvedValue(fresh);
+
+		await freshSession(jar(stored(session(30_000))).cookies, false);
+		await freshSession(jar(stored(session(30_000))).cookies, false);
+
+		expect(refreshSession).toHaveBeenCalledTimes(2);
 	});
 });
 
