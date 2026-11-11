@@ -223,6 +223,47 @@ class TestMaintenanceTemplates:
             )
             await postgres.connection.commit()
 
+    @pytest.mark.parametrize(
+        ("age_days", "kept"),
+        [
+            pytest.param(100, False, id="old-error"),
+            pytest.param(1, True, id="recent-error"),
+        ],
+    )
+    async def test_prune_workflows_deletes_only_errors_older_than_the_retention(
+        self,
+        postgres: Postgres,
+        psql: Psql,
+        dbos_schema: str,
+        age_days: int,
+        kept: bool,
+    ) -> None:
+        """The errors table has no other owner of its rows, so the same retention that ends a run ends its error."""
+        target = postgres.namespace.identifier
+        await postgres.connection.execute(
+            helm_sql("create_state", {"schema": target}).encode()
+        )
+        await postgres.connection.execute(
+            SQL(
+                "INSERT INTO {}.errors (reason, fields, recorded_at) "
+                "VALUES ('extraction_failed', '{{}}', now() - make_interval(days => %s))"
+            ).format(target),
+            (age_days,),
+        )
+        await postgres.connection.commit()
+
+        psql.run(
+            psql_script(
+                helm_sql("prune_workflows", {"schema": target}),
+                helm_sql("call_prune_workflows", {"schema": target}),
+            ),
+            {"retention": "90 days"},
+        )
+
+        assert await scalar(
+            postgres, SQL("SELECT count(*) FROM {}.errors").format(target).as_string()
+        ) == (1 if kept else 0)
+
     async def test_recover_orphaned_workflows_re_enqueues_only_orphaned_workflows(
         self, postgres: Postgres, psql: Psql, dbos_schema: str
     ) -> None:
