@@ -29,7 +29,13 @@ on:
       - devenv.lock
       - devenv.yaml
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - closed
     paths: *ci_paths
+  delete: {}
   workflow_dispatch:
     inputs:
       force_full:
@@ -40,8 +46,12 @@ on:
         description: Run every check and test, with no saved task state. The images and the release follow the changed files.
         type: boolean
         default: false
+      provider_version:
+        description: The provider version to release, such as 0.2.0. Leave it empty to follow the commits.
+        type: string
+        required: false
 concurrency:
-  group: data-proxy-${{ github.ref }}
+  group: ${{ github.event_name == 'delete' && format('cleanup-{0}', github.run_id) || (github.event.action == 'closed' && format('cleanup-pr-{0}', github.event.pull_request.number)) || format('data-proxy-{0}', github.ref) }}
   cancel-in-progress: false
 permissions:
   contents: write
@@ -49,6 +59,7 @@ permissions:
 jobs:
   changes:
     name: Detect changed components
+    if: github.event_name != 'delete' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     outputs:
       build_helm: ${{ steps.filter.outputs.build_helm }}
@@ -71,6 +82,7 @@ jobs:
       run:
         shell: devenv --profile repo shell -- bash -e {0}
     name: Lint and unit tests
+    if: github.event_name != 'delete' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -104,6 +116,7 @@ jobs:
           group: repo
   test-sync:
     name: Sync integration tests
+    if: github.event_name != 'delete' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -127,6 +140,7 @@ jobs:
           profile: integration
   test-console:
     name: Console integration tests
+    if: github.event_name != 'delete' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -159,6 +173,7 @@ jobs:
           keycloak-cache-hit: ${{ steps.prewarm.outputs.keycloak-cache-hit }}
   test-proxy:
     name: Proxy integration tests
+    if: github.event_name != 'delete' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -180,6 +195,7 @@ jobs:
           profile: integration
   test-terraform:
     name: Terraform provider tests
+    if: github.event_name != 'delete' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -210,14 +226,33 @@ jobs:
     needs:
       - repo
       - test-terraform
-    if: always() && !cancelled() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.TERRAFORM_REGISTRY_HOST != '' && needs.repo.result == 'success' && needs.test-terraform.result == 'success'
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.TERRAFORM_REGISTRY_HOST != '' && needs.repo.result == 'success' && needs.test-terraform.result == 'success'
+    concurrency:
+      group: terraform-release
+      cancel-in-progress: false
     permissions:
       contents: write
       id-token: write
-    uses: ./.github/workflows/terraform.yaml
-    secrets: inherit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/terraform-release
+        with:
+          version: ${{ inputs.provider_version }}
+          registry-host: ${{ vars.TERRAFORM_REGISTRY_HOST }}
+          registry-namespace: ${{ vars.TERRAFORM_REGISTRY_NAMESPACE }}
+          registry-bucket: ${{ vars.TERRAFORM_REGISTRY_BUCKET }}
+          gcp-workload-identity-provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          gcp-service-account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
   profile-sizes:
     name: Profile sizes
+    if: github.event_name != 'delete' && github.event.action != 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -242,7 +277,7 @@ jobs:
     needs: changes
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
+      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix || '{"include":[{"name":"none","containerfile":"none"}]}') }}
     if: github.ref == 'refs/heads/main' && needs.changes.outputs.build_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -268,7 +303,7 @@ jobs:
       - test-console
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
+      matrix: ${{ fromJSON(needs.changes.outputs.build_matrix || '{"include":[{"name":"none","containerfile":"none"}]}') }}
     if: always() && github.ref == 'refs/heads/main' && needs.repo.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && needs.build-images.result == 'success' && needs.changes.outputs.build_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -387,3 +422,35 @@ jobs:
         run: gh release create "${{ steps.version.outputs.tag }}" --title "Helm chart ${{ steps.version.outputs.tag }}" --notes-file packaged/notes.md packaged/*.tgz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  cache-branch:
+    name: Delete the caches of a deleted branch
+    if: github.event_name == 'delete' && github.event.ref_type == 'branch' && github.event.ref != 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/actions
+      - uses: ./.github/actions/delete-caches
+        with:
+          ref: refs/heads/${{ github.event.ref }}
+          token: ${{ github.token }}
+  cache-pr:
+    name: Delete the caches of a closed pull request
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/actions
+      - uses: ./.github/actions/delete-caches
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          token: ${{ github.token }}
