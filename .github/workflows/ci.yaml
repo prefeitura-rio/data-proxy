@@ -308,6 +308,7 @@ jobs:
       run:
         shell: devenv --profile chart shell -- bash -e {0}
     name: Release Helm chart
+    environment: release
     timeout-minutes: 15
     needs:
       - changes
@@ -323,7 +324,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
-          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
       - name: Update from main
