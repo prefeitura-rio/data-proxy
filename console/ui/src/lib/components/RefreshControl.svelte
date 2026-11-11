@@ -1,26 +1,17 @@
 <script lang="ts">
 	import { RefreshCw } from '@lucide/svelte';
+	import { clock } from '#lib/clock.svelte.js';
 	import { INTERVALS } from '#lib/poll.js';
 	import type { poll } from '#lib/poll.svelte.js';
 	import { shortTime } from '#lib/time.js';
 
 	let { refresher }: { refresher: ReturnType<typeof poll> } = $props();
 
-	let now = $state(Date.now());
-
-	$effect(() => {
-		const timer = setInterval(() => {
-			now = Date.now();
-		}, 1000);
-
-		return () => {
-			clearInterval(timer);
-		};
-	});
+	const clocked = clock(() => true);
 </script>
 
 <div class="flex items-center gap-2 text-sm text-base-content/70">
-	<span aria-live="off">Updated {shortTime(new Date(refresher.updated).toISOString(), now)}</span>
+	<span aria-live="off">Updated {shortTime(new Date(refresher.updated).toISOString(), clocked.now)}</span>
 	<button
 		class="btn btn-circle btn-ghost btn-sm"
 		type="button"

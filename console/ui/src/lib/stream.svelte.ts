@@ -14,11 +14,11 @@ type RunSource = { id: () => string; logs: () => LogLine[]; status: () => string
  * After a control action, `watch()` follows the run even while it still shows a finished status.
  */
 export function runStream(source: RunSource) {
-	let streamed = $state<{ logs: LogLine[]; status: string } | null>(null);
+	let streamed = $state.raw<{ logs: LogLine[]; status: string } | null>(null);
 	let live = $state(isActive(untrack(source.status)));
 	let connection = $state<'live' | 'reconnecting'>('live');
 	let settling = false;
-	let pausedLogs = $state<LogLine[] | null>(null);
+	let pausedLogs = $state.raw<LogLine[] | null>(null);
 
 	const logs = $derived(pausedLogs ?? streamed?.logs ?? source.logs());
 	const status = $derived(streamed?.status ?? source.status());
