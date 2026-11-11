@@ -4,7 +4,7 @@ The workflow `.github/workflows/ci.yaml` checks, tests, builds and releases. A s
 
 ## Triggers
 
-The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `terraform/`, `nix/`, `k3d/`, `k6/`, `scripts/`, the workflows, the container files, the linter files and the devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
+The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `terraform/`, `nix/`, `k3d/`, `k6/`, `scripts/`, the workflows, the container files and the linter and devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
 
 A manual start has two inputs. `force_checks` runs every check and test without the saved task state. `force_full` does the same, builds every image and starts the release job. The release job still needs a release-level commit and a chart or image change.
 
@@ -25,6 +25,7 @@ flowchart LR
   end
   subgraph main["Only on main"]
     build["build-images<br/>fill the layer cache"] --> pushimg["push-images<br/>push and sign"] --> helm["helm<br/>publish the chart"]
+    provider["terraform<br/>release the provider"]
   end
   push --> changes
   push --> repo
@@ -38,6 +39,8 @@ flowchart LR
   sync --> pushimg
   console --> pushimg
   proxy --> pushimg
+  repo --> provider
+  terraform --> provider
 ```
 
 | Job | Work |
@@ -45,17 +48,18 @@ flowchart LR
 | `changes` | Runs `ci changes`. It writes which images need a build and whether the chart needs a release. |
 | `repo` | Runs `repo:lint` and `repo:test:unit`. |
 | `test-sync`, `test-console`, `test-proxy` | Run the `:int` task of the component in the `integration` profile. A task runs only if one of its inputs changed. |
-| `test-terraform` | Runs `tf:test:int`. No other job waits for it. |
+| `test-terraform` | Runs `tf:test:int`. Only `terraform` waits for it. |
 | `profile-sizes` | Runs `nix:lint:closure` and `nix:lint:cmd`. No other job waits for it. |
 | `build-images` | Builds each changed image and pushes nothing. It fills the layer cache while the tests run. |
 | `push-images` | Waits for every test job. It builds each image again from the cache, pushes it and signs it, so no image of an untested commit reaches the registry. |
 | `helm` | Releases the chart when the chart or an image changed. |
+| `terraform` | Calls `terraform.yaml` on main after `repo` and `test-terraform` pass. The provider tag is `terraform-v*`. See [Provider releases](./provider.md). |
 
 Each job restores the task state of the last green run of `main` before it runs, and only a run on `main` saves it. Caches keep the uv cache, the pnpm store and the Nix fetcher files between runs, keyed by the lock files. The workflow `cache-cleanup.yaml` deletes the caches of a deleted branch and of a closed pull request.
 
 ## Images
 
-`ci changes` matches the files that changed since the last `helm-v*` tag against the table `IMAGES` in `scripts/lib.nu`. A push to `main` compares with the last tag, so a red run loses no change. A pull request compares with its base. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `18-` to the hash.
+`ci changes` matches the files that changed since the last `helm-v*` tag against the table `IMAGES` in `scripts/lib.nu`. A push to `main` compares with the last tag. A pull request compares with its base. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `18-` to the hash.
 
 | Image | Rebuilds when this changes |
 | --- | --- |
@@ -91,7 +95,7 @@ Only the last step is specific to GitHub (`gh release create`). `ci.nu` reads `C
 
 `sast.yaml` calls the shared action `prefeitura-rio/actions/sast`, which sends the code to SonarQube and the findings to DefectDojo. It needs the variables `SONARQUBE_URL` and `DEFECTDOJO_URL` and the secrets `SONARQUBE_TOKEN`, `DEFECTDOJO_TOKEN`, `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET`. `sonar-project.properties` excludes the tooling and the tests.
 
-The run on `main` fails at the SonarQube quality gate. The log doesn't name the condition, so read the project dashboard on the SonarQube server. Checkov reports five `CKV_SECRET_6` findings although `.checkov.yaml` skips that check, so the action may not read the file. Checkov also can't render the chart, because `redis.host` has no default.
+The run on `main` fails at the SonarQube quality gate. The log doesn't name the condition, so read the project dashboard on the SonarQube server. Checkov reports five `CKV_SECRET_6` findings although `.checkov.yaml` skips that check, so the action may not read the file.
 
 The rule set `protect-main` protects `main`. It requires a pull request, one approval and the checks `Lint and unit tests`, `Sync integration tests`, `Console integration tests` and `Proxy integration tests`. Only the repository admin role and deploy keys bypass it.
 
