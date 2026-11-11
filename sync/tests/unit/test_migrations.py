@@ -7,6 +7,7 @@ from psycopg import AsyncConnection
 from tests.fixtures.console import (
     add_schema,
     as_token,
+    grant_app_usage,
     grant_console_reads,
     migrate,
     migration,
@@ -235,6 +236,56 @@ class TestMigrationsOnExistingData:
         cursor = await rbac.connection.execute(found.encode())
         assert await cursor.fetchall() == [(True, ["search_path=pg_catalog, pg_temp"])]
 
+    async def test_00014_keeps_the_counts_of_the_runs_and_names_each_schema_once(
+        self, rbac: Postgres, dbos_schema: str
+    ) -> None:
+        """The new view counts the tasks with subqueries, and a token still counts only the tasks of its own schemas. The old view named a schema once for each scope row of the run."""
+        await migrate(rbac, migrations_until(13))
+        await grant_console_reads(rbac)
+        await grant_app_usage(rbac)
+        for name in ("sales", "hr"):
+            await add_schema(rbac, name, claim="cpf", provisioned=False)
+        workflows = [
+            ("run-1", "run_sync", None, None, "SUCCESS"),
+            ("run-1-a", "dump_task", "run-1", "sales", "SUCCESS"),
+            ("run-1-b", "dump_task", "run-1", "sales", "ERROR"),
+            ("run-1-c", "dump_task", "run-1", "hr", "ERROR"),
+            ("run-2", "run_sync", None, None, "SUCCESS"),
+            ("run-2-a", "dump_task", "run-2", "hr", "SUCCESS"),
+        ]
+        for number, (uuid, name, parent, partition, status) in enumerate(workflows):
+            await rbac.connection.execute(
+                "INSERT INTO dbos.workflow_status (workflow_uuid, status, name, authenticated_user, queue_name, "
+                "queue_partition_key, parent_workflow_id, created_at, updated_at) VALUES (%s, %s, %s, 'seed', 'q', %s, %s, %s, %s)",
+                (uuid, status, name, partition, parent, 1000 + number, 1000 + number),
+            )
+        for uuid, run, schema in (
+            ("run-1", "run-1", "sales"),
+            ("run-1-a", "run-1", "sales"),
+            ("run-1-b", "run-1", "sales"),
+            ("run-1-c", "run-1", "hr"),
+            ("run-2", "run-2", "hr"),
+            ("run-2-a", "run-2", "hr"),
+        ):
+            await rbac.connection.execute(
+                "INSERT INTO data_proxy.scope (workflow_id, run_id, schema_name) VALUES (%s, %s, %s)",
+                (uuid, run, schema),
+            )
+        read = b"SELECT id, task_count, failed_task_count, schemas FROM console.runs ORDER BY id"
+
+        await as_token(rbac, "dp_console", ["sales"], database_role=True)
+        before = await (await rbac.connection.execute(read)).fetchall()
+
+        await rbac.connection.execute(b"RESET ROLE")
+        await migrate(rbac, [migration(14)])
+        await grant_console_reads(rbac)
+        await grant_app_usage(rbac)
+        await as_token(rbac, "dp_console", ["sales"], database_role=True)
+        after = await (await rbac.connection.execute(read)).fetchall()
+
+        assert before == [("run-1", 2, 1, ["sales", "sales", "sales"])]
+        assert after == [("run-1", 2, 1, ["sales"])]
+
     @pytest.mark.parametrize(
         ("schedule_name", "expected"),
         [
@@ -332,9 +383,9 @@ class TestMigrationOrder:
         self, rbac: Postgres, dbos_schema: str
     ) -> None:
         """Go back to the start with the Down parts alone."""
-        await migrate(rbac, migrations_until(13))
+        await migrate(rbac, migrations_until(14))
 
-        for number in range(13, 0, -1):
+        for number in range(14, 0, -1):
             down = migration_down(migration(number))
             if len(down.strip()) > 0:
                 await rbac.connection.execute(down.encode())

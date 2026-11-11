@@ -53,6 +53,16 @@ async def install_console(pg: Postgres) -> None:
 
     await pg.connection.execute(
         helm_sql(
+            "grant_console_usage", {"user_role": Identifier(settings.AUTH_USER_ROLE)}
+        ).encode()
+    )
+    await grant_app_usage(pg)
+
+
+async def grant_app_usage(pg: Postgres) -> None:
+    """Make the pre-request function and give the role of the requests the functions of the application schema, such as data_proxy.sees, as the provision job does."""
+    await pg.connection.execute(
+        helm_sql(
             "create_pre_request", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
         ).encode()
     )
