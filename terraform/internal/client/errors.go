@@ -25,6 +25,9 @@ var (
 // ErrTruncated is the error of a read that PostgREST cut at its row limit, so the rows are not all the matches.
 var ErrTruncated = errors.New("truncated answer")
 
+// ErrTooLarge is the error of a response that is longer than the client reads.
+var ErrTooLarge = errors.New("response too large")
+
 // ErrNoRow is the error of GetOne when no row matches. PostgREST answered, so it is not an Error.
 var ErrNoRow = errors.New("no row")
 

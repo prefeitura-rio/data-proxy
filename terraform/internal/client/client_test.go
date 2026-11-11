@@ -755,3 +755,50 @@ func TestGetFailsOnATruncatedAnswer(t *testing.T) {
 		})
 	}
 }
+
+func TestGetLimitsTheSizeOfTheAnswer(t *testing.T) {
+	tests := []struct {
+		name    string
+		padding int
+		wantErr bool
+	}{
+		{name: "below the limit", padding: 1 << 20},
+		{name: "at the limit", padding: maxBody - len(`[{"id":1}]`)},
+		{name: "above the limit", padding: maxBody - len(`[{"id":1}]`) + 1, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+
+				// The spaces between the rows are valid JSON, so the body decodes when the client reads all of it.
+				if _, err := w.Write([]byte("[" + strings.Repeat(" ", tt.padding) + `{"id":1}]`)); err != nil {
+					t.Errorf("write the response: %v", err)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			c, err := New(server.URL, staticToken{token: "jwt-123"}, server.Client())
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+
+			var rows []row
+
+			err = c.Get(context.Background(), ConsoleProfile, "projects", nil, &rows)
+
+			if !tt.wantErr {
+				if err != nil || len(rows) != 1 {
+					t.Fatalf("Get = %v with %d rows, want one row and no error", err, len(rows))
+				}
+
+				return
+			}
+
+			if !errors.Is(err, ErrTooLarge) {
+				t.Fatalf("error = %v, want one that wraps ErrTooLarge", err)
+			}
+		})
+	}
+}
