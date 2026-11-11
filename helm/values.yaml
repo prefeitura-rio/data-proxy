@@ -4,7 +4,7 @@ sync:
   ## Number of sync worker replicas before KEDA scaling. KEDA manages this after startup.
   replicas: 1
   ## Container image for the DBOS sync workers.
-  image: ghcr.io/prefeitura-rio/data-proxy-sync:be5cfa1
+  image: ghcr.io/prefeitura-rio/data-proxy-sync:d22a22f
   imagePullPolicy: IfNotPresent
   ## Mount the local manifests sync-trigger ConfigMap in sync workers.
   trigger:
@@ -295,7 +295,7 @@ redis:
 ## Maintenance jobs: backup and maintenance.
 jobs:
   ## Shared image for maintenance jobs.
-  image: ghcr.io/prefeitura-rio/data-proxy-jobs:7ab90ad
+  image: ghcr.io/prefeitura-rio/data-proxy-jobs:d22a22f
   ## Provision template: a suspended CronJob that never runs on a clock. A Job is made from it when an
   ## editor adds or removes a schema, and at the start of every sync run. It creates each schema and its
   ## access policy, serves the list, and removes what the console dropped.
@@ -395,7 +395,7 @@ cnpg:
 ## The web console. It signs in people with OIDC, calls PostgREST with their token, and runs the query tab.
 console:
   enabled: false
-  image: ghcr.io/prefeitura-rio/data-proxy-console:dd3cce4
+  image: ghcr.io/prefeitura-rio/data-proxy-console:d22a22f
   imagePullPolicy: IfNotPresent
   ## One replica is enough. The server keeps no state, so more replicas also work.
   resources:
@@ -476,7 +476,7 @@ proxy:
   maxCacheBodyBytes: 262144
   ## Most requests that wait for PostgREST at the same time in one proxy pod. More get a 503 with Retry-After at once. 0 means no limit.
   maxInflight: 32
-  image: ghcr.io/prefeitura-rio/data-proxy-proxy:dd3cce4
+  image: ghcr.io/prefeitura-rio/data-proxy-proxy:d22a22f
   resources:
     requests:
       ## A large request keeps the CPU share of the proxy high when a node is busy with PostgreSQL.

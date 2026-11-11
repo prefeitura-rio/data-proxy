@@ -2,6 +2,32 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.15.0 - 2026-11-11
+
+### Features
+
+- **proxy**: give each schema its own cache generation (2e4480f)
+- **sync**: batch contiguous partitions into one dump task by size (e2a0312)
+
+### Fixes
+
+- **ci**: push the release with a deploy key (c3f4dca)
+- **terraform**: update the Go toolchain to 1.26.11 (d1c545c)
+- **terraform**: limit the size of a successful response (0bf82cd)
+- **chart**: render a disruption budget only for two or more pods (67de830)
+- **console**: keep the notebook origin apart and seal storage keys with KEYS_SECRET (ee6aca5)
+- **console**: keep the session when a refresh fails and share one refresh (0dca9cd)
+- **postgres**: prune old errors and index them (4bd65a2)
+- **sync**: roll back Postgres.atomic on a cancellation (98fc8c8)
+- **sync**: report the S3 keys that a delete refuses (21a84c1)
+- **sync**: refuse to remove many tables or identities in one step (73b1d16)
+- **sync**: stop on SIGTERM and let running workflows end (bc99ca9)
+- **console**: count the tasks of a page of runs only (14e1746)
+- **console**: restore definer rights of require_claim (1402f84)
+
+
+- - -
+
 ## helm-v2.14.0 - 2026-11-09
 
 ### Features
