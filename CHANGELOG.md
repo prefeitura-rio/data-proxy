@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.15.2 - 2026-11-16
+
+### Fixes
+
+- size the SeaweedFS volume claim at 100Gi (#34) (82ff133)
+
+
+- - -
+
 ## helm-v2.15.1 - 2026-11-16
 
 ### Fixes
