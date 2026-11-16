@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.15.1 - 2026-11-16
+
+### Fixes
+
+- compact SeaweedFS volumes at 10% garbage (#33) (5aa73d9)
+
+
+- - -
+
 ## helm-v2.15.0 - 2026-11-11
 
 ### Features
