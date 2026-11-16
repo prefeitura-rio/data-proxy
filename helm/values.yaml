@@ -244,6 +244,10 @@ seaweedfs:
   master:
     enabled: true
     replicas: 1
+    ## SeaweedFS compacts a volume only when its deleted share is above this value. The default 0.3 leaves up to a
+    ## third of a 1 GB volume as garbage, so the volumes fill, the store runs out of volume slots and every upload
+    ## fails with HTTP 500.
+    garbageThreshold: 0.1
     data:
       type: persistentVolumeClaim
       size: 1Gi
