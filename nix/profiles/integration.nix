@@ -18,23 +18,6 @@ _: {
           "Containerfile.pg"
         ];
 
-        notebookSources = [
-          "nix/stack/notebooks.nix"
-          "console/notebooks/build.nu"
-          "console/notebooks/bundle.ts"
-          "console/notebooks/tsconfig.json"
-          "console/notebooks/package.json"
-          "console/notebooks/pnpm-lock.yaml"
-          "console/notebooks/pnpm-workspace.yaml"
-          "console/notebooks/pyproject.toml"
-          "console/notebooks/uv.lock"
-        ]
-        ++ utils.mkGlobs "console/notebooks/src" [
-          "css"
-          "ts"
-        ]
-        ++ utils.mkGlobs "console/notebooks/notebooks" [ "py" ];
-
         syncSources = [
           "sync/pyproject.toml"
           "sync/uv.lock"
@@ -146,7 +129,6 @@ _: {
               "json"
               "conf"
             ]
-            ++ notebookSources
             ++ syncSources
             ++ postgresServer
             ++ environment;
