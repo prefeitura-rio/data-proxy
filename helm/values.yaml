@@ -258,10 +258,13 @@ seaweedfs:
   volume:
     enabled: true
     replicas: 1
+    ## Keep `size` equal to the real disk. The subchart's resize hook compares it with the claim as text, so a claim
+    ## that is larger than `size` makes the hook try to shrink it, and the Helm upgrade fails. After a manual
+    ## `kubectl patch pvc`, set the same size here. A claim can't shrink.
     dataDirs:
       - name: data
         type: persistentVolumeClaim
-        size: 40Gi
+        size: 100Gi
         maxVolumes: 0
     resources:
       requests:
