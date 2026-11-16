@@ -73,7 +73,7 @@ _: {
               "sync/tests/**/*.py"
               "sync/tests/**/*.sql"
               "sync/tests/**/*.feature"
-              "console/migrations/*.sql"
+              "migrations/*/*.sql"
               "scripts/db.nu"
               "nix/stack/sync.nix"
               "nix/stack/seaweedfs.nix"
@@ -102,7 +102,7 @@ _: {
             profile = "console";
             inputs = [
               "console/devenv.nix"
-              "console/migrations/*.sql"
+              "migrations/*/*.sql"
               "console/ui/package.json"
               "console/ui/pnpm-lock.yaml"
               "console/ui/pnpm-workspace.yaml"

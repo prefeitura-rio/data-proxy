@@ -10,7 +10,7 @@ SeaweedFS stores Parquet data in its own configured storage. The PostgreSQL data
 
 ## Database initialization and readiness
 
-Three Jobs prepare the database, and each one waits for what it needs.
+Three Jobs prepare the database, and each one waits for what it needs. A migration contains what changes only when a developer changes it. A Job contains what depends on a secret, on `rbac.toml`, on the schemas of the console or on a sync run.
 
 ```mermaid
 %% Install Jobs sequence
@@ -23,17 +23,17 @@ sequenceDiagram
   participant pgr as PostgREST
   h->>cfg: start
   cfg->>pg: wait for the writer
-  cfg->>pg: roles, rbac, state tables, functions
-  cfg->>pg: DuckDB secrets and grants
+  cfg->>pg: request roles
   h->>mig: start
-  mig->>pg: wait for the state tables
+  mig->>pg: wait for the request roles
   mig->>pg: dbos migrate
-  mig->>pg: goose up (console schema)
+  mig->>pg: goose up (application and catalog databases)
+  cfg->>pg: wait for the rbac schema
+  cfg->>pg: DuckDB secrets and the rules of rbac.toml
   h->>prov: start
-  prov->>pg: wait for the console tables
-  prov->>pg: console functions and triggers
+  prov->>pg: wait for the migrations and the rules
   prov->>pg: fill an empty configuration
-  prov->>pg: schemas, access policies, grants
+  prov->>pg: schemas, access policies, reader roles
   prov->>pg: set pgrst.db_schemas
   opt the schema list changed
     pg->>pgr: NOTIFY after the standbys replay
@@ -42,32 +42,34 @@ sequenceDiagram
 
 | Job | Waits for | Work |
 | --- | --- | --- |
-| `configure-db` | Its CNPG writer. | Runs idempotent SQL with `ON_ERROR_STOP=1`, as `ops`. CNPG owns two roles, `ops` and `duckdb`. The Job owns the system objects (see below). It also writes the persistent DuckDB secrets, which only a superuser may write. |
-| `migrate-db` | The last of the state tables. | Runs in the sync image. It runs `dbos migrate` and `goose up`, and it owns the `console` schema of the console. The image contains `goose` and the files of `console/migrations`. |
-| `provision` | The `console` tables. | Runs on every install and upgrade. See below. |
+| `configure-db` | Its CNPG writer, and then the `rbac` schema of the migrations. | Runs idempotent SQL with `ON_ERROR_STOP=1`, as `ops`. CNPG owns two roles, `ops` and `duckdb`. The Job creates the request roles first. After the migrations, it writes the persistent DuckDB secrets, which only a superuser may write, loads the rules of `rbac.toml` and installs the recovery procedure. |
+| `migrate-db` | The request roles, because its grants name them. | Runs in the sync image. It runs `dbos migrate`, then `goose up` on the application database with `migrations/console/` and on the catalog database with `migrations/ducklake/`. See below. |
+| `provision` | The migrations of both databases, and the rules. | Runs on every install and upgrade. See below. |
 
-The system objects of `configure-db` are:
+The migrations make what changes only with the code:
 
-- the request roles: `anon`, the `dp_*` roles of `rbac.toml` and the `serving` login
-- the `rbac` schema
-- the state, error and scope tables of the engine
-- the pre-request function and its grants
-- the functions that reload PostgREST
-- the maintenance procedures
+- the extensions `postgis` and `pg_duckdb`
+- the `data_proxy` schema: the state tables, the reload functions, the pre-request function and the maintenance procedures
+- the `rbac` schema with its functions, and the `console` schema with its tables, views, functions and triggers
+- the grants to the request roles
+- in the catalog database, the table of the sealed keys and the privileges of the catalog reader
+
+`configure-db` keeps what depends on a secret or on `rbac.toml`: the request roles, the rules and the DuckDB secrets. It also keeps the recovery procedure, which takes the application name from the chart.
+
+Goose records each migration in `public.goose_db_version` of its database. Between `-- +goose ENVSUB ON` and `-- +goose ENVSUB OFF`, it fills the role names, such as `${AUTH_USER_ROLE}`, from the Job. Every name is quoted, so a name that isn't set stops the run.
 
 `provision` also exists as a suspended CronJob, `<release>-provision`, that a Job comes from when a schema changes (see [Run a Job on demand](initialization.md#run-a-job-on-demand)). On install and upgrade, it does these steps:
 
-- It first installs the functions and triggers of the console, which need the tables and views of the migrations.
 - It fills an empty configuration once from `sync.config`. Afterward the console controls the configuration.
-- It grants the baseline role (`auth.userRole`, which every `dp_*` role is a member of) its rights on the `console` schema. The rights are wide, and each view, row policy and function asks for the permission of the token.
 - For each schema in `console.schemas`, it creates the PostgreSQL schema and its access policy, with row policies that ask for `read_policy` and `edit_policy`.
-- It grants the anonymous role the right to call `console.config()`, the one function that the proxy reads.
 - It sets `pgrst.db_schemas` on the `serving` login to the schemas plus `console`, in that order, because the first schema is the default profile of PostgREST.
 - It tells PostgREST to reload only when that list changes. The database waits until every standby replayed the change, then sends a `NOTIFY` on the `pgrst` channel.
 
 PostgREST serves a schema that an editor adds within seconds. The job drops a schema that an editor removes: the files first, then the catalog, then the schema of the database. See [Console](../console/configuration.md#remove-a-table-or-a-schema).
 
-The header of `scripts/migrate.nu` explains what belongs to the chart and what belongs to the migrations.
+### Roll back
+
+The Job never runs a Down part, and the baseline has none. To go back, deploy the previous chart version. To undo a later file with a Down part, run `goose down` by hand.
 
 ## Run a Job on demand
 

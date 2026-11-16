@@ -106,10 +106,11 @@
                 ];
               };
               "sync:lint:sql" = utils.nuTask {
-                description = "Lint the SQL templates and the console migrations.";
+                description = "Lint the SQL templates and the migrations.";
                 exec = ''
-                  sqlfluff lint --dialect postgres sync/src/sync/templates/postgres helm/files/templates sync/tests/templates/postgres console/migrations
-                  goose -dir console/migrations validate
+                  sqlfluff lint --dialect postgres sync/src/sync/templates/postgres helm/files/templates sync/tests/templates/postgres migrations
+                  goose -dir migrations/console validate
+                  goose -dir migrations/ducklake validate
                   sqlfluff lint --dialect duckdb sync/src/sync/templates/duckdb sync/tests/templates/duckdb sync/tests/templates/bigquery
                   sqlfluff lint --dialect bigquery sync/src/sync/templates/bigquery
                 '';
@@ -118,7 +119,7 @@
                   ".sqlfluffignore"
                   "helm/files/templates/**/*.sql"
                   "sync/**/*.sql"
-                  "console/migrations/*.sql"
+                  "migrations/*/*.sql"
                 ];
               };
             };

@@ -15,6 +15,8 @@ data:
 {{ .Files.Get "files/scripts/wait-for-postgres.nu" | nindent 4 }}
   wait-for-relation.nu: |
 {{ .Files.Get "files/scripts/wait-for-relation.nu" | nindent 4 }}
+  wait-for-sql.nu: |
+{{ .Files.Get "files/scripts/wait-for-sql.nu" | nindent 4 }}
   provision.nu: |
 {{ .Files.Get "files/scripts/provision.nu" | nindent 4 }}
   fetch-jwks.nu: |
@@ -64,15 +66,17 @@ spec:
       automountServiceAccountToken: false
       {{- include "data-proxy.podSecurity" $ | nindent 6 }}
       initContainers:
-        - name: wait-for-state
+        - name: wait-for-roles
           image: {{ .Values.jobs.image | quote }}
           {{- include "data-proxy.containerSecurity" (dict "root" $ "component" "jobs") | nindent 10 }}
           imagePullPolicy: {{ .Values.sync.imagePullPolicy }}
-          command: [nu, /scripts/wait-for-relation.nu]
+          command: [nu, /scripts/wait-for-sql.nu]
           workingDir: /scripts
           env:
-            - name: RELATION
-              value: data_proxy.scope
+            - name: PROBE_NAME
+              value: the request roles
+            - name: PROBE
+              value: {{ printf "SELECT count(*) = 3 FROM pg_roles WHERE rolname IN (%s, %s, %s)" (squote .Values.auth.anonRole) (squote .Values.auth.userRole) (squote .Values.auth.signerRole) | quote }}
             {{- include "data-proxy.pgEnv" . | nindent 12 }}
           volumeMounts:
             - name: scripts
@@ -86,9 +90,15 @@ spec:
           command:
             - sh
             - -c
-            - dbos migrate --sys-db-url "$DBOS_SYSTEM_DATABASE_URL" --schema "$DBOS_SYSTEM_SCHEMA" && goose -dir /app/migrations postgres "$PG_DATABASE_URL" up
+            - ': "${AUTH_ANON_ROLE:?}" "${AUTH_USER_ROLE:?}" "${AUTH_SIGNER_ROLE:?}" "${PGUSER:?}" && dbos migrate --sys-db-url "$DBOS_SYSTEM_DATABASE_URL" --schema "$DBOS_SYSTEM_SCHEMA" && goose -dir /app/migrations/console postgres "$PG_DATABASE_URL" up && goose -dir /app/migrations/ducklake postgres "$DUCKLAKE_ADMIN_URL" up'
           env:
             {{- include "data-proxy.appEnv" . | nindent 12 }}
+            - name: AUTH_SIGNER_ROLE
+              value: {{ .Values.auth.signerRole | quote }}
+            - name: PGUSER
+              value: {{ .Values.cnpg.db.user | quote }}
+            - name: DUCKLAKE_ADMIN_URL
+              value: {{ printf "postgresql://%s:$(PASSWORD)@%s-rw:5432/ducklake" .Values.cnpg.db.user (include "data-proxy.fullname" .) | quote }}
       volumes:
         - name: scripts
           configMap:

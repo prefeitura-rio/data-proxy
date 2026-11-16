@@ -27,13 +27,10 @@ tests:
           value: false
         template: cluster-cnpg.yaml
 
-  - it: creates the extensions at bootstrap and lets DuckDB run for the serving login
+  - it: leaves extension setup to goose and lets DuckDB run for the serving login
     asserts:
-      - equal:
+      - notExists:
           path: spec.bootstrap.initdb.postInitApplicationSQL
-          value:
-            - CREATE EXTENSION IF NOT EXISTS postgis;
-            - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
         template: cluster-cnpg.yaml
       - equal:
           path: spec.postgresql.parameters["duckdb.postgres_role"]

@@ -1,13 +1,9 @@
-{#
-{
-  "kind": "template",
-  "description": "Create the functions that tell PostgREST and the proxy to read the database again, after every standby replayed the change.",
-  "inputs": {
-    "schema": "SQL-safe PostgreSQL schema that holds application state."
-  }
-}
-#}
-CREATE OR REPLACE FUNCTION {{ schema }}.wait_for_standbys(
+-- +goose Up
+-- Creates data_proxy.wait_for_standbys(), which waits until every streaming standby
+-- replays the current WAL position, and data_proxy.reload_postgrest(), which waits and
+-- then sends NOTIFY pgrst.
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION data_proxy.wait_for_standbys(
     patience interval DEFAULT interval '15 seconds'
 )
 RETURNS void
@@ -28,16 +24,20 @@ BEGIN
     END IF;
 END;
 $$;
+-- +goose StatementEnd
 
-CREATE OR REPLACE FUNCTION {{ schema }}.reload_postgrest()
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION data_proxy.reload_postgrest()
 RETURNS void
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    PERFORM {{ schema }}.wait_for_standbys();
+    PERFORM data_proxy.wait_for_standbys();
     PERFORM pg_notify('pgrst', 'reload schema');
 END;
 $$;
+-- +goose StatementEnd
 
-REVOKE ALL ON FUNCTION {{ schema }}.wait_for_standbys(interval) FROM public;
-REVOKE ALL ON FUNCTION {{ schema }}.reload_postgrest() FROM public;
+REVOKE ALL ON FUNCTION data_proxy.wait_for_standbys(interval) FROM public;
+
+REVOKE ALL ON FUNCTION data_proxy.reload_postgrest() FROM public;

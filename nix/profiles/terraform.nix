@@ -72,7 +72,7 @@
               "nix/stack/postgrest.nix"
               "nix/stack/seaweedfs.nix"
               "console/devenv.nix"
-              "console/migrations/*.sql"
+              "migrations/*/*.sql"
               "k3d/values/keycloak.yaml"
               "Containerfile.kc"
               "Containerfile.pg"

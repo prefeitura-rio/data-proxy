@@ -156,11 +156,12 @@ let
         ];
       }
       {
-        name = "conf";
-        description = "Create the roles and the application schema.";
+        name = "roles";
+        description = "Create the request roles.";
         command = [
           "nu"
           "helm/files/scripts/configure-db.nu"
+          "roles"
         ];
       }
       {
@@ -177,14 +178,20 @@ let
       }
       {
         name = "migrate";
-        description = "Apply the console migrations.";
+        description = "Apply the migrations of the application and the catalog databases.";
         command = [
-          "goose"
-          "-dir"
-          "console/migrations"
-          "postgres"
-          (utils.postgresUrl { database = appDatabase; })
-          "up"
+          "sh"
+          "-c"
+          "goose -dir migrations/console postgres \"$PG_DATABASE_URL\" up && goose -dir migrations/ducklake postgres \"$DUCKLAKE_ADMIN_URL\" up"
+        ];
+      }
+      {
+        name = "rules";
+        description = "Load the rules of rbac.toml and the DuckDB secrets.";
+        command = [
+          "nu"
+          "helm/files/scripts/configure-db.nu"
+          "rules"
         ];
       }
       {
@@ -215,9 +222,6 @@ in
       CREATE ROLE duckdb LOGIN PASSWORD '${postgres.passwords.duckdb}';
       ALTER DATABASE ${appDatabase} SET duckdb.unsafe_allow_execution_inside_functions = 'on';
       ALTER DATABASE ${appDatabase} SET duckdb.unsafe_allow_mixed_transactions = 'on';
-      \connect ${appDatabase}
-      CREATE EXTENSION postgis;
-      CREATE EXTENSION pg_duckdb;
     '';
   };
 

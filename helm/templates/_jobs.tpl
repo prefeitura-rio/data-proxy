@@ -186,15 +186,35 @@ restartPolicy: OnFailure
 automountServiceAccountToken: false
 {{- include "data-proxy.podSecurity" $root | nindent 0 }}
 initContainers:
-  - name: wait-for-config
+  - name: wait-for-migrations
     image: {{ $root.Values.jobs.image | quote }}
     {{- include "data-proxy.containerSecurity" (dict "root" $root "component" "jobs") | nindent 4 }}
     imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
-    command: [nu, /scripts/wait-for-relation.nu]
+    command: [nu, /scripts/wait-for-sql.nu]
     workingDir: /scripts
     env:
-      - name: RELATION
-        value: console.schemas
+      - name: PROBE_NAME
+        value: the migrations of the application database and the rules
+      - name: PROBE
+        value: {{ printf "SELECT has_function_privilege(%s, 'console.config()', 'EXECUTE') AND EXISTS (SELECT FROM rbac.roles)" (squote $root.Values.auth.anonRole) | quote }}
+      {{- include "data-proxy.pgEnv" $root | nindent 6 }}
+    volumeMounts:
+      - name: scripts
+        mountPath: /scripts
+        readOnly: true
+  - name: wait-for-catalog
+    image: {{ $root.Values.jobs.image | quote }}
+    {{- include "data-proxy.containerSecurity" (dict "root" $root "component" "jobs") | nindent 4 }}
+    imagePullPolicy: {{ $root.Values.sync.imagePullPolicy }}
+    command: [nu, /scripts/wait-for-sql.nu]
+    workingDir: /scripts
+    env:
+      - name: PROBE_NAME
+        value: the migrations of the catalog database
+      - name: PROBE
+        value: "SELECT to_regclass('signer.keys') IS NOT NULL"
+      - name: PROBE_URL
+        value: {{ printf "postgresql://%s@%s-rw:5432/ducklake" $root.Values.cnpg.db.user (include "data-proxy.fullname" $root) | quote }}
       {{- include "data-proxy.pgEnv" $root | nindent 6 }}
     volumeMounts:
       - name: scripts

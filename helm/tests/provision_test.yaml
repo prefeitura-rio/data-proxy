@@ -15,7 +15,14 @@ tests:
         skipEmptyTemplate: true
       - equal:
           path: spec.template.spec.initContainers[0].name
-          value: wait-for-config
+          value: wait-for-migrations
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.initContainers[0].command
+          value: [nu, /scripts/wait-for-sql.nu]
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]
           value: provision
@@ -23,8 +30,31 @@ tests:
       - contains:
           path: spec.template.spec.initContainers[0].env
           content:
-            name: RELATION
-            value: console.schemas
+            name: PROBE
+            value: "SELECT has_function_privilege('anon', 'console.config()', 'EXECUTE') AND EXISTS (SELECT FROM rbac.roles)"
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+      - equal:
+          path: spec.template.spec.initContainers[1].name
+          value: wait-for-catalog
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+      - contains:
+          path: spec.template.spec.initContainers[1].env
+          content:
+            name: PROBE
+            value: "SELECT to_regclass('signer.keys') IS NOT NULL"
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: provision
+        template: jobs.yaml
+      - matchRegex:
+          path: spec.template.spec.initContainers[1].env[2].value
+          pattern: "@data-proxy-rw:5432/ducklake$"
         documentSelector:
           path: metadata.labels["app.kubernetes.io/component"]
           value: provision

@@ -518,7 +518,7 @@ command = command: mkProbe (lib.escapeShellArgs command);
 
 ## SQL
 
-Applies to: `sync/src/sync/templates/**`, `helm/files/templates/**`, `console/migrations/**`, `helm/files/config/rbac.toml`.
+Applies to: `sync/src/sync/templates/**`, `helm/files/templates/**`, `migrations/**`, `helm/files/config/rbac.toml`.
 
 Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live in `helm/files/templates/postgres/`. See [SQL Templates](sql.md).
 
@@ -548,10 +548,10 @@ Templates live in `sync/src/sync/templates/<backend>/`. Helm job templates live 
 - **SQL-14** Keep `Source` construction free of side effects. Create external clients on first use and close them through the adapter lifecycle. [must, review]
 - **SQL-15** Use a service account or Workload Identity. Don't put credentials in an image. [must, review]
 
-### Console migrations
+### Migrations
 
-- **SQL-16** Keep the migrations of the `console` schema in `console/migrations/NNNNN_name.sql`, and let `goose` apply them. Add a new numbered file for each change. [must, goose]
-- **SQL-17** Don't edit a migration that another install applied. `console/migrations/SHA256SUMS` has the hash of each file, and `nu scripts/rules.nu sums` rewrites it for a new migration. [must, code]
+- **SQL-16** Keep the migrations in `migrations/console/NNNNN_name.sql` and `migrations/ducklake/NNNNN_name.sql`, and let `goose` apply them. Add a file with the next number for each change, and leave no gap. [must, goose]
+- **SQL-17** Don't edit a migration that another install applied. `migrations/SHA256SUMS` has the hash of each file, and `nu scripts/rules.nu sums` rewrites it for a new migration. [must, code]
 - **SQL-18** Keep `sync:lint:sql` green. It runs `sqlfluff` on the files with a limit of 88 columns, and `goose validate`. [must, sqlfluff]
 - **SQL-19** Give a `SECURITY DEFINER` function a fixed `search_path`, as `data_proxy.sees` does. [must, review]
 - **SQL-20** Check access with `rbac.can()` and `rbac.mine()`. Both refuse if the rule is missing. [must, review]

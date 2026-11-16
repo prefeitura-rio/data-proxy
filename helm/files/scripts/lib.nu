@@ -173,6 +173,34 @@ export def wait-for-relation [
     }
 }
 
+# Wait until a SQL probe answers true, or fail after the configured timeout. The probe runs on the database of the PG variables, or on the one in --dsn.
+@example "Wait until the roles exist" {
+    wait-for-sql 'the request roles' "SELECT count(*) = 2 FROM pg_roles WHERE rolname IN ('anon', 'dp_api')" --timeout 1min
+}
+export def wait-for-sql [
+    description: string
+    probe: string
+    --dsn: string
+    --timeout: duration = 10min
+    --interval: duration = 2sec
+]: nothing -> nothing {
+    let args = [
+        ...(if $dsn == null { [] } else { [$dsn] })
+        --no-psqlrc
+        --quiet
+        -t
+        -A
+        -c
+        $probe
+    ]
+
+    wait-until $description --timeout $timeout --interval $interval {||
+        let result = psql ...$args | complete
+
+        $result.exit_code == 0 and ($result.stdout | str trim) == 't'
+    }
+}
+
 # Return the psql arguments for one PostgreSQL readiness probe.
 @example "Include a connection DSN" {
     postgres-ready-args postgres://test
@@ -248,7 +276,7 @@ export def role-literals []: list<string> -> string {
     each {|name| quote-literal $name } | str join ', '
 }
 
-# Read the rbac.toml file and return what the create_rbac template needs: the parsed rules and the hash of the file text.
+# Read the rbac.toml file and return what the load_rbac template needs: the parsed rules and the hash of the file text.
 export def rbac-context [file?: path]: nothing -> record {
     let file = $file | default ($env.RBAC_FILE? | default ./rbac.toml)
 
@@ -266,11 +294,7 @@ export def rbac-context [file?: path]: nothing -> record {
 
 # Render one Jinja SQL template with a strict JSON context.
 @example "Render one SQL template" {
-    render-sql postgres/grant_app_usage.sql {
-        app_schema: data_proxy
-        anonymous_role: anon
-        user_role: dp_api
-    }
+    render-sql postgres/create_schema.sql {schema: data_proxy}
 }
 export def render-sql [name: path, context: record]: nothing -> string {
     let context_file = mktemp --tmpdir --suffix .json
@@ -286,11 +310,7 @@ export def render-sql [name: path, context: record]: nothing -> string {
 
 # Render a Jinja SQL template and execute it against PostgreSQL.
 @example "Execute SQL with template context" {
-    execute-sql postgres/grant_app_usage.sql {
-        app_schema: data_proxy
-        anonymous_role: anon
-        user_role: dp_api
-    }
+    execute-sql postgres/create_schema.sql {schema: data_proxy}
 }
 export def execute-sql [
     template: path

@@ -11,18 +11,13 @@ INSUFFICIENT = "42501"
 
 @pytest.mark.postgres
 class TestGrantProxyConfig:
-    """grant_proxy_config lets the anonymous role read the one document that the proxy needs."""
+    """The grants of the migrations let the anonymous role read the one document that the proxy needs."""
 
     async def test_the_anonymous_role_reads_the_config_and_nothing_else_of_the_console(
         self, console_api: Postgres
     ) -> None:
         """Keep the console views and the other functions closed to a request with no token."""
         await add_schema(console_api, "sales", claim="cpf")
-        await console_api.connection.execute(
-            helm_sql(
-                "grant_proxy_config", {"anonymous_role": Identifier("anon")}
-            ).encode()
-        )
         await console_api.connection.execute(b"SET LOCAL ROLE anon")
 
         config = await scalar(console_api, "SELECT console.config()")
@@ -41,7 +36,11 @@ class TestGrantProxyConfig:
         self, console_api: Postgres
     ) -> None:
         """Show that the grant is what opens the document."""
-        await console_api.connection.execute(b"SET LOCAL ROLE anon")
+        await console_api.connection.execute(
+            b"REVOKE ALL ON FUNCTION console.config() FROM anon; "
+            b"REVOKE USAGE ON SCHEMA console FROM anon; "
+            b"SET LOCAL ROLE anon"
+        )
 
         assert await refusal(console_api, "SELECT console.config()") == INSUFFICIENT
 

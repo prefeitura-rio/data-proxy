@@ -31,10 +31,10 @@ from tests.helpers.core import (
     relation_exists,
     scalar,
 )
+from tests.helpers.migrations import migration_sql
 from tests.helpers.rbac import install_rbac
 from tests.helpers.routing import install_table_function, schema_scope_condition
 from tests.helpers.state import (
-    create_state_tables,
     initialize_schemas,
     reconcile_one_table,
 )
@@ -54,7 +54,7 @@ class TestMaintenanceTemplates:
         target = postgres.namespace.identifier
         psql.run(
             psql_script(
-                helm_sql("cleanup_stale_objects", {"schema": target}),
+                migration_sql("console", "00013_maintenance.sql", schema=schema),
                 render_template(
                     "postgres/create_view",
                     {"schema": target, "view": Identifier("kept")},
@@ -117,7 +117,7 @@ class TestMaintenanceTemplates:
                         "scope": schema_scope_condition(schema),
                     },
                 ),
-                helm_sql("prune_access_log", {"schema": target}),
+                migration_sql("console", "00013_maintenance.sql", schema=schema),
             )
         )
         for subject, age in (("stale", "100 days"), ("recent", "1 day")):
@@ -175,7 +175,9 @@ class TestMaintenanceTemplates:
         workflow = f"{postgres.namespace.schema}-workflow"
         try:
             await postgres.connection.execute(
-                helm_sql("create_state", {"schema": target}).encode()
+                migration_sql(
+                    "console", "00002_state.sql", schema=postgres.namespace.schema
+                ).encode()
             )
             await execute_sql(
                 postgres,
@@ -197,7 +199,11 @@ class TestMaintenanceTemplates:
 
             psql.run(
                 psql_script(
-                    helm_sql("prune_workflows", {"schema": target}),
+                    migration_sql(
+                        "console",
+                        "00013_maintenance.sql",
+                        schema=postgres.namespace.schema,
+                    ),
                     helm_sql("call_prune_workflows", {"schema": target}),
                 ),
                 {"retention": "90 days"},
@@ -241,7 +247,9 @@ class TestMaintenanceTemplates:
         """The errors table has no other owner of its rows, so the same retention that ends a run ends its error."""
         target = postgres.namespace.identifier
         await postgres.connection.execute(
-            helm_sql("create_state", {"schema": target}).encode()
+            migration_sql(
+                "console", "00002_state.sql", schema=postgres.namespace.schema
+            ).encode()
         )
         await postgres.connection.execute(
             SQL(
@@ -254,7 +262,9 @@ class TestMaintenanceTemplates:
 
         psql.run(
             psql_script(
-                helm_sql("prune_workflows", {"schema": target}),
+                migration_sql(
+                    "console", "00013_maintenance.sql", schema=postgres.namespace.schema
+                ),
                 helm_sql("call_prune_workflows", {"schema": target}),
             ),
             {"retention": "90 days"},
@@ -342,13 +352,11 @@ class TestMaintenanceTemplates:
 class TestSchemaLifecycle:
     """The templates that create and remove the schemas and the state tables."""
 
-    async def test_create_state_makes_the_state_error_and_scope_tables(
+    async def test_the_state_migration_makes_the_state_error_and_scope_tables(
         self, postgres: Postgres
     ) -> None:
-        """Create the three tables of the engine, and create them again without error."""
-        statement = helm_sql(
-            "create_state", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
-        ).encode()
+        """The migration makes the three tables of the engine, and running it again changes nothing."""
+        statement = migration_sql("console", "00002_state.sql").encode()
 
         await postgres.connection.execute(statement)
         await postgres.connection.execute(statement)
@@ -385,7 +393,6 @@ class TestSchemaLifecycle:
         """The state, the scope and the errors of a removed schema go with it, and the other schemas keep theirs."""
         name = f"{postgres.namespace.schema}_gone"
         app = Identifier(settings.DBOS_APP_SCHEMA)
-        await create_state_tables(postgres.connection)
         await postgres.connection.execute(
             SQL(
                 """
@@ -468,24 +475,15 @@ class TestInstalledObjects:
             table_function, has_rls=True, fallbacks=["bigquery"]
         )
         await install_rbac(table_function)
-        for name in (
-            "create_state",
-            "create_reload",
-            "create_pre_request",
-            "cleanup_stale_objects",
-            "prune_access_log",
-            "prune_workflows",
-            "recover_orphaned_workflows",
-        ):
-            await table_function.connection.execute(
-                helm_sql(
-                    name,
-                    {
-                        "schema": Identifier(settings.DBOS_APP_SCHEMA),
-                        "application_name": Literal("app"),
-                    },
-                ).encode()
-            )
+        await table_function.connection.execute(
+            helm_sql(
+                "recover_orphaned_workflows",
+                {
+                    "schema": Identifier(settings.DBOS_APP_SCHEMA),
+                    "application_name": Literal("app"),
+                },
+            ).encode()
+        )
 
         cursor = await table_function.connection.execute(
             """

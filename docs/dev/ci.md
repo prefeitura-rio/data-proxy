@@ -64,7 +64,7 @@ Each job restores the task state of the last green run of `main` before it runs,
 
 | Image | Rebuilds when this changes |
 | --- | --- |
-| `data-proxy-sync` | `sync/src/`, `sync/pyproject.toml`, `sync/uv.lock`, `console/migrations/` |
+| `data-proxy-sync` | `sync/src/`, `sync/pyproject.toml`, `sync/uv.lock`, `migrations/` |
 | `data-proxy-proxy` | `proxy/src/`, `proxy/lux.toml`, `proxy/lux.lock` |
 | `data-proxy-console` | `console/ui/`, `console/notebooks/` |
 | `data-proxy-jobs`, `data-proxy-postgres` | The Containerfile of the image |
@@ -79,12 +79,13 @@ CI releases the Helm chart from Conventional Commits with `cog`. `cog` reads the
 | `ci guard` | Skips the release when no chart file and no image path changed since the last tag, or when every release commit changed only the provider or the docs. |
 | `ci images resolve`, `ci images pin` | Find the newest tag of each image and write the tags in `helm/values.yaml`, so a release never uses `latest`. |
 | `ci release bump` | Runs `cog bump`. It sets the chart version, writes `CHANGELOG.md`, commits and tags. |
-| `ci chart package`, `ci chart publish` | Package the chart and push it to the OCI registry. |
-| `ci release push <tag>`, `ci release notes <tag>` | Push the commit and the tag in one push, and write the release notes. |
+| `ci chart package` | Package the chart. |
+| `ci release push <tag>` | Push the commit and the tag in one push. |
+| `ci chart publish`, `ci release notes <tag>` | Publish the chart, and write the release notes. |
 
 A commit that changes only `terraform/`, `docs/` or `llms.txt` never releases the chart, even as a `feat` or a `fix`. A later release still counts it in the version and the changelog.
 
-The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag. The next run publishes the same version again. `GITHUB_TOKEN` can't push to `main`. The job pushes with the deploy key `bot` (the secret `RELEASE_DEPLOY_KEY` of the environment `release`), which `protect-main` lists as a bypass.
+The job pushes the commit and the tag before it publishes the chart. A failed push publishes nothing, so run the workflow again. After a failed publish, run `ci chart package` and `ci chart publish` at the tag. `GITHUB_TOKEN` can't push to `main`. The job pushes with the deploy key `bot` (the secret `RELEASE_DEPLOY_KEY` of the environment `release`), which `protect-main` lists as a bypass.
 
 Staging follows every chart. Production follows the chart tag `prod`, which a reviewer moves. See [Production deploys](./promote.md).
 

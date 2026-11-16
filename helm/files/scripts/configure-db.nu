@@ -7,6 +7,7 @@ use ./lib.nu [
     rbac-context
     role-literals
     wait-for-postgres
+    wait-for-relation
 ]
 
 # Create the roles of the requests: the anonymous role, the roles of rbac.toml, the PostgREST login, and the signer login of the console
@@ -38,22 +39,11 @@ def configure-ducklake []: nothing -> nothing {
     log info 'DuckLake S3 and catalog reader secret configuration completed'
 }
 
-# Let the duckdb role read every metadata schema that the owner role creates in the catalog database
-def configure-catalog []: nothing -> nothing {
-    wait-for-postgres $env.DUCKLAKE_ADMIN_URL
-
-    execute-sql postgres/configure_catalog.sql --dsn $env.DUCKLAKE_ADMIN_URL {
-        writer_role: (quote-identifier $env.PGUSER)
-        reader_role: (quote-identifier duckdb)
-    }
-    log info 'DuckLake catalog privilege setup completed'
-}
-
-# Create the rbac schema and load the rules of the rbac.toml file, all in one transaction
-def create-rbac []: nothing -> nothing {
+# Load the rules of the rbac.toml file into the rbac schema that the migrations made, all in one transaction
+def load-rbac []: nothing -> nothing {
     let context = rbac-context
 
-    execute-sql postgres/create_rbac.sql --single-transaction ($context | merge {
+    execute-sql postgres/load_rbac.sql --single-transaction ($context | merge {
         anonymous_role: (quote-identifier $env.AUTH_ANON_ROLE)
     })
     log info $'RBAC rules loaded, file hash ($context.source_hash)'
@@ -71,85 +61,42 @@ def verify-rbac []: nothing -> nothing {
     log info 'Database roles match the rules file'
 }
 
-# Create the table where the console keeps the sealed keys of its storage identities, in the catalog database
-def create-signer-keys []: nothing -> nothing {
-    wait-for-postgres $env.DUCKLAKE_ADMIN_URL
-
-    execute-sql postgres/create_signer_keys.sql --dsn $env.DUCKLAKE_ADMIN_URL {
-        signer: (quote-literal $env.AUTH_SIGNER_ROLE)
-    }
-    log info 'Signer key table setup completed'
-}
-
-# Create the schema and the tables where the engine keeps its state and its errors
-def create-state []: nothing -> nothing {
-    execute-sql postgres/create_state.sql {
-        schema: (app-schema)
-    }
-    log info 'Application state tables setup completed'
-}
-
-# Create the functions that tell PostgREST and the proxy to read the database again
-def create-reload []: nothing -> nothing {
-    execute-sql postgres/create_reload.sql {
-        schema: (app-schema)
-    }
-    log info 'Reload functions setup completed'
-}
-
-# Create the pre_request function that mirrors JWT claims into session variables
-def create-pre-request []: nothing -> nothing {
-    let schema = app-schema
-    execute-sql postgres/create_pre_request.sql {schema: $schema}
-
-    execute-sql postgres/grant_app_usage.sql {
-        app_schema: $schema
-        anonymous_role: (quote-identifier $env.AUTH_ANON_ROLE)
-        user_role: (quote-identifier $env.AUTH_USER_ROLE)
-    }
-
-    log info 'PostgREST pre-request function setup completed'
-}
-
-# Install the maintenance procedures so the maintenance job can run before any sync.
-def install-maintenance []: nothing -> nothing {
-    let schema = app-schema
-
-    execute-sql postgres/cleanup_stale_objects.sql {
-        schema: $schema
-    }
-
-    execute-sql postgres/prune_access_log.sql {
-        schema: $schema
-    }
-
-    execute-sql postgres/prune_workflows.sql {
-        schema: $schema
-    }
-
+# Install the procedure that puts the workflows of terminated sync pods back in the queue.
+# The procedure takes the name of the application from the chart, so a migration can't make it.
+def install-recovery []: nothing -> nothing {
     execute-sql postgres/recover_orphaned_workflows.sql {
-        schema: $schema
+        schema: (app-schema)
         application_name: (quote-literal ($env.DBOS_APPLICATION_NAME? | default data-proxy-sync))
     }
 
-    log info 'Database maintenance procedure setup completed'
+    log info 'Workflow recovery procedure setup completed'
 }
 
-# Create the roles, the schemas and the functions that the database needs before the first sync.
-def main []: nothing -> nothing {
-    log info 'Database initialization started'
+# Create the request roles. The migrations grant to them, so this runs before the migrations.
+def "main roles" []: nothing -> nothing {
+    log info 'Request role setup started'
 
     wait-for-postgres $env.PG_DATABASE_URL
     create-roles
+}
+
+# Load the rules and the DuckDB secrets, after the migrations made the rbac schema and the extensions.
+def "main rules" []: nothing -> nothing {
+    log info 'Rules setup started'
+
+    wait-for-postgres $env.PG_DATABASE_URL
+    wait-for-relation rbac.roles
     configure-ducklake
-    configure-catalog
-    create-rbac
+    load-rbac
     verify-rbac
-    create-signer-keys
-    create-state
-    create-reload
-    create-pre-request
-    install-maintenance
+    install-recovery
 
     log info 'Database initialization completed'
+}
+
+# Create the roles, wait for the migrations, and then load the rules.
+# The Job `migrate-db` waits for the roles and makes the schemas, the functions and the grants in between.
+def main []: nothing -> nothing {
+    main roles
+    main rules
 }

@@ -6,7 +6,10 @@
         "nu"
         "scripts/db.nu"
       ];
-      packages = with pkgs; [ kubernetes-helm ];
+      packages = with pkgs; [
+        kubernetes-helm
+        uv
+      ];
     }
     // {
       description = "Create the databases of the sync tests.";

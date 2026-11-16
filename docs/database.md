@@ -10,7 +10,7 @@ A schema is an API that PostgREST serves, a rule that the APIs share, or private
 
 | Schema | Kind | Contains |
 | --- | --- | --- |
-| `rbac` | Shared rule | The table `roles` that the `configure-db` job fills from `rbac.toml`, and the functions `load()`, `can()` and `mine()`. Every other schema calls it. PostgREST doesn't serve it. |
+| `rbac` | Shared rule | The functions `load()`, `can()` and `mine()` and the table `roles`, which the migrations create and the `configure-db` job fills from `rbac.toml`. Every other schema calls it. PostgREST doesn't serve it. |
 | `console` | API, served | The views, the functions, and the three configuration tables that the web app uses. |
 | `data_proxy` | Private | The `state`, `errors`, and `scope` tables of the engine, the routing and reload functions, `sees()` (which workflows a token sees), and the maintenance procedures. |
 | `dbos` | Private, owned by DBOS | The workflow tables. |

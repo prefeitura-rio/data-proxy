@@ -22,7 +22,7 @@ from tests.constants import (
 )
 from tests.fixtures.types import BigQueryQueryResult, Storage
 from tests.helpers.core import one_worker_at_a_time
-from tests.helpers.state import create_state_tables
+from tests.helpers.migrations import migration_sql
 from tests.models import BigQueryMetadataRow, BigQueryPartitionRow
 from tests.protocols import BigQueryQueryConfig
 
@@ -35,7 +35,7 @@ async def dbos_conn(
     url = f"{POSTGRES_URL}/{dbos_database}"
     monkeypatch.setattr(settings, "DBOS_SYSTEM_DATABASE_URL", SecretStr(url))
     conn = await psycopg.AsyncConnection.connect(url, autocommit=True)
-    await create_state_tables(conn)
+    await conn.execute(migration_sql("console", "00002_state.sql").encode())
     await conn.execute(
         SQL("TRUNCATE {}.state, {}.errors").format(
             Identifier(settings.DBOS_APP_SCHEMA), Identifier(settings.DBOS_APP_SCHEMA)

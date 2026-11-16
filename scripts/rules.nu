@@ -13,8 +13,8 @@ const HEADER = '(?s)\{#\n(\{.*?\})\n#\}'
 const HEADER_WORDS = 40
 const FUNCTION_LINES = 60
 const HEADER_LINES = 40
-const MIGRATIONS = 'console/migrations'
-const SUMS = 'console/migrations/SHA256SUMS'
+const MIGRATIONS = 'migrations'
+const SUMS = 'migrations/SHA256SUMS'
 const LUA = ['proxy/src/**/*.lua']
 const NIX = ['**/*.nix']
 
@@ -27,11 +27,11 @@ const NU = [
 const SQL = [
     'sync/src/sync/templates/**/*.sql'
     'helm/files/templates/**/*.sql'
-    'console/migrations/*.sql'
+    'migrations/*/*.sql'
 ]
 
 const PARSER_DISABLED = [
-    console/migrations/
+    migrations/
     sync/src/sync/templates/duckdb/
     sync/src/sync/templates/postgres/create_table_changes_function.sql
     sync/src/sync/templates/postgres/delete_removed_state.sql
@@ -40,7 +40,7 @@ const PARSER_DISABLED = [
 ]
 
 const LONG_FUNCTIONS = [
-    helm/files/templates/postgres/create_console_config.sql
+    migrations/console/00011_console_config.sql
     sync/src/sync/templates/postgres/views/create_aggregate_function.sql
     sync/src/sync/templates/postgres/views/create_function.sql
     sync/src/sync/templates/postgres/views/routing/filter.sql
@@ -322,7 +322,7 @@ export def migration-problems [sums: string, files: table<file: string, hash: st
 
 # Return the files of the migrations with the hash of each one.
 def migration-files []: nothing -> table<file: string, hash: string> {
-    glob $'($MIGRATIONS)/*.sql'
+    glob $'($MIGRATIONS)/*/*.sql'
     | each {|file| $file | path relative-to (pwd) }
     | sort
     | each {|file| {file: $file, hash: (read-text $file | hash sha256)} }

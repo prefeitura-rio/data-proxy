@@ -1,6 +1,7 @@
 use std/assert
 use ../lib.nu [
     chart-files
+    gcp-credentials-problem
     images-changed
     latest-helm-tag
     latest-terraform-tag
@@ -104,7 +105,7 @@ export def "test images-changed-matches-the-paths-of-each-image" []: nothing -> 
     let cases = [
         [name files force expected];
         ['proxy source' [proxy/src/proxy/cache.lua] false [proxy]]
-        ['sync source and a migration' [sync/src/sync/a.py console/migrations/00012_a.sql] false [sync]]
+        ['sync source and a migration' [sync/src/sync/a.py migrations/console/00012_a.sql] false [sync]]
         ['console app' [console/ui/src/a.ts] false [console]]
         ['a sync test' [sync/tests/unit/a.py] false []]
         ['docs only' [docs/a.md llms.txt] false []]
@@ -328,4 +329,21 @@ export def "test registry-documents-fails-without-a-checksum" []: nothing -> not
     let broken = registry-inputs | update versions [$release]
 
     assert error { registry-documents $broken }
+}
+
+# Verify that Google's answer invalid_grant marks the login as expired.
+export def "test gcp-credentials-problem-reports-an-expired-login" []: nothing -> nothing {
+    let credentials = {type: authorized_user client_id: id client_secret: secret refresh_token: token}
+    let problem = gcp-credentials-problem $credentials {|form| {error: invalid_grant} }
+
+    assert str contains $problem 'gcloud auth application-default login'
+}
+
+# Verify that a working login, a service account file and a network error give no problem.
+export def "test gcp-credentials-problem-is-null-when-the-login-works-or-cannot-be-tested" []: nothing -> nothing {
+    let user = {type: authorized_user client_id: id client_secret: secret refresh_token: token}
+
+    assert equal (gcp-credentials-problem $user {|form| {access_token: abc} }) null
+    assert equal (gcp-credentials-problem {type: service_account} {|form| {error: invalid_grant} }) null
+    assert equal (gcp-credentials-problem $user {|form| {} }) null
 }

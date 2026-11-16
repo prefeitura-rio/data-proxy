@@ -16,12 +16,11 @@ from sync.settings import settings
 from tests.fixtures.types import Postgres
 from tests.helpers.core import (
     fetch_all,
-    helm_sql,
     scalar,
     set_request_headers,
     set_setting,
 )
-from tests.helpers.rbac import install_console_triggers, queued_workflows, revision
+from tests.helpers.rbac import empty_queues, queued_workflows, revision
 from tests.helpers.routing import (
     act_as_token,
     create_access_policy,
@@ -62,11 +61,6 @@ class TestPreRequest:
     ) -> None:
         """Copy every claim of the token into a setting of the transaction."""
         postgres = rbac
-        await postgres.connection.execute(
-            helm_sql(
-                "create_pre_request", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
-            ).encode()
-        )
         if claims is not None:
             await set_setting(postgres, "request.jwt.claims", json.dumps(claims))
 
@@ -120,11 +114,6 @@ class TestPreRequest:
         mine_pic: bool,
     ) -> None:
         """After the pre-request function, the checks answer for the role and the schemas of the token."""
-        await rbac.connection.execute(
-            helm_sql(
-                "create_pre_request", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
-            ).encode()
-        )
         if claims is not None:
             await set_setting(rbac, "request.jwt.claims", json.dumps(claims))
 
@@ -149,11 +138,6 @@ class TestPreRequest:
         self, rbac: Postgres, role: str, can_control_sync: bool
     ) -> None:
         """Cancelling a run and pausing a schedule are rights of dp_admin only."""
-        await rbac.connection.execute(
-            helm_sql(
-                "create_pre_request", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
-            ).encode()
-        )
         await set_setting(
             rbac,
             "request.jwt.claims",
@@ -176,11 +160,6 @@ class TestPreRequest:
     ) -> None:
         """A request to the console reads views over the engine tables, so it may run for 30 seconds."""
         postgres = rbac
-        await postgres.connection.execute(
-            helm_sql(
-                "create_pre_request", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
-            ).encode()
-        )
         before = await scalar(postgres, "SELECT current_setting('statement_timeout')")
         await set_request_headers(postgres, {"accept-profile": profile})
 
@@ -194,7 +173,7 @@ class TestPreRequest:
 class TestAccessPolicyTemplates:
     """The access policy, its triggers, the reload and the console triggers."""
 
-    async def test_create_reload_notifies_postgrest_and_does_not_wait_without_a_standby(
+    async def test_reload_notifies_postgrest_and_does_not_wait_without_a_standby(
         self, postgres: Postgres
     ) -> None:
         """A listener on the pgrst channel gets the message at once when no standby streams."""
@@ -202,11 +181,6 @@ class TestAccessPolicyTemplates:
             await AsyncConnection.connect(postgres.dsn, autocommit=True) as writer,
             await AsyncConnection.connect(postgres.dsn, autocommit=True) as listener,
         ):
-            await writer.execute(
-                helm_sql(
-                    "create_reload", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
-                ).encode()
-            )
             await listener.execute(b"LISTEN pgrst")
             started = perf_counter()
 
@@ -280,7 +254,7 @@ class TestAccessPolicyTemplates:
         ("statement", "expected"),
         [
             pytest.param(
-                "INSERT INTO console.schemas VALUES ('a')",
+                "INSERT INTO console.schemas (name) VALUES ('a') ON CONFLICT DO NOTHING",
                 ["provision_schemas", "reconcile_schedules", "reload_proxy"],
                 id="schema-added",
             ),
@@ -295,7 +269,7 @@ class TestAccessPolicyTemplates:
                 id="schema-removed",
             ),
             pytest.param(
-                "INSERT INTO console.tables VALUES ('t')",
+                "INSERT INTO console.tables (name, schema) SELECT 't', 'a' WHERE false",
                 ["reload_proxy"],
                 id="table-added",
             ),
@@ -316,7 +290,7 @@ class TestAccessPolicyTemplates:
             ),
         ],
     )
-    async def test_create_console_triggers_queues_the_workflow_that_the_change_needs(
+    async def test_console_triggers_queues_the_workflow_that_the_change_needs(
         self,
         rbac: Postgres,
         dbos_schema: str,
@@ -325,7 +299,7 @@ class TestAccessPolicyTemplates:
     ) -> None:
         """A change queues each workflow once, so that a burst of changes shares one run."""
         await create_access_policy(rbac)
-        await install_console_triggers(rbac)
+        await empty_queues(rbac, dbos_schema)
         sql = SQL(statement).format(
             policy=SQL("{}.access_policy").format(rbac.namespace.identifier)
         )
@@ -338,13 +312,14 @@ class TestAccessPolicyTemplates:
         assert sorted(set(queued) - set(before)) == expected
         assert len(queued) - len(before) == len(expected)
 
-    async def test_create_console_triggers_queues_the_reconcile_of_the_schedules_in_a_queue_of_its_own(
+    async def test_console_triggers_queues_the_reconcile_of_the_schedules_in_a_queue_of_its_own(
         self, rbac: Postgres, dbos_schema: str
     ) -> None:
         """The queue runs one reconcile at a time, so two changes never create the same schedule twice."""
-        await install_console_triggers(rbac)
-
-        await rbac.connection.execute(SQL("INSERT INTO console.schemas VALUES ('a')"))
+        await empty_queues(rbac, dbos_schema)
+        await rbac.connection.execute(
+            SQL("INSERT INTO console.schemas (name) VALUES ('a')")
+        )
 
         cursor = await rbac.connection.execute(
             SQL(
@@ -353,21 +328,26 @@ class TestAccessPolicyTemplates:
         )
         assert [queue for (queue,) in await cursor.fetchall()] == ["schedules"]
 
-    async def test_create_console_triggers_queues_the_next_run_while_one_is_running(
+    async def test_console_triggers_queues_the_next_run_while_one_is_running(
         self, rbac: Postgres, dbos_schema: str
     ) -> None:
         """A change that arrives during a run waits for the next run, because the running one may have read the data already."""
-        await install_console_triggers(rbac)
-        insert = SQL("INSERT INTO console.schemas VALUES ('a')")
-        await rbac.connection.execute(insert)
+        await empty_queues(rbac, dbos_schema)
+        await rbac.connection.execute(
+            SQL("INSERT INTO console.schemas (name) VALUES ('a')")
+        )
         await rbac.connection.execute(
             SQL(
                 "UPDATE {}.workflow_status SET status = 'PENDING' WHERE name = 'provision_schemas' AND status = 'ENQUEUED'"
             ).format(Identifier(dbos_schema))
         )
 
-        await rbac.connection.execute(insert)
-        await rbac.connection.execute(insert)
+        await rbac.connection.execute(
+            SQL("INSERT INTO console.schemas (name) VALUES ('b')")
+        )
+        await rbac.connection.execute(
+            SQL("INSERT INTO console.schemas (name) VALUES ('c')")
+        )
 
         cursor = await rbac.connection.execute(
             SQL(

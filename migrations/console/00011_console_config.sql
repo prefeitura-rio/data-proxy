@@ -1,17 +1,13 @@
-{#
-{
-  "kind": "template",
-  "description": "Create the functions that read and write the sync configuration as one document: the full document, the import, the preview of an import, and the short document that the proxy reads.",
-  "inputs": {}
-}
-#}
-{#
-The short document carries the counter in rbac.revision, so the proxy sees a change of the rules or of the access policy as a change of the document.
-It also carries the scope of each subject, the digest of its grants in every access policy, so the proxy shares cache entries between subjects with the same grants.
-The scopes are absent when a schema reads its rows by another claim than preferred_username.
-They read and write the configuration tables of the console.
-#}
+-- +goose Up
+-- noqa: disable=PRS
+
+-- Creates the functions that read and write the sync configuration as JSON:
+-- sync_config(), export_config(), import_schemas(), import_config(), import_preview(),
+-- scopes() and config(). config() is the short document that the proxy reads. It
+-- carries rbac.revision and the grant digest of each subject, so a change of rules or
+-- policy changes the document.
 -- noqa: disable=CP02
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.sync_config() RETURNS jsonb
 LANGUAGE sql STABLE AS $$
     WITH rules AS (
@@ -77,11 +73,13 @@ LANGUAGE sql STABLE AS $$
     FROM console.schemas AS s
     LEFT JOIN members AS m ON s.name = m.schema
 $$;
+-- +goose StatementEnd
 
 -- The same configuration by project, for the console export and for Terraform: each
 -- schema under its short name.
 -- A project that has no schema is in it, so an export and an import keep the
 -- projects.
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.export_config() RETURNS jsonb
 LANGUAGE sql STABLE AS $$
     WITH flat AS (
@@ -110,11 +108,13 @@ LANGUAGE sql STABLE AS $$
     FROM console.projects AS p
     LEFT JOIN members AS m ON p.name = m.project
 $$;
+-- +goose StatementEnd
 
 -- The schemas of a document, from both forms: the old `schemas`, which belong to
 -- the project default and are named
 -- by their physical name, and `projects`, where a schema is named by its short name
 -- in its project.
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.import_schemas(document jsonb)
 RETURNS TABLE (project text, short_name text, name text, body jsonb)
 LANGUAGE sql IMMUTABLE AS $$
@@ -132,7 +132,9 @@ LANGUAGE sql IMMUTABLE AS $$
         CROSS JOIN LATERAL jsonb_each(coalesce(p.value -> 'schemas', '{}'::jsonb)) AS s
     ) AS i
 $$;
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.import_config(document jsonb) RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -208,7 +210,9 @@ BEGIN
     CROSS JOIN LATERAL jsonb_to_recordset(t.rls) AS r ("column" text, unit_type text);
 END
 $$;
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.import_preview(document jsonb)
 RETURNS TABLE (object text, schema_name text, key text, action text)
 LANGUAGE plpgsql AS $$
@@ -291,14 +295,19 @@ BEGIN
     ORDER BY p.schema_name, p.object, p.key;
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.import_preview(jsonb) FROM PUBLIC;
 
 REVOKE ALL ON FUNCTION console.sync_config() FROM PUBLIC;
+
 REVOKE ALL ON FUNCTION console.export_config() FROM PUBLIC;
+
 REVOKE ALL ON FUNCTION console.import_schemas(jsonb) FROM PUBLIC;
+
 REVOKE ALL ON FUNCTION console.import_config(jsonb) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.scopes() RETURNS jsonb
 LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $$
@@ -349,9 +358,11 @@ BEGIN
     RETURN v_result;
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.scopes() FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.config() RETURNS jsonb
 LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $$
@@ -388,5 +399,6 @@ SET search_path = pg_catalog, pg_temp AS $$
     FROM document
     CROSS JOIN (SELECT console.scopes() AS value) AS scopes
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.config() FROM PUBLIC;

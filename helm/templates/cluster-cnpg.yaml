@@ -30,9 +30,6 @@ spec:
       owner: {{ $root.Values.cnpg.db.user | quote }}
       encoding: UTF8
       dataChecksums: true
-      postInitApplicationSQL:
-        - CREATE EXTENSION IF NOT EXISTS postgis;
-        - CREATE EXTENSION IF NOT EXISTS pg_duckdb;
   probes:
     readiness:
       type: streaming

@@ -18,8 +18,9 @@ from tests.constants import (
     SIGNER,
 )
 from tests.fixtures.types import Postgres
-from tests.helpers.core import helm_sql, query_plan, scalar, set_setting
+from tests.helpers.core import query_plan, scalar, set_setting
 from tests.helpers.dbos import answers_for
+from tests.helpers.migrations import ROLES, migration_sql
 from tests.helpers.rbac import (
     RBAC,
     SOURCE_HASH,
@@ -41,6 +42,15 @@ from tests.strategies import (
     claim_and_schema,
     rbac_rules,
 )
+
+
+def signer_keys() -> str:
+    """Return the migration that makes the table of sealed keys, for the signer login of the tests."""
+    return migration_sql(
+        "ducklake",
+        "00002_signer_keys.sql",
+        env={**ROLES, "AUTH_SIGNER_ROLE": SIGNER},
+    )
 
 
 @pytest.mark.postgres
@@ -274,9 +284,7 @@ class TestSchemaReaderTemplates:
     ) -> None:
         """The signer stores and reads the sealed keys of its identities, and it can't delete them or read anything else."""
         await self.prepare(postgres)
-        await postgres.connection.execute(
-            helm_sql("create_signer_keys", {"signer": Literal(SIGNER)}).encode()
-        )
+        await postgres.connection.execute(signer_keys().encode())
         await postgres.connection.execute(
             SQL("SET LOCAL ROLE {}").format(Identifier(SIGNER))
         )
@@ -297,7 +305,7 @@ class TestSchemaReaderTemplates:
     ) -> None:
         """The template creates nothing twice, and it keeps the rows."""
         await self.prepare(postgres)
-        template = helm_sql("create_signer_keys", {"signer": Literal(SIGNER)}).encode()
+        template = signer_keys().encode()
         await postgres.connection.execute(template)
         await postgres.connection.execute(
             b"INSERT INTO signer.keys (schema_name, access_key, secret_sealed) VALUES ('sales', 'AKIA', 'sealed')"
@@ -312,9 +320,7 @@ class TestSchemaReaderTemplates:
     ) -> None:
         """A removed schema leaves no sealed key behind, and the other schema keeps its own."""
         await self.prepare(postgres)
-        await postgres.connection.execute(
-            helm_sql("create_signer_keys", {"signer": Literal(SIGNER)}).encode()
-        )
+        await postgres.connection.execute(signer_keys().encode())
         await postgres.connection.execute(
             b"INSERT INTO signer.keys (schema_name, access_key, secret_sealed) VALUES ('sales', 'A', 's'), ('hr', 'B', 's')"
         )
@@ -345,7 +351,7 @@ class TestSchemaReaderTemplates:
 
 @pytest.mark.postgres
 class TestRbacTemplate:
-    """The create_rbac template: the rules in the file against the answers of rbac.can and rbac.mine."""
+    """The load_rbac template: the rules in the file against the answers of rbac.can and rbac.mine."""
 
     @pytest.mark.parametrize(
         "role",

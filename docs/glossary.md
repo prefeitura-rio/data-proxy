@@ -42,7 +42,7 @@ This page defines the terms that the other pages use. Each term has one meaning 
 | OpenResty | nginx with Lua. The proxy runs on it. |
 | Istio gateway | The entry point of the cluster. It checks the JWT before it forwards a request. |
 | Keycloak | The identity provider of the local and test clusters. |
-| goose | The tool that applies the console database migrations. |
+| goose | The tool that applies the migrations of the application database and of the catalog database. |
 | k6 | The tool for load tests and end-to-end checks of a cluster. |
 | Hurl | The tool for the HTTP tests of the proxy. |
 | devenv | The tool for the local environment, on Nix. It starts services and runs tasks. |

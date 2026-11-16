@@ -74,7 +74,7 @@ devenv --profile repo tasks run repo:lint repo:test:unit
 
 The git hooks run when you commit. `eslint`, `prettier`, `lx-fmt`, `ruff` and `ruff-format` fix files, so stage the result and commit again. `ripsecrets` blocks a secret, and `vale` checks the prose of the docs. CI doesn't run Vale. Run `vale <file>` for a quick check.
 
-Before a release, run the checks that CI can't run. `cluster k6 e2e` tests the whole system. `cluster k6 load` tests the latency gates and KEDA. `cluster upgrade --from <previous chart version>` tests the upgrade path, after the first release.
+Before a release, run the checks that CI can't run, with a valid Google login. `cluster k6 e2e` tests the whole system. `cluster k6 load` tests the latency gates and KEDA. `cluster upgrade --from <previous chart version>` tests the upgrade path.
 
 ## Run the console locally
 
