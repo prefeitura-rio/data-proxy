@@ -125,7 +125,7 @@ in
             description = "Start the databases, write the diagrams of docs/model.md from them, and stop the databases.";
             profile = "model";
             inputs = [
-              "console/migrations/*.sql"
+              "migrations/*/*.sql"
               "helm/files/templates/postgres/*.sql"
               "sync/uv.lock"
               "docs/.tbls.yaml"
@@ -203,8 +203,8 @@ in
               "sync/tests/templates/**/*.sql"
               "console/ui/*.ts"
               "proxy/lux.toml"
-              "console/migrations/*.sql"
-              "console/migrations/SHA256SUMS"
+              "migrations/*/*.sql"
+              "migrations/SHA256SUMS"
               "**/*.nix"
             ];
           };

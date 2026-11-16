@@ -1,20 +1,13 @@
-{#
-{
-  "kind": "template",
-  "description": "Create the triggers that enqueue a workflow when a change needs the proxy or the schemas to catch up.",
-  "inputs": {}
-}
-#}
-{#
-Make the changes that the proxy and the schemas depend on enqueue a workflow.
-A change to the sync configuration tables of the console, to the access policy, or to the rules (each moves the counter in rbac.revision) enqueues a reload of the proxy.
-A change to console.schemas also enqueues the provision of the schemas, and an insert or a delete there enqueues the reconcile of the schedules, one schedule for each schema.
-A delete from console.tables enqueues the cleanup of the tables that left the console.
-A change queues a workflow only when none of that kind waits in its queue.
-A change that arrives while one runs queues the next run, because the running one may have read the data already, and a burst of changes shares one waiting run.
-Run it after the rbac schema and the console tables exist.
-#}
+-- +goose Up
+-- noqa: disable=PRS
+
+-- Creates console.enqueue_once() and the triggers reload_proxy, provision_schemas,
+-- cleanup_tables and reconcile_schedules. A change to the configuration, the access
+-- policy or rbac.revision enqueues a reload, and a change to a schema enqueues
+-- provisioning. A workflow queues only when none of its kind waits, so a burst of
+-- changes shares one run.
 -- noqa: disable=CP02
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.enqueue_once() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $$
@@ -30,15 +23,18 @@ BEGIN
     RETURN NULL;
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.enqueue_once() FROM PUBLIC;
 
 CREATE OR REPLACE TRIGGER reload_proxy
 AFTER INSERT OR UPDATE OR DELETE ON console.schemas
 FOR EACH STATEMENT EXECUTE FUNCTION console.enqueue_once('reload_proxy', 'proxy');
+
 CREATE OR REPLACE TRIGGER reload_proxy
 AFTER INSERT OR UPDATE OR DELETE ON console.tables
 FOR EACH STATEMENT EXECUTE FUNCTION console.enqueue_once('reload_proxy', 'proxy');
+
 CREATE OR REPLACE TRIGGER reload_proxy
 AFTER INSERT OR UPDATE OR DELETE ON console.rls
 FOR EACH STATEMENT EXECUTE FUNCTION console.enqueue_once('reload_proxy', 'proxy');

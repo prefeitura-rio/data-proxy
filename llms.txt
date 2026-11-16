@@ -524,7 +524,7 @@ The console shows the system to people and changes its configuration. It's a web
 | PostgREST | Serves the `console` schema as an API. |
 | `console` schema | The views, the functions and the configuration tables. The database checks every permission. |
 | Sync worker | Takes the workflows that the console queues. A worker that listens to the `control` queue runs the control actions. |
-| `ducklake` database | The console reads the file lists, and it stores the sealed storage secrets in `signer.keys`. |
+| `ducklake` database | The console reads the file lists, and it stores the sealed storage secrets in `signer.keys`. The catalog reader `duckdb` can also read that table. |
 | SeaweedFS | Stores the Parquet files. The console creates one storage identity for each schema. |
 
 ### Requests
@@ -1157,7 +1157,7 @@ A schema is an API that PostgREST serves, a rule that the APIs share, or private
 
 | Schema | Kind | Contains |
 | --- | --- | --- |
-| `rbac` | Shared rule | The table `roles` that the `configure-db` job fills from `rbac.toml`, and the functions `load()`, `can()` and `mine()`. Every other schema calls it. PostgREST doesn't serve it. |
+| `rbac` | Shared rule | The functions `load()`, `can()` and `mine()` and the table `roles`, which the migrations create and the `configure-db` job fills from `rbac.toml`. Every other schema calls it. PostgREST doesn't serve it. |
 | `console` | API, served | The views, the functions, and the three configuration tables that the web app uses. |
 | `data_proxy` | Private | The `state`, `errors`, and `scope` tables of the engine, the routing and reload functions, `sees()` (which workflows a token sees), and the maintenance procedures. |
 | `dbos` | Private, owned by DBOS | The workflow tables. |
@@ -1663,7 +1663,7 @@ This page defines the terms that the other pages use. Each term has one meaning 
 | OpenResty | nginx with Lua. The proxy runs on it. |
 | Istio gateway | The entry point of the cluster. It checks the JWT before it forwards a request. |
 | Keycloak | The identity provider of the local and test clusters. |
-| goose | The tool that applies the console database migrations. |
+| goose | The tool that applies the migrations of the application database and of the catalog database. |
 | k6 | The tool for load tests and end-to-end checks of a cluster. |
 | Hurl | The tool for the HTTP tests of the proxy. |
 | devenv | The tool for the local environment, on Nix. It starts services and runs tasks. |
@@ -2011,7 +2011,7 @@ The table shows the permissions that each role has, with the inherited ones. The
 
 ### How the rules are tested
 
-The Python tests in `sync/tests/unit/test_templates_roles.py` run the `create_rbac` template on the real test server with the real `rbac.toml`.
+The Python tests in `sync/tests/unit/test_templates_roles.py` run the `load_rbac` template on the real test server with the real `rbac.toml`.
 
 They compare `rbac.can()` for every role and permission with a reference that the test computes itself. Hypothesis tests do the same for random rules files and random names. The end-to-end suite in `k6/scenarios/` tests the console with real tokens (`console.js` and `roles.js`) on the k3d cluster. It doesn't run in CI, because it needs the cluster. Run it before you merge a change to a permission, a role, an access policy, a view or the console schema (`devenv shell -- nu scripts/cluster.nu k6 e2e`).
 
@@ -2429,7 +2429,7 @@ The console reads the database through views and a few functions. This page list
 
 ### Views
 
-The `console` schema contains the views that the console reads through PostgREST. The console migrations create and replace them. The `console` scenario of the end-to-end suite (`k6/scenarios/console.js`) tests them.
+The `console` schema contains the views that the console reads through PostgREST. The migrations create and replace them. The `console` scenario of the end-to-end suite (`k6/scenarios/console.js`) tests them.
 
 | View | Content |
 | --- | --- |
@@ -2540,7 +2540,7 @@ This page lists the configuration tables that the console edits. It also says wh
 
 ### Configuration tables
 
-The sync configuration is data in three tables of the `console` schema. The console migrations create them, and the end-to-end suite tests the rules.
+The sync configuration is data in three tables of the `console` schema. The migrations create them, and the end-to-end suite tests the rules.
 
 | Table | Contains |
 | --- | --- |
@@ -2683,7 +2683,7 @@ Every link is a `GET`. A `HEAD` request on a link signed for `GET` answers 403, 
 
 - `provision` creates the role `schema_<name>` with the schema and drops it with the schema. The role has no login. It reads the metadata schema of its schema, now and for the tables that DuckLake creates later.
 - `configure-db` creates the `console_signer` login without inheritance, with its password in the Secret `<release>-signer`. The login is a member of every `schema_<name>` role and must switch into one.
-- `configure-db` also creates `signer.keys` in the catalog database. Only that login reads and writes it, and the drop of a schema deletes its row.
+- A migration of the catalog database creates `signer.keys`. Only that login reads and writes it, and the drop of a schema deletes its row.
 - The step `cleanup_s3_credentials` deletes the identity `sig_<schema>` of a schema that left the configuration. It runs in `provision_schemas` and `cleanup_tables`, only when `S3_IDENTITIES` is `true`. The chart sets that with `console.storage.perSchemaIdentities`.
 
 ### Storage setup
@@ -2748,7 +2748,7 @@ The root `devenv.yaml` imports the folders `proxy/`, `sync/`, `console/` and `he
 | `nix` | The checks of the profile sizes and of the commands in the docs. |
 | `base`, `python` | The parts that the other profiles share, in `nix/profiles/shared.nix`. |
 
-A profile fetches every package that its tasks and processes name, so keep each one small. `nix:lint:closure` fails when a profile grows over its limit in `nix/profiles/nix.nix`. The processes of the test stack are in `nix/stack/`, the helpers in `nix/utils/` and the ports, addresses and test logins in `nix/data.nix`. Task names follow `<component>:<verb>:<target>`, and devenv rejects a name that doesn't.
+A profile fetches every package that its tasks and processes name, so keep each one small. `nix:lint:closure` fails when a profile grows over its limit in `nix/profiles/nix.nix`. The processes of the test stack are in `nix/stack/`, the helpers in `nix/utils/` and the ports, addresses and test logins in `nix/data.nix`.
 
 A task skips its work when its input files didn't change since the last green run. To force a run, change an input or delete `.devenv/profiles/<profile>/state/tasks.db`.
 
@@ -2772,13 +2772,15 @@ devenv --profile repo tasks run repo:lint repo:test:unit
 
 The git hooks run when you commit. `eslint`, `prettier`, `lx-fmt`, `ruff` and `ruff-format` fix files, so stage the result and commit again. `ripsecrets` blocks a secret, and `vale` checks the prose of the docs. CI doesn't run Vale. Run `vale <file>` for a quick check.
 
-Before a release, run the checks that CI can't run. `cluster k6 e2e` tests the whole system. `cluster k6 load` tests the latency gates and KEDA. `cluster upgrade --from <previous chart version>` tests the upgrade path, after the first release.
+Before a release, run the checks that CI can't run, with a valid Google login. `cluster k6 e2e` tests the whole system. `cluster k6 load` tests the latency gates and KEDA. `cluster upgrade --from <previous chart version>` tests the upgrade path.
 
 ### Run the console locally
 
 ```bash
 devenv --profile console up
 ```
+
+This also starts the notebook server, which a test run skips.
 
 Add `-d` to run in the background, wait with `devenv processes wait` and stop with `devenv down`. Open `http://console.localhost:13001/console`, or run `devenv --profile console tasks run console:open:browser`. Sign in as `admin` (role `dp_admin`, schema `test`) with the password `admin`. The tests also use six users with the password `web-test`:
 
@@ -2950,7 +2952,7 @@ Each job restores the task state of the last green run of `main` before it runs,
 
 | Image | Rebuilds when this changes |
 | --- | --- |
-| `data-proxy-sync` | `sync/src/`, `sync/pyproject.toml`, `sync/uv.lock`, `console/migrations/` |
+| `data-proxy-sync` | `sync/src/`, `sync/pyproject.toml`, `sync/uv.lock`, `migrations/` |
 | `data-proxy-proxy` | `proxy/src/`, `proxy/lux.toml`, `proxy/lux.lock` |
 | `data-proxy-console` | `console/ui/`, `console/notebooks/` |
 | `data-proxy-jobs`, `data-proxy-postgres` | The Containerfile of the image |
@@ -2965,12 +2967,13 @@ CI releases the Helm chart from Conventional Commits with `cog`. `cog` reads the
 | `ci guard` | Skips the release when no chart file and no image path changed since the last tag, or when every release commit changed only the provider or the docs. |
 | `ci images resolve`, `ci images pin` | Find the newest tag of each image and write the tags in `helm/values.yaml`, so a release never uses `latest`. |
 | `ci release bump` | Runs `cog bump`. It sets the chart version, writes `CHANGELOG.md`, commits and tags. |
-| `ci chart package`, `ci chart publish` | Package the chart and push it to the OCI registry. |
-| `ci release push <tag>`, `ci release notes <tag>` | Push the commit and the tag in one push, and write the release notes. |
+| `ci chart package` | Package the chart. |
+| `ci release push <tag>` | Push the commit and the tag in one push. |
+| `ci chart publish`, `ci release notes <tag>` | Publish the chart, and write the release notes. |
 
 A commit that changes only `terraform/`, `docs/` or `llms.txt` never releases the chart, even as a `feat` or a `fix`. A later release still counts it in the version and the changelog.
 
-The chart is published before the push. A failed publish leaves no tag, so run the workflow again. A failed push leaves a published chart and no tag. The next run publishes the same version again. `GITHUB_TOKEN` can't push to `main`. The job pushes with the deploy key `bot` (the secret `RELEASE_DEPLOY_KEY` of the environment `release`), which `protect-main` lists as a bypass.
+The job pushes the commit and the tag before it publishes the chart. A failed push publishes nothing, so run the workflow again. After a failed publish, run `ci chart package` and `ci chart publish` at the tag. `GITHUB_TOKEN` can't push to `main`. The job pushes with the deploy key `bot` (the secret `RELEASE_DEPLOY_KEY` of the environment `release`), which `protect-main` lists as a bypass.
 
 Staging follows every chart. Production follows the chart tag `prod`, which a reviewer moves. See Production deploys.
 
@@ -3313,7 +3316,7 @@ SeaweedFS stores Parquet data in its own configured storage. The PostgreSQL data
 
 ### Database initialization and readiness
 
-Three Jobs prepare the database, and each one waits for what it needs.
+Three Jobs prepare the database, and each one waits for what it needs. A migration contains what changes only when a developer changes it. A Job contains what depends on a secret, on `rbac.toml`, on the schemas of the console or on a sync run.
 
 ```mermaid
 %% Install Jobs sequence
@@ -3326,17 +3329,17 @@ sequenceDiagram
   participant pgr as PostgREST
   h->>cfg: start
   cfg->>pg: wait for the writer
-  cfg->>pg: roles, rbac, state tables, functions
-  cfg->>pg: DuckDB secrets and grants
+  cfg->>pg: request roles
   h->>mig: start
-  mig->>pg: wait for the state tables
+  mig->>pg: wait for the request roles
   mig->>pg: dbos migrate
-  mig->>pg: goose up (console schema)
+  mig->>pg: goose up (application and catalog databases)
+  cfg->>pg: wait for the rbac schema
+  cfg->>pg: DuckDB secrets and the rules of rbac.toml
   h->>prov: start
-  prov->>pg: wait for the console tables
-  prov->>pg: console functions and triggers
+  prov->>pg: wait for the migrations and the rules
   prov->>pg: fill an empty configuration
-  prov->>pg: schemas, access policies, grants
+  prov->>pg: schemas, access policies, reader roles
   prov->>pg: set pgrst.db_schemas
   opt the schema list changed
     pg->>pgr: NOTIFY after the standbys replay
@@ -3345,32 +3348,34 @@ sequenceDiagram
 
 | Job | Waits for | Work |
 | --- | --- | --- |
-| `configure-db` | Its CNPG writer. | Runs idempotent SQL with `ON_ERROR_STOP=1`, as `ops`. CNPG owns two roles, `ops` and `duckdb`. The Job owns the system objects (see below). It also writes the persistent DuckDB secrets, which only a superuser may write. |
-| `migrate-db` | The last of the state tables. | Runs in the sync image. It runs `dbos migrate` and `goose up`, and it owns the `console` schema of the console. The image contains `goose` and the files of `console/migrations`. |
-| `provision` | The `console` tables. | Runs on every install and upgrade. See below. |
+| `configure-db` | Its CNPG writer, and then the `rbac` schema of the migrations. | Runs idempotent SQL with `ON_ERROR_STOP=1`, as `ops`. CNPG owns two roles, `ops` and `duckdb`. The Job creates the request roles first. After the migrations, it writes the persistent DuckDB secrets, which only a superuser may write, loads the rules of `rbac.toml` and installs the recovery procedure. |
+| `migrate-db` | The request roles, because its grants name them. | Runs in the sync image. It runs `dbos migrate`, then `goose up` on the application database with `migrations/console/` and on the catalog database with `migrations/ducklake/`. See below. |
+| `provision` | The migrations of both databases, and the rules. | Runs on every install and upgrade. See below. |
 
-The system objects of `configure-db` are:
+The migrations make what changes only with the code:
 
-- the request roles: `anon`, the `dp_*` roles of `rbac.toml` and the `serving` login
-- the `rbac` schema
-- the state, error and scope tables of the engine
-- the pre-request function and its grants
-- the functions that reload PostgREST
-- the maintenance procedures
+- the extensions `postgis` and `pg_duckdb`
+- the `data_proxy` schema: the state tables, the reload functions, the pre-request function and the maintenance procedures
+- the `rbac` schema with its functions, and the `console` schema with its tables, views, functions and triggers
+- the grants to the request roles
+- in the catalog database, the table of the sealed keys and the privileges of the catalog reader
+
+`configure-db` keeps what depends on a secret or on `rbac.toml`: the request roles, the rules and the DuckDB secrets. It also keeps the recovery procedure, which takes the application name from the chart.
+
+Goose records each migration in `public.goose_db_version` of its database. Between `-- +goose ENVSUB ON` and `-- +goose ENVSUB OFF`, it fills the role names, such as `${AUTH_USER_ROLE}`, from the Job. Every name is quoted, so a name that isn't set stops the run.
 
 `provision` also exists as a suspended CronJob, `<release>-provision`, that a Job comes from when a schema changes (see Run a Job on demand). On install and upgrade, it does these steps:
 
-- It first installs the functions and triggers of the console, which need the tables and views of the migrations.
 - It fills an empty configuration once from `sync.config`. Afterward the console controls the configuration.
-- It grants the baseline role (`auth.userRole`, which every `dp_*` role is a member of) its rights on the `console` schema. The rights are wide, and each view, row policy and function asks for the permission of the token.
 - For each schema in `console.schemas`, it creates the PostgreSQL schema and its access policy, with row policies that ask for `read_policy` and `edit_policy`.
-- It grants the anonymous role the right to call `console.config()`, the one function that the proxy reads.
 - It sets `pgrst.db_schemas` on the `serving` login to the schemas plus `console`, in that order, because the first schema is the default profile of PostgREST.
 - It tells PostgREST to reload only when that list changes. The database waits until every standby replayed the change, then sends a `NOTIFY` on the `pgrst` channel.
 
 PostgREST serves a schema that an editor adds within seconds. The job drops a schema that an editor removes: the files first, then the catalog, then the schema of the database. See Console.
 
-The header of `scripts/migrate.nu` explains what belongs to the chart and what belongs to the migrations.
+#### Roll back
+
+The Job never runs a Down part, and the baseline has none. To go back, deploy the previous chart version. To undo a later file with a Down part, run `goose down` by hand.
 
 ### Run a Job on demand
 

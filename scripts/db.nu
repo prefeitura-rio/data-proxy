@@ -1,9 +1,12 @@
 use lib.nu [
-    check-result
+    dbos-migrate
     fail
+    goose-up
     parse-toml
     read-text
-    remove-path
+    render-template
+    run-sql
+    test-url
     write-text
 ]
 
@@ -16,27 +19,10 @@ const DUCKDB_SETTINGS = [
     'duckdb.unsafe_allow_mixed_transactions'
 ]
 
-# Render one SQL template with minijinja-cli and a JSON context, and return the SQL.
-def render [template: path, context: record = {}]: nothing -> string {
-    let file = mktemp --tmpdir --suffix .json
-
-    $context | to json | write-text $file
-    let result = minijinja-cli --strict --autoescape none --format json $template $file | complete
-    remove-path $file
-
-    $result | check-result $'Rendering of ($template)'
-}
-
-# Run one SQL script in the PostgreSQL test server and stop at the first error.
-def run-sql [database: string, port: string]: string -> nothing {
-    psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 --host=127.0.0.1 $'--port=($port)' --username=test $'--dbname=($database)'
-    | complete
-    | check-result $'psql in ($database)'
-    | ignore
-}
-
-# Create the test databases, including the DuckLake catalog database, and the rbac rules that the data schemas call.
-# The policies and the functions of every data schema ask rbac.can(), so the data tests need the rules too.
+# Create the test databases, including the DuckLake catalog database, and what the jobs make before the first test.
+# The migrations make the application schema, the rbac functions, the console and the grants, as in the cluster.
+# Then the rules of rbac.toml load, because the policies and the functions of every data schema call rbac.can().
+# The load of the rules moves the revision, and a trigger queues a workflow, so the setup empties the queues: a test must start with none.
 # DuckDB reads persistent secrets once per backend, so the setup creates them before any test backend starts.
 def main []: nothing -> nothing {
     let port = $env.TEST_POSTGRES_PORT
@@ -54,29 +40,32 @@ def main []: nothing -> nothing {
         'CREATE DATABASE ducklake;'
     ]
     | str join (char nl)
-    $databases | run-sql postgres $port
+    $databases | run-sql (test-url postgres $port)
 
-    render ($templates | path join fixture.sql) | run-sql test_template $port
+    render-template ($templates | path join fixture.sql) | run-sql (test-url test_template $port)
 
     let rules_text = read-text ($env.DEVENV_ROOT | path join helm files config rbac.toml)
-    let rbac_sql = render ($env.DEVENV_ROOT | path join helm files templates postgres create_rbac.sql) {
+    let rbac_sql = render-template ($env.DEVENV_ROOT | path join helm files templates postgres load_rbac.sql) {
         rules: ($rules_text | parse-toml)
         anonymous_role: '"anon"'
         source_hash: ($rules_text | hash sha256)
     }
     for database in ['test_template' 'test'] {
-        $rbac_sql | run-sql $database $port
+        let url = test-url $database $port
+        dbos-migrate $url
+        goose-up console $url
+        $rbac_sql | run-sql $url
+        'DELETE FROM dbos.workflow_status;' | run-sql $url
     }
+    goose-up ducklake (test-url ducklake $port)
 
-    render ($templates | path join create_ducklake_catalog_secret.sql) {
+    render-template ($templates | path join create_ducklake_catalog_secret.sql) {
         host: localhost
         port: $port
         database: ducklake
         user: test
         password: test
-    } | run-sql test $port
-
-    'CREATE EXTENSION IF NOT EXISTS pg_duckdb;' | run-sql test $port
+    } | run-sql (test-url test $port)
 }
 
 # Replace the text between the markers of a block in a page, such as `diagram:application`.

@@ -1,4 +1,4 @@
-version: v1.7.4
+version: v1.8.0
 dependencies:
   - name: base
     repository: https://istio-release.storage.googleapis.com/charts

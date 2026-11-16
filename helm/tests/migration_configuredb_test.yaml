@@ -23,129 +23,98 @@ tests:
           value: data-proxy-configure-db-sql
         template: jobs.yaml
 
-  - it: creates the state and error tables of the engine
+  - it: leaves the state, reload, pre-request, maintenance and console objects to the migrations
     asserts:
-      - matchRegex:
+      - notExists:
           path: data["postgres_create_state.sql"]
-          pattern: "CREATE TABLE IF NOT EXISTS \\{\\{ schema \\}\\}.state"
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
         template: jobs.yaml
-      - matchRegex:
-          path: data["postgres_create_state.sql"]
-          pattern: "CREATE TABLE IF NOT EXISTS \\{\\{ schema \\}\\}.errors"
+      - notExists:
+          path: data["postgres_create_reload.sql"]
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
         template: jobs.yaml
-
-  - it: gives the role of every token its rights on the console schema, and lets no token change a queue or a schedule
-    asserts:
-      - matchRegex:
-          path: data["postgres_grant_console_usage.sql"]
-          pattern: "GRANT USAGE ON SCHEMA console TO \\{\\{ user_role \\}\\}"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-configure-db-sql
-        template: jobs.yaml
-      - notMatchRegex:
-          path: data["postgres_grant_console_usage.sql"]
-          pattern: "console\\.(queues|schedules)|authz"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-configure-db-sql
-        template: jobs.yaml
-
-  - it: lets the role of every token run the function that filters the workflows of the console views
-    asserts:
-      - matchRegex:
-          path: data["postgres_grant_app_usage.sql"]
-          pattern: "GRANT EXECUTE ON FUNCTION \\{\\{ app_schema \\}\\}\\.sees\\(text, text\\) TO \\{\\{ user_role \\}\\}"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-configure-db-sql
-        template: jobs.yaml
-      - isNull:
-          path: data["postgres_create_console_operations.sql"]
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-configure-db-sql
-        template: jobs.yaml
-
-  - it: gives a request to the console profile a longer statement timeout, because every token has the same role
-    asserts:
-      - matchRegex:
+      - notExists:
           path: data["postgres_create_pre_request.sql"]
-          pattern: "set_config\\('statement_timeout', '30s', true\\)"
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
         template: jobs.yaml
-
-  - it: keeps the reload functions from the public role, like the other maintenance procedures
-    asserts:
-      - matchRegex:
-          path: data["postgres_create_reload.sql"]
-          pattern: "REVOKE ALL ON FUNCTION \\{\\{ schema \\}\\}.reload_postgrest\\(\\) FROM public"
+      - notExists:
+          path: data["postgres_create_console_functions.sql"]
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
         template: jobs.yaml
-      - matchRegex:
-          path: data["postgres_create_reload.sql"]
-          pattern: "REVOKE ALL ON FUNCTION \\{\\{ schema \\}\\}.wait_for_standbys\\(interval\\) FROM public"
+      - notExists:
+          path: data["postgres_create_console_config.sql"]
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
         template: jobs.yaml
-
-  - it: grants maintenance procedures to no role that nothing creates
-    asserts:
-      - notMatchRegex:
+      - notExists:
+          path: data["postgres_create_console_triggers.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - notExists:
+          path: data["postgres_grant_app_usage.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - notExists:
+          path: data["postgres_grant_console_usage.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - notExists:
+          path: data["postgres_grant_proxy_config.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - notExists:
           path: data["postgres_cleanup_stale_objects.sql"]
-          pattern: "jobs"
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
         template: jobs.yaml
-      - notMatchRegex:
+      - notExists:
           path: data["postgres_prune_access_log.sql"]
-          pattern: "jobs"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - notExists:
+          path: data["postgres_prune_workflows.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - notExists:
+          path: data["postgres_configure_catalog.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - notExists:
+          path: data["postgres_create_signer_keys.sql"]
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
         template: jobs.yaml
 
-  - it: ships the functions that reload PostgREST after the standbys replayed the change
+  - it: ships the call of the reload function, which the migrations define
     asserts:
-      - matchRegex:
-          path: data["postgres_create_reload.sql"]
-          pattern: "FUNCTION \\{\\{ schema \\}\\}.wait_for_standbys"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-configure-db-sql
-        template: jobs.yaml
-      - matchRegex:
-          path: data["postgres_create_reload.sql"]
-          pattern: "pg_notify\\('pgrst', 'reload schema'\\)"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-configure-db-sql
-        template: jobs.yaml
       - matchRegex:
           path: data["postgres_call_reload_postgrest.sql"]
           pattern: "SELECT \\{\\{ schema \\}\\}.reload_postgrest\\(\\)"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-configure-db-sql
-        template: jobs.yaml
-
-  - it: creates the table that tells which schemas each run and task covers
-    asserts:
-      - matchRegex:
-          path: data["postgres_create_state.sql"]
-          pattern: "CREATE TABLE IF NOT EXISTS \\{\\{ schema \\}\\}.scope"
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
@@ -216,13 +185,19 @@ tests:
           value: data-proxy-configure-db-script
         template: jobs.yaml
       - isNotNull:
+          path: data["postgres_load_rbac.sql"]
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-sql
+        template: jobs.yaml
+      - notExists:
           path: data["postgres_create_rbac.sql"]
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
         template: jobs.yaml
 
-  - it: creates the request roles before the rbac rules grant to them
+  - it: creates the request roles before the migrations, and loads the rules after them
     asserts:
       - isNotNull:
           path: data["postgres_create_roles.sql"]
@@ -232,13 +207,20 @@ tests:
         template: jobs.yaml
       - matchRegex:
           path: data["configure-db.nu"]
-          pattern: "create-roles\\n\\s+configure-ducklake\\n\\s+configure-catalog\\n\\s+create-rbac"
+          pattern: "main roles\\n\\s+main rules"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-configure-db-script
+        template: jobs.yaml
+      - matchRegex:
+          path: data["configure-db.nu"]
+          pattern: "wait-for-relation rbac.roles\\n\\s+configure-ducklake\\n\\s+load-rbac\\n\\s+verify-rbac"
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-script
         template: jobs.yaml
 
-  - it: ships maintenance procedure files
+  - it: ships the recovery procedure, which takes the name of the application from the chart
     asserts:
       - notExists:
           path: data.setup_maintenance.sql
@@ -248,12 +230,6 @@ tests:
         template: jobs.yaml
       - isNotNull:
           path: data["postgres_recover_orphaned_workflows.sql"]
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-configure-db-sql
-        template: jobs.yaml
-      - isNotNull:
-          path: data["postgres_prune_workflows.sql"]
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql

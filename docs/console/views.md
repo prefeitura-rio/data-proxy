@@ -4,7 +4,7 @@ The console reads the database through views and a few functions. This page list
 
 ## Views
 
-The `console` schema contains the views that the console reads through PostgREST. The console migrations create and replace them. The `console` scenario of the end-to-end suite (`k6/scenarios/console.js`) tests them.
+The `console` schema contains the views that the console reads through PostgREST. The migrations create and replace them. The `console` scenario of the end-to-end suite (`k6/scenarios/console.js`) tests them.
 
 | View | Content |
 | --- | --- |

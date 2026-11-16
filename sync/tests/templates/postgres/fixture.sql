@@ -1,13 +1,15 @@
 {#
 {
   "kind": "template",
-  "description": "Create the extension, schema, and roles that every test database needs."
+  "description": "Create the extension, schema, and roles that every test database needs, before the migrations run."
 }
 #}
 CREATE EXTENSION IF NOT EXISTS pg_duckdb;
 CREATE ROLE "user" NOLOGIN; -- noqa: RF06
 CREATE ROLE serving NOLOGIN;
 CREATE ROLE anon NOLOGIN;
+CREATE ROLE duckdb NOLOGIN;
+CREATE ROLE migration_signer NOLOGIN;
 CREATE ROLE dp_api NOLOGIN;
 CREATE ROLE dp_policy NOLOGIN;
 CREATE ROLE dp_console NOLOGIN;

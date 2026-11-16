@@ -1,0 +1,289 @@
+-- +goose Up
+-- Creates the console schema: views over the DBOS tables (runs, tasks, steps, logs,
+-- queues, schedules, errors), the schemas, tables and rls configuration tables with
+-- their stamp and claim triggers, console.username(), and the health and synced views.
+-- Squashed from the old console migrations 00001 to 00004.
+-- noqa: disable=PRS
+
+-- From console migration 00001_create_console_views
+-- noqa: disable=CP02
+CREATE SCHEMA console;
+
+CREATE VIEW console.runs AS
+SELECT
+    w.workflow_uuid AS id,
+    w.status,
+    w.queue_name,
+    w.schedule_name,
+    w.authenticated_user AS started_by,
+    w.executor_id,
+    w.application_version,
+    w.recovery_attempts,
+    to_timestamp(w.created_at / 1000.0) AS created_at,
+    to_timestamp(w.started_at_epoch_ms / 1000.0) AS started_at,
+    to_timestamp(w.completed_at / 1000.0) AS completed_at,
+    count(t.workflow_uuid)::int AS task_count,
+    count(t.workflow_uuid) FILTER (WHERE t.status = 'ERROR')::int AS failed_task_count
+FROM dbos.workflow_status AS w
+LEFT JOIN dbos.workflow_status AS t ON w.workflow_uuid = t.parent_workflow_id
+WHERE w.name = 'run_sync'
+GROUP BY w.workflow_uuid;
+
+CREATE VIEW console.tasks AS
+SELECT
+    workflow_uuid AS id,
+    parent_workflow_id AS run_id,
+    name,
+    status,
+    queue_name,
+    queue_partition_key AS schema_name,
+    to_timestamp(created_at / 1000.0) AS created_at,
+    to_timestamp(started_at_epoch_ms / 1000.0) AS started_at,
+    to_timestamp(completed_at / 1000.0) AS completed_at
+FROM dbos.workflow_status
+WHERE name IN ('dump_task', 'publish_schema');
+
+CREATE VIEW console.steps AS
+SELECT
+    o.workflow_uuid AS workflow_id,
+    o.function_id,
+    o.function_name,
+    o.child_workflow_id,
+    coalesce(w.parent_workflow_id, w.workflow_uuid) AS run_id,
+    o.error IS NOT NULL AS failed,
+    to_timestamp(o.started_at_epoch_ms / 1000.0) AS started_at,
+    to_timestamp(o.completed_at_epoch_ms / 1000.0) AS completed_at
+FROM dbos.operation_outputs AS o
+INNER JOIN dbos.workflow_status AS w ON o.workflow_uuid = w.workflow_uuid
+WHERE w.name IN ('run_sync', 'dump_task', 'publish_schema');
+
+CREATE VIEW console.logs AS
+SELECT
+    s.workflow_uuid AS workflow_id,
+    s."offset" AS position,
+    e.time AS logged_at,
+    e.level,
+    e.message,
+    e.fields,
+    e.schema AS schema_name,
+    e.table AS table_name,
+    coalesce(w.parent_workflow_id, w.workflow_uuid) AS run_id
+FROM dbos.streams AS s
+INNER JOIN dbos.workflow_status AS w ON s.workflow_uuid = w.workflow_uuid
+CROSS JOIN LATERAL jsonb_to_record(s.value::jsonb) AS e (
+    time timestamptz,
+    level text,
+    message text,
+    fields jsonb,
+    schema text,
+    "table" text
+)
+WHERE s.key = 'logs' AND s.serialization = 'portable_json';
+
+CREATE VIEW console.queues AS
+SELECT
+    q.name,
+    q.concurrency,
+    q.worker_concurrency,
+    q.rate_limit_max,
+    q.rate_limit_period_sec,
+    q.partition_queue,
+    q.partition_concurrency,
+    q.polling_interval_sec,
+    to_timestamp(q.updated_at / 1000.0) AS updated_at,
+    count(w.workflow_uuid) FILTER (WHERE w.status = 'ENQUEUED')::int AS enqueued,
+    count(w.workflow_uuid) FILTER (WHERE w.status = 'PENDING')::int AS pending,
+    count(w.workflow_uuid) FILTER (WHERE w.status = 'DELAYED')::int AS delayed
+FROM dbos.queues AS q
+LEFT JOIN dbos.workflow_status AS w
+    ON q.name = w.queue_name AND w.status IN ('ENQUEUED', 'PENDING', 'DELAYED')
+WHERE rbac.can('read_sync')
+GROUP BY q.queue_id;
+
+-- +goose StatementBegin
+CREATE FUNCTION console.refuse_write() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION '% is read-only', TG_TABLE_NAME USING ERRCODE = '42501';
+END
+$$;
+-- +goose StatementEnd
+
+CREATE TRIGGER queues_read_only
+INSTEAD OF INSERT OR UPDATE OR DELETE ON console.queues
+FOR EACH ROW EXECUTE FUNCTION console.refuse_write();
+
+CREATE VIEW console.schedules AS
+SELECT
+    schedule_name AS name,
+    workflow_name,
+    schedule,
+    status,
+    queue_name,
+    cron_timezone AS timezone,
+    automatic_backfill,
+    last_fired_at
+FROM dbos.workflow_schedules
+WHERE rbac.can('read_sync');
+
+CREATE VIEW console.errors AS
+SELECT
+    id,
+    reason,
+    fields,
+    recorded_at
+FROM data_proxy.errors
+ORDER BY recorded_at DESC;
+
+-- From console migration 00002_create_username
+-- noqa: disable=CP02,PRS
+CREATE FUNCTION console.username() RETURNS text
+LANGUAGE sql STABLE AS $$
+    SELECT coalesce(c ->> 'preferred_username', c ->> 'sub', current_user)
+    FROM (SELECT nullif(current_setting('request.jwt.claims', TRUE), '')::jsonb AS c) AS t
+$$;
+
+REVOKE ALL ON FUNCTION console.username() FROM PUBLIC;
+
+-- From console migration 00003_create_config
+-- noqa: disable=CP02,PRS
+CREATE TABLE console.schemas (
+    name text PRIMARY KEY CHECK (name ~ '^[a-z][a-z0-9_]{0,62}$'),
+    source text NOT NULL DEFAULT 'bigquery' CHECK (source <> ''),
+    settings jsonb CHECK (jsonb_typeof(settings) = 'object' AND settings <> '{}'),
+    claim text CHECK (claim <> ''),
+    encrypted boolean NOT NULL DEFAULT FALSE,
+    updated_at timestamptz NOT NULL,
+    updated_by text NOT NULL,
+    CONSTRAINT reserved_name CHECK (
+        name !~ '^(console|rbac|data_proxy|dbos|public|duckdb|information_schema)$'
+        AND name !~ '^pg_'
+    )
+);
+
+CREATE TABLE console.tables (
+    name text PRIMARY KEY CHECK (name <> ''),
+    schema text NOT NULL REFERENCES console.schemas (name) ON UPDATE CASCADE,
+    strategy text NOT NULL DEFAULT 'full' CHECK (strategy IN ('full', 'partitioned')),
+    n integer CHECK (n > 0),
+    fallback boolean NOT NULL DEFAULT FALSE,
+    cache_ttl integer CHECK (cache_ttl >= 0),
+    partitioning jsonb CHECK (jsonb_typeof(partitioning) = 'array'),
+    sort text[] CHECK (cardinality(sort) > 0),
+    updated_at timestamptz NOT NULL,
+    updated_by text NOT NULL,
+    CHECK (strategy = 'partitioned' OR (n IS NULL AND NOT fallback))
+);
+
+CREATE UNIQUE INDEX tables_destination
+ON console.tables (schema, (regexp_replace(name, '^.*\.', '')));
+
+CREATE TABLE console.rls (
+    id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    table_name text NOT NULL REFERENCES console.tables (name)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+    column_name text NOT NULL CHECK (column_name <> ''),
+    unit_type text NOT NULL CHECK (unit_type <> ''),
+    updated_at timestamptz NOT NULL,
+    updated_by text NOT NULL,
+    UNIQUE (table_name, column_name, unit_type)
+);
+
+-- +goose StatementBegin
+CREATE FUNCTION console.stamp() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    new.updated_at := now();
+    new.updated_by := console.username();
+    RETURN new;
+END
+$$;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE FUNCTION console.require_claim() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM console.tables AS t
+        INNER JOIN console.schemas AS s ON t.schema = s.name
+        WHERE t.name = new.table_name AND s.claim IS NOT NULL
+    ) THEN
+        RAISE EXCEPTION 'The schema of table % has no claim, so it can''t have rls rules',
+            new.table_name USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN new;
+END
+$$;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE FUNCTION console.keep_claim() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM console.rls AS r
+        INNER JOIN console.tables AS t ON r.table_name = t.name
+        WHERE t.schema = new.name
+    ) THEN
+        RAISE EXCEPTION 'Schema % has rls rules, so it needs a claim', new.name
+            USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN new;
+END
+$$;
+-- +goose StatementEnd
+
+CREATE TRIGGER stamp BEFORE INSERT OR UPDATE ON console.schemas
+FOR EACH ROW EXECUTE FUNCTION console.stamp();
+CREATE TRIGGER stamp BEFORE INSERT OR UPDATE ON console.tables
+FOR EACH ROW EXECUTE FUNCTION console.stamp();
+CREATE TRIGGER stamp BEFORE INSERT OR UPDATE ON console.rls
+FOR EACH ROW EXECUTE FUNCTION console.stamp();
+
+CREATE TRIGGER require_claim BEFORE INSERT OR UPDATE ON console.rls
+FOR EACH ROW EXECUTE FUNCTION console.require_claim();
+
+CREATE TRIGGER keep_claim BEFORE UPDATE OF claim ON console.schemas
+FOR EACH ROW WHEN (new.claim IS NULL) EXECUTE FUNCTION console.keep_claim();
+
+REVOKE ALL ON FUNCTION console.stamp() FROM PUBLIC;
+REVOKE ALL ON FUNCTION console.require_claim() FROM PUBLIC;
+REVOKE ALL ON FUNCTION console.keep_claim() FROM PUBLIC;
+
+-- From console migration 00004_create_status_views
+CREATE VIEW console.health AS
+WITH objects AS (
+    SELECT
+        n.nspname AS name,
+        bool_or(c.relname = 'access_policy') AS access_policy,
+        count(c.oid) FILTER (WHERE c.relkind = 'v')::int AS view_count
+    FROM pg_catalog.pg_namespace AS n
+    LEFT JOIN pg_catalog.pg_class AS c ON n.oid = c.relnamespace
+    GROUP BY n.nspname
+)
+
+SELECT
+    s.name,
+    o.name IS NOT NULL AS schema_exists,
+    coalesce(o.access_policy, FALSE) AS access_policy,
+    coalesce(o.view_count, 0) AS view_count
+FROM console.schemas AS s
+LEFT JOIN objects AS o ON s.name = o.name;
+
+CREATE VIEW console.synced AS
+SELECT
+    t.schema,
+    t.name,
+    st.table_name IS NOT NULL AS synced,
+    st.state ->> 'signature' AS signature,
+    coalesce(
+        jsonb_array_length(
+            jsonb_path_query_array(st.state, '$.partitions.keyvalue().key')
+        ),
+        0
+    ) AS partition_count
+FROM console.tables AS t
+LEFT JOIN data_proxy.state AS st ON t.name = st.table_name;

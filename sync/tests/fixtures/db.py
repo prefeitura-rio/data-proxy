@@ -45,7 +45,7 @@ from tests.fixtures.types import (
 from tests.helpers.core import clone_database, one_worker_at_a_time
 from tests.helpers.ducklake import publish_people_catalog
 from tests.helpers.routing import act_as_token
-from tests.helpers.state import create_state_tables, initialize_schemas
+from tests.helpers.state import initialize_schemas
 
 
 @pytest.fixture(scope="session")
@@ -93,7 +93,6 @@ async def postgres(storage: Storage, database: str) -> AsyncIterator[Postgres]:
         ).encode()
     )
     settings.DBOS_SYSTEM_DATABASE_URL = SecretStr(dsn)
-    await create_state_tables(connection)
     await connection.set_autocommit(False)
     try:
         yield Postgres(connection=connection, dsn=dsn, namespace=namespace)

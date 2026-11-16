@@ -323,8 +323,9 @@ export def "main k6 e2e" [
     log info 'Clearing test resources...'
     run-cronjob $kubecfg manifests-cleanup 'test cleanup Job'
 
+    apply-gcp-secret $kubecfg --required
+
     let image_tag = if $build {
-        apply-gcp-secret $kubecfg --required
         let tag = build-local-images
 
         log info 'Deleting configure-db Jobs so they recreate PostgreSQL setup...'

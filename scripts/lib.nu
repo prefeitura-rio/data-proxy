@@ -16,7 +16,7 @@ export const IMAGES = [
         containerfile: Containerfile.sync
         tag_prefix: ''
         local_tag_prefix: ''
-        change_pattern: '^Containerfile\.sync$|^sync/(src/|pyproject\.toml$|uv\.lock$)|^console/migrations/'
+        change_pattern: '^Containerfile\.sync$|^sync/(src/|pyproject\.toml$|uv\.lock$)|^migrations/'
         values_pattern: '^  image: .*data-proxy-sync:'
         sha_env: PIPELINE_SHA
         fallback: latest
@@ -284,6 +284,25 @@ export def build-local-images []: nothing -> string {
     $tag
 }
 
+# Return why the application-default credentials fail, or null when they work or can't be tested. The exchange closure posts the form to Google and returns the answer, or an empty record when the call fails.
+export def gcp-credentials-problem [credentials: record, exchange: closure]: nothing -> oneof<string, nothing> {
+    if $credentials.type? != 'authorized_user' {
+        return null
+    }
+
+    let form = {
+        client_id: $credentials.client_id
+        client_secret: $credentials.client_secret
+        refresh_token: $credentials.refresh_token
+        grant_type: refresh_token
+    }
+    let answer = do $exchange $form
+
+    if ($answer.error? in [invalid_grant invalid_rapt]) {
+        'GCP application-default credentials expired. Run: gcloud auth application-default login'
+    }
+}
+
 # Apply the local GCP application-default-credentials Secret.
 export def apply-gcp-secret [
     kubecfg: path
@@ -298,6 +317,14 @@ export def apply-gcp-secret [
 
         log warning 'GCP credentials not found, skipping secret'
         return
+    }
+
+    let problem = gcp-credentials-problem (read-text $credentials | parse-json) {|form|
+        try { http post --allow-errors --content-type application/x-www-form-urlencoded https://oauth2.googleapis.com/token $form } catch { {} }
+    }
+
+    if $problem != null {
+        fail $problem
     }
 
     log info 'Ensuring Kubernetes namespace for the GCP secret...'
@@ -523,4 +550,57 @@ export def registry-documents [inputs: record]: nothing -> table<path: string, b
 # Return the tag that `cog bump --dry-run` prints when a release is due, or null when it prints a message.
 export def release-tag []: string -> oneof<string, nothing> {
     lines | where $it =~ '^helm-v\d+\.\d+\.\d+' | get --optional 0
+}
+
+# Render one SQL template with minijinja-cli and a JSON context, and return the SQL.
+export def render-template [template: path, context: record = {}]: nothing -> string {
+    let file = mktemp --tmpdir --suffix .json
+
+    $context | to json | write-text $file
+    let result = minijinja-cli --strict --autoescape none --format json $template $file | complete
+    remove-path $file
+
+    $result | check-result $'Rendering of ($template)'
+}
+
+# Return the address of one database of the PostgreSQL test server.
+export def test-url [database: string, port: string]: nothing -> string {
+    $'postgresql://test:test@127.0.0.1:($port)/($database)'
+}
+
+# Run one SQL script on the database at the address, and stop at the first error.
+export def run-sql [url: string]: string -> nothing {
+    psql $url --no-psqlrc --quiet --set=ON_ERROR_STOP=1
+    | complete
+    | check-result $'psql on ($url)'
+    | ignore
+}
+
+# The roles that the grants of the migrations name. They are the defaults of the chart, so a test sees the same names.
+export const MIGRATION_ROLES = {
+    AUTH_ANON_ROLE: anon
+    AUTH_USER_ROLE: dp_api
+    AUTH_SIGNER_ROLE: migration_signer
+    PGUSER: test
+}
+
+# Run the migrations of one folder on the database at the address, as the Job migrate-db does. With --to, stop at that version.
+export def goose-up [folder: path, url: string, --to: int, --roles: record = {}]: nothing -> nothing {
+    let dir = git-root | path join migrations $folder
+    let command = if $to == null { [up] } else { [up-to ($to | into string)] }
+
+    with-env ($MIGRATION_ROLES | merge $roles) {
+        goose -dir $dir postgres $url ...$command
+    }
+    | complete
+    | check-result $'goose ($command | str join " ") of ($folder)'
+    | ignore
+}
+
+# Create the DBOS tables of the database at the address, which the console views read.
+export def dbos-migrate [url: string]: nothing -> nothing {
+    uv run --frozen --project (git-root | path join sync) dbos migrate --sys-db-url $url --schema dbos
+    | complete
+    | check-result $'dbos migrate on ($url)'
+    | ignore
 }

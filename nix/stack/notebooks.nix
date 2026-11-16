@@ -1,4 +1,5 @@
 {
+  lib,
   config,
   data,
   utils,
@@ -8,7 +9,7 @@ let
   inherit (data) urls;
 in
 {
-  tasks = {
+  tasks = lib.mkIf (!config.devenv.isTesting) {
     "nb:build:site" =
       utils.mkTask {
         command = [
@@ -42,7 +43,7 @@ in
       };
   };
 
-  processes = {
+  processes = lib.mkIf (!config.devenv.isTesting) {
     nb =
       utils.mkProcess {
         command = [

@@ -194,16 +194,16 @@ def migration-message [file: string, kind: string]: nothing -> string {
         missing: 'SHA256SUMS lists a file that does not exist.'
     }
 
-    $'console/migrations/($file).sql: SQL-17 ($reasons | get --optional $kind)'
+    $'migrations/console/($file).sql: SQL-17 ($reasons | get --optional $kind)'
 }
 
 def migration-table [hashes: record]: nothing -> table<file: string, hash: string> {
-    $hashes | items {|name, hash| {file: $'console/migrations/($name).sql', hash: $hash} }
+    $hashes | items {|name, hash| {file: $'migrations/console/($name).sql', hash: $hash} }
 }
 
 # Verify each way that a migration can disagree with the list of its hash.
 export def "test migration-problems-names-a-changed-new-and-missing-file" []: nothing -> nothing {
-    let sums = "aaa  console/migrations/00001_a.sql\nbbb  console/migrations/00002_b.sql"
+    let sums = "aaa  migrations/console/00001_a.sql\nbbb  migrations/console/00002_b.sql"
 
     let cases = [
         {

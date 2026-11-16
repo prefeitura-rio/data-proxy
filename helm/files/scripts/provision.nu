@@ -37,19 +37,6 @@ def bootstrap-config []: nothing -> nothing {
     log info 'The values file filled the empty configuration'
 }
 
-# Create the functions and triggers of the console on the tables and views that the migrations made
-def install-console-functions []: nothing -> nothing {
-    for template in [
-        postgres/create_console_functions.sql
-        postgres/create_console_config.sql
-        postgres/create_console_triggers.sql
-    ] {
-        execute-sql $template
-    }
-
-    log info 'Console functions setup completed'
-}
-
 # Create the schema, its access policy and the role that reads its metadata, for every given schema
 def create-schemas [...names: string]: nothing -> nothing {
     let app_schema = app-schema
@@ -174,28 +161,14 @@ def remove-schemas [...names: string]: nothing -> nothing {
 }
 
 # Make the database match the console configuration: create, serve and remove schemas.
-# The event run skips the console functions, because replacing a trigger locks its table.
-# Every token switches to one role, so that role needs the rights on the console schema once the migrations created it.
-# The anonymous role reads the one document that the proxy needs, and nothing else of the console schema.
+# The migrations made the console, its functions and the rights of the request roles.
 # Each pass reads both lists again and the loop repeats up to three times, so that an edit made during the run is not lost.
 def main []: nothing -> nothing {
     log info 'Schema provisioning started'
 
     wait-for-postgres $env.PG_DATABASE_URL
 
-    if $env.PROVISION_ALL? == 'true' {
-        install-console-functions
-    }
-
     bootstrap-config
-
-    execute-sql postgres/grant_console_usage.sql {
-        user_role: (quote-identifier $env.AUTH_USER_ROLE)
-    }
-
-    execute-sql postgres/grant_proxy_config.sql {
-        anonymous_role: (quote-identifier $env.AUTH_ANON_ROLE)
-    }
 
     for pass in 0..2 {
         let names = (sync-config).schemas | columns

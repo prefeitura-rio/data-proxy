@@ -32,7 +32,7 @@ class RbacRole(BaseModel):
 
 
 class RbacRules(BaseModel):
-    """The rules file that the create_rbac template turns into SQL."""
+    """The rules file that the load_rbac template turns into SQL."""
 
     permissions: dict[str, dict[str, str]]
     roles: list[RbacRole]
@@ -101,10 +101,10 @@ SOURCE_HASH: Final = "0f" * 32
 async def install_rbac(
     pg: Postgres, rules: RbacRules = RBAC, source_hash: str = SOURCE_HASH
 ) -> None:
-    """Render create_rbac with a rules file and run it in the test transaction."""
+    """Render load_rbac with a rules file and run it in the test transaction."""
     await pg.connection.execute(
         helm_sql(
-            "create_rbac",
+            "load_rbac",
             {
                 "rules": rules.context(),
                 "anonymous_role": Identifier("anon"),
@@ -122,17 +122,11 @@ async def stored_roles(pg: Postgres) -> list[tuple[str, list[str]]]:
     return [(name, permissions) for name, permissions in await cursor.fetchall()]
 
 
-async def install_console_triggers(pg: Postgres) -> None:
-    """Create the console tables that the triggers watch, and install the triggers, in the test transaction."""
+async def empty_queues(pg: Postgres, dbos_schema: str) -> None:
+    """Delete the queued workflows in the test transaction. A committed write of an earlier test queued some, and a trigger queues a workflow only when none waits."""
     await pg.connection.execute(
-        b"""
-        CREATE SCHEMA console;
-        CREATE TABLE console.schemas (name text);
-        CREATE TABLE console.tables (name text);
-        CREATE TABLE console.rls (id integer)
-        """
+        SQL("DELETE FROM {}.workflow_status").format(Identifier(dbos_schema))
     )
-    await pg.connection.execute(helm_sql("create_console_triggers").encode())
 
 
 async def queued_workflows(pg: Postgres, dbos_schema: str) -> list[str]:
@@ -226,7 +220,7 @@ def install_rbac_sync(
     """Install a rules file in the open transaction of a property test."""
     connection.execute(
         helm_sql(
-            "create_rbac",
+            "load_rbac",
             {
                 "rules": rules.context(),
                 "anonymous_role": Identifier("anon"),

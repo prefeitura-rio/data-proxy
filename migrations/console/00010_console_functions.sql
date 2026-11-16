@@ -1,23 +1,23 @@
-{#
-{
-  "kind": "template",
-  "description": "Create the functions that the console calls through PostgREST: the permissions of the token, the sync run, the control of runs and schedules, and the data files of a table.",
-  "inputs": {}
-}
-#}
-{#
-Every function checks the permission of the token itself, and the migrations of the console and the create_rbac template must have run first.
-#}
+-- +goose Up
+-- noqa: disable=PRS
+
+-- Creates the console functions that PostgREST exposes: permissions(), start_scope(),
+-- start_sync(), table_files(), and the guards and controls for runs (cancel, resume,
+-- retry) and schedules (pause, resume, set). Each function checks the token itself
+-- with rbac.can() and rbac.mine().
 -- noqa: disable=CP02
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.permissions() RETURNS text[]
 LANGUAGE sql STABLE AS $$
     SELECT string_to_array(
         trim(BOTH ',' FROM coalesce(current_setting('rbac.permissions', TRUE), '')), ','
     )
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.permissions() FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.start_scope(
     schemas text[] DEFAULT '{}', tables text[] DEFAULT '{}'
 ) RETURNS text[]
@@ -57,9 +57,11 @@ BEGIN
     RETURN scope;
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.start_scope(text[], text[]) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.start_sync(
     schemas text[] DEFAULT '{}', tables text[] DEFAULT '{}'
 ) RETURNS text
@@ -107,9 +109,11 @@ BEGIN
     RETURN run;
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.start_sync(text[], text[]) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.table_files(schema_name text, table_name text)
 RETURNS TABLE (path text, size_bytes bigint, delete_file text)
 LANGUAGE plpgsql STABLE SECURITY DEFINER
@@ -134,9 +138,11 @@ BEGIN
     ) USING regexp_replace(table_name, '^.*\.', '');
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.table_files(text, text) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.guard_run(run text, allowed text[])
 RETURNS void
 LANGUAGE plpgsql STABLE SECURITY DEFINER
@@ -165,9 +171,11 @@ BEGIN
     END IF;
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.guard_run(text, text[]) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.control_run(action text, run text)
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER
@@ -192,27 +200,33 @@ BEGIN
     );
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.control_run(text, text) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.cancel_run(run text)
 RETURNS void
 LANGUAGE sql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $$
     SELECT console.control_run('cancel_run', run)
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.cancel_run(text) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.resume_run(run text)
 RETURNS void
 LANGUAGE sql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $$
     SELECT console.control_run('resume_run', run)
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.resume_run(text) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.retry_run(run text)
 RETURNS text
 LANGUAGE plpgsql SECURITY DEFINER
@@ -239,9 +253,11 @@ BEGIN
     RETURN console.start_sync(scope, '{}');
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.retry_run(text) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.guard_schedule(target text)
 RETURNS void
 LANGUAGE plpgsql STABLE SECURITY DEFINER
@@ -265,9 +281,11 @@ BEGIN
     END IF;
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.guard_schedule(text) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.control_schedule(action text, target text)
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER
@@ -287,27 +305,33 @@ BEGIN
     );
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.control_schedule(text, text) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.pause_schedule(schedule_name text)
 RETURNS void
 LANGUAGE sql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $$
     SELECT console.control_schedule('pause_schedule', schedule_name)
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.pause_schedule(text) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.resume_schedule(schedule_name text)
 RETURNS void
 LANGUAGE sql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $$
     SELECT console.control_schedule('resume_schedule', schedule_name)
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.resume_schedule(text) FROM PUBLIC;
 
+-- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.set_schedule(schedule_name text, cron text)
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER
@@ -328,5 +352,6 @@ BEGIN
     );
 END
 $$;
+-- +goose StatementEnd
 
 REVOKE ALL ON FUNCTION console.set_schedule(text, text) FROM PUBLIC;

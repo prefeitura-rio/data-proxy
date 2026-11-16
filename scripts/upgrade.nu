@@ -1,5 +1,6 @@
 use std/log
 use lib.nu [
+    apply-gcp-secret
     fail
     git-root
     local-image-tag
@@ -34,7 +35,11 @@ def e2e-subset [scenarios: string]: nothing -> nothing {
 # Check what an upgrade must keep: the migrations, the rules, the logins, and the serving workloads.
 def check-upgraded-release [kubecfg: path]: nothing -> nothing {
     let migrations = try {
-        ls (git-root | path join console migrations) | where name =~ '\.sql$' | length
+        ls (git-root | path join migrations console)
+        | where name =~ '\.sql$'
+        | get name
+        | each {|file| $file | path basename | parse '{version}_{name}.sql' | first | get version | into int }
+        | math max
     } catch {|err|
         fail $'Cannot list the migrations: ($err.msg)'
     }
@@ -44,7 +49,7 @@ def check-upgraded-release [kubecfg: path]: nothing -> nothing {
     let serving = query-primary $kubecfg "SELECT count(*) FROM pg_roles WHERE rolname = 'serving' AND rolcanlogin"
 
     let problems = [
-        (if ($applied | into int) != $migrations { $'goose is at ($applied), and the repository has ($migrations) migrations' })
+        (if ($applied | into int) != $migrations { $'goose is at ($applied), and the last migration of the repository is ($migrations)' })
         (if ($roles | into int) == 0 { 'rbac.roles is empty' })
         (if ($serving | into int) != 1 { 'the serving login is missing or can not log in' })
     ]
@@ -80,9 +85,12 @@ export def "main upgrade" [
         fail $'Cannot enter ($repo): ($err.msg)'
     }
 
+    apply-gcp-secret $kubecfg --required
+
     log info $'Removing the current release ($RELEASE)...'
     wrap-helm $kubecfg uninstall $RELEASE --namespace $NAMESPACE --wait --ignore-not-found | ignore
-    wrap-kubectl $kubecfg -n $NAMESPACE delete pvc -l cnpg.io/cluster=$RELEASE --ignore-not-found | ignore
+    wrap-kubectl $kubecfg -n $NAMESPACE delete pvc -l $'cnpg.io/cluster=($RELEASE)' --ignore-not-found | ignore
+    wrap-kubectl $kubecfg patch pv data-proxy-duckdb --type merge --patch '{"spec":{"claimRef":null}}' | ignore
 
     log info $'Installing the published chart ($from)...'
     wrap-helm $kubecfg install $RELEASE $chart --version $from --namespace $NAMESPACE --values k3d/values/data-proxy.yaml --wait --wait-for-jobs --timeout 30m | ignore

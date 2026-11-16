@@ -19,7 +19,7 @@ USER appuser
 RUN .venv/bin/python -c "from duckdb import connect; c = connect(); c.execute('INSTALL httpfs'); c.execute('LOAD httpfs'); c.execute('INSTALL ducklake'); c.execute('LOAD ducklake'); c.execute('INSTALL postgres_scanner'); c.execute('LOAD postgres_scanner'); c.execute('INSTALL bigquery FROM community'); c.execute('LOAD bigquery')"
 
 COPY --chown=appuser:appuser sync/src/ src/
-COPY --chown=appuser:appuser console/migrations/ migrations/
+COPY --chown=appuser:appuser migrations/ migrations/
 
 ENV PATH=/app/.venv/bin:$PATH
 ENV PYTHONPATH=/app/src

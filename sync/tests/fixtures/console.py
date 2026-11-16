@@ -1,10 +1,8 @@
-"""The console schema, built from the real migrations and templates in the test transaction."""
+"""The console schema, which the migrations made in the test database, and the helpers that act on it."""
 
 import json
 from collections.abc import AsyncIterator, Sequence
 from contextlib import AsyncExitStack
-from pathlib import Path
-from typing import Final
 from uuid import uuid4
 
 import psycopg
@@ -16,73 +14,14 @@ from sync.settings import settings
 from sync.templates import render_template
 from tests.constants import POSTGRES_URL, TEST_SQL_DIR
 from tests.fixtures.types import Postgres
-from tests.helpers.core import helm_sql, scalar
+from tests.helpers.core import scalar
+from tests.helpers.migrations import console_section
 from tests.helpers.routing import act_as_token
-
-MIGRATIONS: Final = sorted(
-    (Path(__file__).parents[3] / "console" / "migrations").glob("*.sql")
-)
-
-CONSOLE_TEMPLATES: Final = (
-    "create_console_functions",
-    "create_console_config",
-    "create_console_triggers",
-)
-
-
-def migration_up(path: Path) -> str:
-    """Return the statements of the Up part of a goose migration."""
-    text = path.read_text()
-    up = text.split("-- +goose Up", 1)[1]
-
-    return up.split("-- +goose Down", 1)[0]
-
-
-async def migrate(pg: Postgres, files: list[Path]) -> None:
-    """Run the Up part of each migration, in order, in the test transaction."""
-    for path in files:
-        await pg.connection.execute(migration_up(path).encode())
-
-
-async def install_console(pg: Postgres) -> None:
-    """Build the console as the provision job does: the migrations, the functions and the grants."""
-    await migrate(pg, MIGRATIONS)
-
-    for name in CONSOLE_TEMPLATES:
-        await pg.connection.execute(helm_sql(name).encode())
-
-    await pg.connection.execute(
-        helm_sql(
-            "grant_console_usage", {"user_role": Identifier(settings.AUTH_USER_ROLE)}
-        ).encode()
-    )
-    await grant_app_usage(pg)
-
-
-async def grant_app_usage(pg: Postgres) -> None:
-    """Make the pre-request function and give the role of the requests the functions of the application schema, such as data_proxy.sees, as the provision job does."""
-    await pg.connection.execute(
-        helm_sql(
-            "create_pre_request", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
-        ).encode()
-    )
-    await pg.connection.execute(
-        helm_sql(
-            "grant_app_usage",
-            {
-                "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
-                "anonymous_role": Identifier("anon"),
-                "user_role": Identifier(settings.AUTH_USER_ROLE),
-            },
-        ).encode()
-    )
 
 
 @pytest.fixture
 async def console_api(rbac: Postgres, dbos_schema: str) -> Postgres:
     """Give the test the console schema over the DBOS tables and the real rules of rbac.toml."""
-    await install_console(rbac)
-
     return rbac
 
 
@@ -179,41 +118,12 @@ async def refusal(pg: Postgres, sql: str, *params: object) -> str | None:
     return None
 
 
-def migration_down(path: Path) -> str:
-    """Return the statements of the Down part of a goose migration, or nothing when it has none."""
-    parts = path.read_text().split("-- +goose Down", 1)
-
-    return parts[1] if len(parts) == 2 else ""
-
-
-def migrations_until(number: int) -> list[Path]:
-    """Return the migrations up to and with the number, in order."""
-    return [path for path in MIGRATIONS if int(path.name.split("_", 1)[0]) <= number]
-
-
-def migration(number: int) -> Path:
-    """Return the migration with the number."""
-    [path] = [path for path in MIGRATIONS if int(path.name.split("_", 1)[0]) == number]
-
-    return path
-
-
-async def grant_console_reads(pg: Postgres) -> None:
-    """Give the role of the requests the right to read the console tables that exist now, for a test of an old migration."""
-    await pg.connection.execute(
-        SQL(
-            "GRANT USAGE ON SCHEMA console TO {role}; "
-            "GRANT SELECT ON ALL TABLES IN SCHEMA console TO {role}; "
-            "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA console TO {role}"
-        ).format(role=Identifier(settings.AUTH_USER_ROLE))
-    )
-
-
 @pytest.fixture
 async def claim_database() -> AsyncIterator[tuple[AsyncConnection, AsyncConnection]]:
     """Give two committed connections to a scratch database that has the console tables, with one schema and one table.
 
     A test of a lock needs committed rows and two sessions, and the test transaction of the other fixtures gives neither.
+    The tables and the claim checks come from the sections of the console schema migration that make them.
     """
     name = f"claim_{uuid4().hex[:8]}"
     async with await AsyncConnection.connect(
@@ -233,7 +143,7 @@ async def claim_database() -> AsyncIterator[tuple[AsyncConnection, AsyncConnecti
                 ]
                 await first.execute(b"CREATE SCHEMA console")
                 for number in (2, 3, 11):
-                    await first.execute(migration_up(migration(number)).encode())
+                    await first.execute(console_section(number).encode())
                 await first.execute(
                     render_template("postgres/claim_fixture", {}, root=TEST_SQL_DIR)
                 )

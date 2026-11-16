@@ -406,14 +406,14 @@ jobs:
       - name: Package chart
         if: steps.guard.outputs.skip != 'true'
         run: ci chart package
+      - name: Push the release commit and tag
+        if: steps.guard.outputs.skip != 'true'
+        run: ci release push "${{ steps.version.outputs.tag }}"
       - name: Publish chart
         if: steps.guard.outputs.skip != 'true'
         run: ci chart publish
         env:
           CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Push the release commit and tag
-        if: steps.guard.outputs.skip != 'true'
-        run: ci release push "${{ steps.version.outputs.tag }}"
       - name: Write the release notes
         if: steps.guard.outputs.skip != 'true'
         run: ci release notes "${{ steps.version.outputs.tag }}"

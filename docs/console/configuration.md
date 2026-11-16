@@ -4,7 +4,7 @@ This page lists the configuration tables that the console edits. It also says wh
 
 ## Configuration tables
 
-The sync configuration is data in three tables of the `console` schema. The console migrations create them, and the end-to-end suite tests the rules.
+The sync configuration is data in three tables of the `console` schema. The migrations create them, and the end-to-end suite tests the rules.
 
 | Table | Contains |
 | --- | --- |

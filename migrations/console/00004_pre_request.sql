@@ -1,18 +1,13 @@
-{#
-{
-  "kind": "template",
-  "description": "Create the function that maps JWT claims into PostgreSQL session variables and loads the rbac rules of the token. It gives a console request a longer statement timeout.",
-  "inputs": {
-    "schema": "PostgreSQL schema that holds the pre-request function."
-  }
-}
-#}
-{#
-A claim whose name is not a plain word is skipped, because it can't name a setting.
-#}
-CREATE SCHEMA IF NOT EXISTS {{ schema }};
+-- +goose Up
+-- noqa: disable=PRS
 
-CREATE OR REPLACE FUNCTION {{ schema }}.pre_request() RETURNS void AS $$
+-- Creates data_proxy.pre_request(), the PostgREST pre-request hook. It copies the JWT
+-- claims into app.claim_* settings, skips claim names that are not plain identifiers,
+-- calls rbac.load(), and sets a 30 second statement timeout for the console profile.
+CREATE SCHEMA IF NOT EXISTS data_proxy;
+
+-- +goose StatementBegin
+CREATE OR REPLACE FUNCTION data_proxy.pre_request() RETURNS void AS $$
 DECLARE
     claims jsonb := coalesce(
         current_setting('request.jwt.claims', true)::jsonb,
@@ -50,4 +45,5 @@ BEGIN
         PERFORM set_config('statement_timeout', '30s', true);
     END IF;
 END;
-$$ LANGUAGE plpgsql
+$$ LANGUAGE plpgsql;
+-- +goose StatementEnd

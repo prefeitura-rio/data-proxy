@@ -5,7 +5,6 @@ from typing import Final
 from typing import Literal as ChangeLiteral
 
 import pytest
-from psycopg import AsyncConnection
 from psycopg.sql import SQL, Identifier, Literal
 
 from sync.models import (
@@ -221,23 +220,9 @@ async def put_state(pg: Postgres, table: str, state: TableState | None) -> None:
     await write_table_state(pg.backend, table, state)
 
 
-async def create_state_tables(connection: AsyncConnection) -> None:
-    """Create the application schema with the state and errors tables, as the configure job does."""
-    await connection.execute(
-        helm_sql(
-            "create_state", {"schema": Identifier(settings.DBOS_APP_SCHEMA)}
-        ).encode()
-    )
-
-
 async def initialize_schemas(pg_conn: PgConnection, config: SyncConfig) -> bool:
-    """Create the shared objects and each application schema, as the configure job does."""
+    """Create each application schema, as the provision job does. The migrations made the shared objects."""
     app_schema = Identifier(settings.DBOS_APP_SCHEMA)
-    await create_state_tables(pg_conn.connection)
-    for procedure in ("cleanup_stale_objects", "prune_access_log"):
-        await pg_conn.connection.execute(
-            helm_sql(procedure, {"schema": app_schema}).encode()
-        )
 
     for schema_name in config.schemas:
         schema = Identifier(schema_name)

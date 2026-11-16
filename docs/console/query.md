@@ -62,7 +62,7 @@ Every link is a `GET`. A `HEAD` request on a link signed for `GET` answers 403, 
 
 - `provision` creates the role `schema_<name>` with the schema and drops it with the schema. The role has no login. It reads the metadata schema of its schema, now and for the tables that DuckLake creates later.
 - `configure-db` creates the `console_signer` login without inheritance, with its password in the Secret `<release>-signer`. The login is a member of every `schema_<name>` role and must switch into one.
-- `configure-db` also creates `signer.keys` in the catalog database. Only that login reads and writes it, and the drop of a schema deletes its row.
+- A migration of the catalog database creates `signer.keys`. Only that login reads and writes it, and the drop of a schema deletes its row.
 - The step `cleanup_s3_credentials` deletes the identity `sig_<schema>` of a schema that left the configuration. It runs in `provision_schemas` and `cleanup_tables`, only when `S3_IDENTITIES` is `true`. The chart sets that with `console.storage.perSchemaIdentities`.
 
 ## Storage setup
