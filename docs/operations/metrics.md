@@ -46,6 +46,28 @@ The port is open to the pods in the cluster, and `/schema_cache` on it shows the
 
 Alert when `pgrst_db_pool_waiting` stays above 0, and when the timeouts counter rises. Both point to a database that needs more capacity, or to a request mix that's too demanding.
 
+## SeaweedFS metrics
+
+The SeaweedFS master and volume pods serve Prometheus metrics on port 9327.
+
+| Metric                                                  | Meaning                                                              |
+| ------------------------------------------------------- | -------------------------------------------------------------------- |
+| `SeaweedFS_master_volume_layout_writable{collection}`   | Volumes of the collection that accept a write. The bucket is the collection. |
+| `SeaweedFS_volumeServer_volumes{collection}`            | Volumes on the volume server. Sum them over the collections.         |
+| `SeaweedFS_volumeServer_max_volumes`                    | Volume slots of the volume server. SeaweedFS sets it from the disk size when the chart sets `maxVolumes: 0`. |
+
+When every slot holds a volume and no volume accepts a write, each upload fails with HTTP 500. The sync then records `extraction_failed` for every table, and the S3 gateway logs `No writable volumes and no free volumes left`. Deleted bytes that compaction did not remove fill the volumes. Alert before this point.
+
+```promql
+sum(SeaweedFS_volumeServer_max_volumes) - sum(SeaweedFS_volumeServer_volumes) < 5
+```
+
+```promql
+SeaweedFS_master_volume_layout_writable{collection!=""} == 0
+```
+
+The first rule fires when fewer than 5 free slots remain. The second rule fires when the collection of the bucket has no writable volume. Use a `for` of 5 minutes on both rules. Raise `seaweedfs.volume.dataDirs[].size` to add slots. Lower `seaweedfs.master.garbageThreshold` to compact sooner.
+
 ## Load profile limits
 
 The load test gates a run on latency bounds for the cache and for bounded DuckLake reads. It reports the heavy, selective, pinned and fallback routes. The header of `k6/load.js` lists the bounds, the traffic mix and the flags. [Load tests](../dev/tests.md#end-to-end-and-load-tests) shows the commands.
