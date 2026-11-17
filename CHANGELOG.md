@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.16.2 - 2026-11-17
+
+### Fixes
+
+- insert one file at a time into a partitioned table (#37) (feeb46a)
+
+
+- - -
+
 ## helm-v2.16.1 - 2026-11-17
 
 ### Fixes
