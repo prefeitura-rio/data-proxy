@@ -11,14 +11,14 @@ export const TEST_SCHEMA = 'test'
 export const IMAGES = [
     {
         id: sync
-        label: Pipeline
+        label: Sync
         name: data-proxy-sync
         containerfile: Containerfile.sync
         tag_prefix: ''
         local_tag_prefix: ''
         change_pattern: '^Containerfile\.sync$|^sync/(src/|pyproject\.toml$|uv\.lock$)|^migrations/'
         values_pattern: '^  image: .*data-proxy-sync:'
-        sha_env: PIPELINE_SHA
+        sha_env: SYNC_SHA
         fallback: latest
     }
     {
