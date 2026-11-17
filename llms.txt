@@ -3957,7 +3957,7 @@ Never use the `identity` transform on a column with a different value in each ro
 
 ### Sort columns of an integer range table
 
-A sort on the key gives each file tight row groups, so a lookup on one value reads one row group. DuckLake sorts the rows of one insert in memory. A sorted table therefore gets one insert for each batch file, and a sort keeps one batch and not the whole table. The same test as above, with the table sorted by the key, gave these results.
+A sort on the key gives each file tight row groups, so a lookup on one value reads one row group. DuckLake keeps the rows of one insert in memory, to sort them or to split them into partition files. A sorted or partitioned table therefore gets one insert for each batch file, and an insert holds one batch and not the whole table. The same test as above, with the table sorted by the key, gave these results.
 
 | Commit | Files | Time | Peak memory | Row groups read by a lookup |
 | --- | --- | --- | --- | --- |
