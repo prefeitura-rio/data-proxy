@@ -89,7 +89,7 @@ function instanceCatalogs(k8s, token) {
 }
 
 /**
- * Verifies the change feed: only read_ducklake reads it, and it returns only the changes of the schemas and the units of the token.
+ * Verifies the change feed: only read_ducklake reads it, and it returns only the changes of the units of the token.
  */
 function changeFeed() {
     const token = clientToken("admin");
@@ -140,8 +140,7 @@ function changeFeed() {
         );
 
         expect(`${feed.table} change feed is refused without read_ducklake`, refused.status === 403);
-        expect(`${feed.table} change feed answers 200 to an admin of another schema`, other.status === 200);
-        expect(`${feed.table} change feed is empty for an admin of another schema`, rowsOf(other).length === 0);
+        expect(`${feed.table} change feed is refused to a console client without read_ducklake`, other.status === 403);
     }
 }
 

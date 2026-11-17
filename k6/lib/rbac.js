@@ -36,6 +36,8 @@ export const createSchema = () =>
  * @returns {K6Response}
  */
 export const removeSchema = () => consoleCall("DELETE", `/schemas?name=eq.${PROBE_SCHEMA}`, "admin");
+export const removeGrantProbeSchema = () =>
+    consoleCall("DELETE", `/schemas?name=eq.${GRANT_PROBE_SCHEMA}`, "admin");
 
 /**
  * @returns {K6Response}
@@ -49,6 +51,7 @@ export const removePolicy = () =>
     postgrestCall(SCHEMA, "DELETE", `/access_policy?subject=eq.${PROBE_SUBJECT}`, "admin");
 
 export const PROBE_SCHEMA = "e2e_probe";
+export const GRANT_PROBE_SCHEMA = "grant_probe";
 export const PROBE_SUBJECT = "e2e_rbac_probe";
 export const policyRow = { subject: PROBE_SUBJECT, unit_type: "unit", unit_id: "unit_probe" };
 

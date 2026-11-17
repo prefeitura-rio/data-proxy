@@ -174,9 +174,9 @@ class TestImportPreview:
     async def test_needs_the_import_permission(
         self, console_api: Postgres, function: str
     ) -> None:
-        """Refuse a token that reads the configuration but may not import."""
+        """Refuse a token without the import permission."""
         await seed(console_api)
-        await as_token(console_api, "dp_console", ["*"], database_role=True)
+        await as_token(console_api, "dp_api", ["*"], database_role=True)
 
         state = await refusal(
             console_api, f"SELECT * FROM console.{function}(%s)", Jsonb({"schemas": {}})
@@ -255,7 +255,7 @@ class TestImportConfig:
     ) -> None:
         """Let the row policies of the tables stop an import that reaches beyond the schemas of the token."""
         await seed(console_api)
-        await as_token(console_api, "dp_admin", ["sales"], database_role=True)
+        await as_token(console_api, "dp_console", ["sales"], database_role=True)
 
         state = await refusal(
             console_api,
@@ -400,7 +400,7 @@ class TestProjectDocument:
             b"INSERT INTO console.projects (name) VALUES ('sales'), ('hr')"
         )
         await as_token(
-            console_api, "dp_admin", [], projects=["sales"], database_role=True
+            console_api, "dp_console", [], projects=["sales"], database_role=True
         )
 
         assert (

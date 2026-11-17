@@ -1,10 +1,13 @@
 Feature: Who sees and does what
 
-  Scenario: A console user has no Start button and gets 403 on a direct call
-    Given I sign in as "web_viewer"
+  Scenario: A console user has the Start button and no Query tab
+    Given I sign in as "web_console"
     Then I see the "Sync" tab
     And I do not see the "Query" tab
-    And I do not see the "Start run" button
+    And I see the "Start run" button
+
+  Scenario: A role without the start permission gets 403 on a direct call
+    Given I sign in as "web_api"
     When I post a run request directly
     Then the answer is 403
 
@@ -24,7 +27,7 @@ Feature: Who sees and does what
 
   Scenario: An admin adds, edits and removes an access policy
     Given I sign in as "web_admin"
-    When I open the "Access" tab
+    When I open the Access tab of the schema "test"
     And I add the policy "bdd-subject" for "cpf" "111"
     Then I see the policy "bdd-subject" with unit id "111"
     When I change the unit id of the policy "bdd-subject" to "222"
@@ -37,19 +40,19 @@ Feature: Who sees and does what
 
   Scenario: Cancelling a delete keeps the policy
     Given I sign in as "web_admin"
-    When I open the "Access" tab
+    When I open the Access tab of the schema "test"
     And I set "Subject or unit id contains" to "seed-subject-07" in the form "Search the policy" and submit it
     And I start to remove the policy "seed-subject-07"
     And I cancel the dialog
     Then I see the policy "seed-subject-07"
 
   Scenario: A console user has no Access tab
-    Given I sign in as "web_viewer"
+    Given I sign in as "web_console"
     Then I do not see the "Access" tab
 
   Scenario: The policy list pages and searches
     Given I sign in as "web_admin"
-    When I open the "Access" tab
+    When I open the Access tab of the schema "test"
     Then the list with the column "Unit type" has 50 rows
     And the list with the column "Unit type" says "1 to 50 of"
     When I go to the "Older" rows of the list with the column "Unit type"
@@ -59,7 +62,7 @@ Feature: Who sees and does what
 
   Scenario: The access log filters by action
     Given I sign in as "web_admin"
-    When I open the "Access" tab
+    When I open the Access tab of the schema "test"
     And I set "Action" to "insert" in the form "Filter the access log" and submit it
     Then every row of the list with the column "Action" shows "insert"
     And the list with the column "Action" says "1 to 20 of"

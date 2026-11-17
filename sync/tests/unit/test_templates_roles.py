@@ -454,6 +454,59 @@ class TestRbacTemplate:
         assert await scalar(rbac, "SELECT rbac.mine(%s)", "s1") is False
 
     @pytest.mark.parametrize(
+        ("role", "claim", "schema", "expected"),
+        [
+            pytest.param("dp_admin", "", "s1", True, id="grant_all-needs-no-claim"),
+            pytest.param("dp_admin", "s2", "s1", True, id="grant_all-beats-a-claim"),
+            pytest.param("dp_admin", "", "", False, id="grant_all-still-needs-a-name"),
+            pytest.param("dp_admin", "", "s1,s2", False, id="grant_all-spans-no-names"),
+            pytest.param("dp_console", "", "s1", False, id="console-needs-a-claim"),
+            pytest.param(
+                "dp_console", "s1", "s1", True, id="console-reaches-its-schema"
+            ),
+            pytest.param(
+                "dp_console", "s2", "s1", False, id="console-stays-in-its-claim"
+            ),
+            pytest.param("dp_api", "", "s1", False, id="api-needs-a-claim"),
+        ],
+    )
+    async def test_mine_follows_the_grant_all_permission_of_the_role(
+        self, rbac: Postgres, role: str, claim: str, schema: str, expected: bool
+    ) -> None:
+        """Only the role with grant_all reaches a schema that its claims don't name."""
+        await set_setting(rbac, "app.claim_role", role)
+        await set_setting(rbac, "app.claim_schemas", claim)
+        await rbac.connection.execute(b"SELECT rbac.load()")
+
+        assert await scalar(rbac, "SELECT rbac.mine(%s)", schema) is expected
+
+    @pytest.mark.parametrize(
+        ("role", "project", "expected"),
+        [
+            pytest.param("dp_admin", "p1", True, id="grant_all-reaches-a-project"),
+            pytest.param("dp_admin", "", False, id="grant_all-still-needs-a-project"),
+            pytest.param(
+                "dp_console", "p1", False, id="console-needs-a-projects-claim"
+            ),
+        ],
+    )
+    async def test_mine_follows_grant_all_for_a_project_without_a_schema(
+        self, rbac: Postgres, role: str, project: str, expected: bool
+    ) -> None:
+        """The check of a new row passes its project, and grant_all reaches that project too."""
+        await set_setting(rbac, "app.claim_role", role)
+        await rbac.connection.execute(b"SELECT rbac.load()")
+
+        assert await scalar(rbac, "SELECT rbac.mine(NULL, %s)", project) is expected
+
+    async def test_grant_all_does_not_lift_the_row_filter(self, rbac: Postgres) -> None:
+        """The access policy still decides the rows, also for the role with grant_all."""
+        await set_setting(rbac, "app.claim_role", "dp_admin")
+        await rbac.connection.execute(b"SELECT rbac.load()")
+
+        assert await scalar(rbac, "SELECT rbac.all_rows(%s)", "s1") is False
+
+    @pytest.mark.parametrize(
         ("claim", "schema", "expected"),
         [
             pytest.param("s1", "s1", False, id="plain-name-keeps-the-row-filter"),

@@ -12,7 +12,7 @@ describe('identityOf', () => {
 			'dp_admin'
 		],
 		['the subject when there is no user name', { role: 'dp_console', sub: 'abc' }, 'abc', 'dp_console'],
-		['an empty role when the token has none', { preferred_username: 'web_viewer' }, 'web_viewer', '']
+		['an empty role when the token has none', { preferred_username: 'web_console' }, 'web_console', '']
 	])('reads %s', (_, claims, name, role) => {
 		expect(identityOf(token(claims))).toEqual({ name, role });
 	});

@@ -41,15 +41,20 @@ export function console() {
         (path) => consoleRows(path, "admin_other") === 0,
     );
 
-    const claim = tokenClaims("admin").schemas;
+    const claim = tokenClaims("console").schemas;
 
-    const seen = rowsOf(consoleCall("GET", "/schemas?select=name", "admin")).map((row) => String(row.name));
+    const seen = rowsOf(consoleCall("GET", "/schemas?select=name", "console")).map((row) => String(row.name));
 
-    expect("the admin sees its own schema", seen.includes(SCHEMA));
+    expect("the console client sees its own schema", seen.includes(SCHEMA));
 
     expect(
-        "the admin sees only the schemas of its claim",
+        "the console client sees only the schemas of its claim",
         Array.isArray(claim) && seen.every((name) => claim.includes(name)),
+    );
+
+    expect(
+        "the admin reaches the schemas that its claim doesn't name, through grant_all",
+        rowsOf(consoleCall("GET", "/schemas?select=name", "admin")).length >= seen.length,
     );
 
     expectEach(
@@ -59,20 +64,20 @@ export function console() {
     );
 
     expect(
-        "an admin can't start a run for a schema outside its token",
-        consoleCall("POST", "/rpc/start_sync", "admin", { schemas: ["other"] }).status === 403,
+        "a console client can't start a run for a schema outside its token",
+        consoleCall("POST", "/rpc/start_sync", "console", { schemas: ["other"] }).status === 403,
     );
 
-    expect("a console role can't start a run", consoleCall("POST", "/rpc/start_sync", "console", {}).status === 403);
+    expect("a role without start_sync can't start a run", consoleCall("POST", "/rpc/start_sync", "api", {}).status === 403);
     const table = `/tables?name=eq.${FULL_SOURCE}`;
 
     expect(
-        "a console role can't change the cache lifetime of a table",
-        rowsOf(consoleCall("PATCH", table, "console", { cache_ttl: 7 })).length === 0,
+        "a role without edit_config can't change the cache lifetime of a table",
+        rowsOf(consoleCall("PATCH", table, "api", { cache_ttl: 7 })).length === 0,
     );
 
     expect(
-        "an admin of another schema can't change the cache lifetime of a table",
+        "a console client of another schema can't change the cache lifetime of a table",
         rowsOf(consoleCall("PATCH", table, "admin_other", { cache_ttl: 7 })).length === 0,
     );
 
@@ -168,7 +173,7 @@ function surface() {
 
     expectEach(
         ["console", "admin_other"],
-        (client) => `the ${client} client can't add a schema`,
+        (client) => `the ${client} client can't add a schema outside its claim`,
         (client) => consoleCall("POST", "/schemas", client, probe).status === 403,
     );
 
@@ -181,7 +186,7 @@ function surface() {
 
     expectEach(
         ["console", "admin_other"],
-        (client) => `the ${client} client deletes no schema`,
+        (client) => `the ${client} client deletes no schema outside its claim`,
         (client) => rowsOf(consoleCall("DELETE", "/schemas?name=eq.console_probe", client)).length === 0,
     );
 
@@ -198,12 +203,12 @@ function surface() {
     );
 
     expect(
-        "a console role can't import a configuration",
-        consoleCall("POST", "/rpc/import_config", "console", { document: { schemas: {} } }).status === 403,
+        "a role without import_config can't import a configuration",
+        consoleCall("POST", "/rpc/import_config", "api", { document: { schemas: {} } }).status === 403,
     );
 
     expectEach(
-        ["console", "admin_other"],
+        ["api", "admin_other"],
         (client) => `the ${client} client deletes no table`,
         (client) => rowsOf(consoleCall("DELETE", `/tables?name=eq.${FULL_SOURCE}`, client)).length === 0,
     );

@@ -62,22 +62,17 @@ Feature: Sync runs
     Then I see the page of that run
     And the run waits in the queue, started by "web_admin"
 
-  Scenario: A viewer has no control buttons and the database refuses a direct call
-    Given I sign in as "web_viewer"
-    When I open the "Sync" tab
-    And I open the first run of the list
-    Then I do not see the "Cancel" button
-    And I do not see the "Resume" button
-    And I do not see the "Run again" button
-    When I post a cancel request for this run directly
-    Then the answer is 403
+  Scenario: A console user has the control buttons of a run
+    Given I sign in as "web_console"
+    When I open the seeded run
+    Then I see the "Run again" button
 
   Scenario: A user of another schema sees none of the runs
     Given I sign in as "web_other"
     When I open the "Sync" tab
     Then the list with the column "Started by" says "No rows"
 
-  Scenario: An admin of another schema cannot pause the schedule of a schema
+  Scenario: A console user of another schema cannot pause the schedule of a schema
     Given I sign in as "web_other"
     When I post a pause request for the schedule "sync-test" directly
     Then the answer is 404

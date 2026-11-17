@@ -14,14 +14,14 @@ Feature: The Config tab
     When I open the "Config" tab
     Then the history lists no row of the schema "other"
 
-  Scenario: A console user reads the configuration and changes nothing
-    Given I sign in as "web_viewer"
+  Scenario: A console user has the buttons of the configuration
+    Given I sign in as "web_console"
     When I open the "Config" tab
     Then I see the row of the schema "test"
-    And I do not see the "Add schema" button
-    And I do not see the "Edit" button
-    And I do not see the "Delete" button
-    And I do not see the "Import" button
+    And I see the "Add schema" button
+    And I see the "Edit" button
+    And I see the "Delete" button
+    And I see the "Import" button
 
   Scenario: The table list filters by name
     Given I sign in as "web_admin"

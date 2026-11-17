@@ -22,8 +22,18 @@ class TestPermissions:
             pytest.param("dp_api", ["read_api"], ["read_sync", "start_sync"], id="api"),
             pytest.param(
                 "dp_console",
-                ["read_api", "read_sync", "read_config"],
-                ["start_sync", "edit_config"],
+                [
+                    "read_api",
+                    "read_sync",
+                    "start_sync",
+                    "control_sync",
+                    "read_config",
+                    "create_config",
+                    "edit_config",
+                    "delete_config",
+                    "import_config",
+                ],
+                ["read_files", "read_ducklake", "create_policy", "grant_all"],
                 id="console",
             ),
             pytest.param(
@@ -34,7 +44,13 @@ class TestPermissions:
             ),
             pytest.param(
                 "dp_admin",
-                ["start_sync", "control_sync", "import_config", "read_files"],
+                [
+                    "start_sync",
+                    "control_sync",
+                    "import_config",
+                    "read_files",
+                    "grant_all",
+                ],
                 [],
                 id="admin",
             ),
@@ -157,9 +173,9 @@ class TestViewsAreScopedBySchema:
     @pytest.mark.parametrize(
         ("role", "schemas", "refused"),
         [
-            pytest.param("dp_console", ["sales"], True, id="no-create-permission"),
-            pytest.param("dp_admin", ["hr"], True, id="schema-outside-the-claim"),
-            pytest.param("dp_admin", ["sales"], False, id="schema-of-the-claim"),
+            pytest.param("dp_api", ["sales"], True, id="no-create-permission"),
+            pytest.param("dp_console", ["hr"], True, id="schema-outside-the-claim"),
+            pytest.param("dp_console", ["sales"], False, id="schema-of-the-claim"),
         ],
     )
     async def test_a_token_adds_a_schema_only_inside_its_claim(
@@ -256,24 +272,22 @@ class TestStartSync:
     @pytest.mark.parametrize(
         ("role", "schemas", "asked", "tables"),
         [
+            pytest.param("dp_api", ["sales"], ["sales"], [], id="no-start-permission"),
             pytest.param(
-                "dp_console", ["sales"], ["sales"], [], id="no-start-permission"
+                "dp_console", ["sales"], ["hr"], [], id="schema-outside-the-claim"
             ),
             pytest.param(
-                "dp_admin", ["sales"], ["hr"], [], id="schema-outside-the-claim"
+                "dp_console", ["sales"], [], ["p.d.staff"], id="table-outside-the-claim"
             ),
             pytest.param(
-                "dp_admin", ["sales"], [], ["p.d.staff"], id="table-outside-the-claim"
-            ),
-            pytest.param(
-                "dp_admin",
+                "dp_console",
                 ["sales"],
                 [],
                 ["p.d.nothing"],
                 id="table-that-does-not-exist",
             ),
             pytest.param(
-                "dp_admin",
+                "dp_console",
                 ["other"],
                 [],
                 [],
@@ -395,11 +409,9 @@ class TestRunControl:
     @pytest.mark.parametrize(
         ("role", "schemas", "expected"),
         [
-            pytest.param(
-                "dp_console", ["sales"], INSUFFICIENT, id="no-control-permission"
-            ),
-            pytest.param("dp_admin", ["hr"], NOT_FOUND, id="run-of-another-schema"),
-            pytest.param("dp_admin", ["sales"], None, id="run-of-the-schema"),
+            pytest.param("dp_api", ["sales"], INSUFFICIENT, id="no-control-permission"),
+            pytest.param("dp_console", ["hr"], NOT_FOUND, id="run-of-another-schema"),
+            pytest.param("dp_console", ["sales"], None, id="run-of-the-schema"),
         ],
     )
     async def test_the_token_controls_only_the_runs_of_its_schemas(
@@ -454,7 +466,7 @@ class TestRunControl:
         await two_schemas(console_api)
         run = await start(console_api, ["sales", "hr"])
         await set_status(console_api, run, "SUCCESS")
-        await as_token(console_api, "dp_admin", ["sales"])
+        await as_token(console_api, "dp_console", ["sales"])
 
         again = await scalar(console_api, "SELECT console.retry_run(%s)", run)
 
@@ -518,12 +530,13 @@ class TestScheduleControl:
     @pytest.mark.parametrize(
         ("role", "schemas", "expected"),
         [
-            pytest.param("dp_admin", ["sales"], None, id="the-schema-of-the-schedule"),
-            pytest.param("dp_admin", ["*"], None, id="every-schema-by-star"),
-            pytest.param("dp_admin", ["hr"], NOT_FOUND, id="another-schema"),
             pytest.param(
-                "dp_console", ["sales"], INSUFFICIENT, id="no-control-permission"
+                "dp_console", ["sales"], None, id="the-schema-of-the-schedule"
             ),
+            pytest.param("dp_console", ["*"], None, id="every-schema-by-star"),
+            pytest.param("dp_console", ["hr"], NOT_FOUND, id="another-schema"),
+            pytest.param("dp_api", ["sales"], INSUFFICIENT, id="no-control-permission"),
+            pytest.param("dp_admin", ["hr"], None, id="grant_all-reaches-any-schema"),
         ],
     )
     @pytest.mark.parametrize(
@@ -625,9 +638,6 @@ class TestTableFiles:
         [
             pytest.param(
                 "dp_console", ["sales"], "sales", "p.d.orders", id="no-files-permission"
-            ),
-            pytest.param(
-                "dp_admin", ["hr"], "sales", "p.d.orders", id="schema-outside-the-claim"
             ),
             pytest.param(
                 "dp_admin",

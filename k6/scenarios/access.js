@@ -83,10 +83,10 @@ function dataScope() {
         (own ?? []).every((row) => row.unit_id === "unit_1"),
     );
 
-    expect("an admin of another schema gets a 200", other !== null);
+    expect("a console client of another schema gets a 200", other !== null);
 
     expect(
-        "an admin of another schema reads nothing, although its subject has a policy row",
+        "a console client of another schema reads nothing, although its subject has a policy row",
         (other ?? [null]).length === 0,
     );
 }

@@ -161,7 +161,7 @@ async def add_schemas(pg: Postgres, *schemas: tuple[str, str]) -> None:
 
 
 async def load_claims(
-    pg: Postgres, *, schemas: str = "", projects: str = "", role: str = "dp_admin"
+    pg: Postgres, *, schemas: str = "", projects: str = "", role: str = "dp_console"
 ) -> str:
     """Give the connection the claims of a token, run `rbac.load()` as the pre-request function does, and return the schemas that it sets."""
     await pg.connection.execute(

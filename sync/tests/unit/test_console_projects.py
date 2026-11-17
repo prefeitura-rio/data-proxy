@@ -230,27 +230,28 @@ class TestProjectClaim:
         ("role", "projects", "project", "state"),
         [
             pytest.param(
-                "dp_admin",
+                "dp_console",
                 ["sales"],
                 "sales",
                 None,
                 id="a-schema-that-does-not-exist-yet",
             ),
             pytest.param(
-                "dp_admin", ["sales"], "hr", INSUFFICIENT, id="another-project"
+                "dp_console", ["sales"], "hr", INSUFFICIENT, id="another-project"
             ),
             pytest.param(
-                "dp_admin", ["sales:*"], "sales", None, id="all-rows-of-the-project"
+                "dp_console", ["sales:*"], "sales", None, id="all-rows-of-the-project"
             ),
-            pytest.param("dp_admin", ["*"], "hr", None, id="every-project"),
+            pytest.param("dp_console", ["*"], "hr", None, id="every-project"),
             pytest.param(
-                "dp_console",
+                "dp_api",
                 ["sales"],
                 "sales",
                 INSUFFICIENT,
                 id="no-create-permission",
             ),
-            pytest.param("dp_admin", [], "sales", INSUFFICIENT, id="no-claim"),
+            pytest.param("dp_console", [], "sales", INSUFFICIENT, id="no-claim"),
+            pytest.param("dp_admin", [], "hr", None, id="grant_all-needs-no-claim"),
         ],
     )
     async def test_a_token_adds_a_schema_in_the_projects_of_its_claim(
@@ -298,7 +299,7 @@ class TestProjectRows:
     ) -> None:
         """Show a user the project of every schema that the user reaches."""
         await as_token(
-            console_api, "dp_admin", schemas, projects=projects, database_role=True
+            console_api, "dp_console", schemas, projects=projects, database_role=True
         )
 
         assert (
@@ -309,14 +310,13 @@ class TestProjectRows:
     @pytest.mark.parametrize(
         ("role", "projects", "state"),
         [
-            pytest.param("dp_admin", ["new"], None, id="a-project-of-the-claim"),
+            pytest.param("dp_console", ["new"], None, id="a-project-of-the-claim"),
             pytest.param(
-                "dp_admin", ["other"], INSUFFICIENT, id="a-project-outside-the-claim"
+                "dp_console", ["other"], INSUFFICIENT, id="a-project-outside-the-claim"
             ),
-            pytest.param("dp_admin", ["*"], None, id="every-project"),
-            pytest.param(
-                "dp_console", ["new"], INSUFFICIENT, id="no-create-permission"
-            ),
+            pytest.param("dp_console", ["*"], None, id="every-project"),
+            pytest.param("dp_api", ["new"], INSUFFICIENT, id="no-create-permission"),
+            pytest.param("dp_admin", [], None, id="grant_all-needs-no-claim"),
         ],
     )
     async def test_a_token_adds_a_project_only_inside_its_claim(
@@ -331,16 +331,16 @@ class TestProjectRows:
         self, console_api: Postgres
     ) -> None:
         """Keep a token that reaches every schema able to add a project, as it was able to add a schema."""
-        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        await as_token(console_api, "dp_console", ["*"], database_role=True)
 
         assert await refusal(console_api, ADD_PROJECT, "new") is None
 
     @pytest.mark.parametrize(
         ("role", "projects", "deleted"),
         [
-            pytest.param("dp_admin", ["empty"], 1, id="a-project-of-the-claim"),
-            pytest.param("dp_admin", ["hr"], 0, id="a-project-outside-the-claim"),
-            pytest.param("dp_console", ["empty"], 0, id="no-delete-permission"),
+            pytest.param("dp_console", ["empty"], 1, id="a-project-of-the-claim"),
+            pytest.param("dp_console", ["hr"], 0, id="a-project-outside-the-claim"),
+            pytest.param("dp_api", ["empty"], 0, id="no-delete-permission"),
         ],
     )
     async def test_a_token_deletes_a_project_of_its_claim_with_permission(
