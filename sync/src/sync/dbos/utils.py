@@ -2,8 +2,10 @@
 
 from typing import TYPE_CHECKING
 
+from dbos import error as dbos_error
 from duckdb import TransactionException
 
+from sync.log import summarize_exception
 from sync.utils import RemovalLimitError
 
 if TYPE_CHECKING:
@@ -66,3 +68,12 @@ def retry_transient(error: BaseException) -> bool:
             return True
         case _:
             return False
+
+
+def failure_reason(error: BaseException) -> str:
+    """Return the summary of the last error that a step raised. DBOS wraps it after the last retry and hides it."""
+    match error:
+        case dbos_error.DBOSMaxStepRetriesExceeded(errors=[*_, last]):
+            return summarize_exception(last)
+        case _:
+            return summarize_exception(error)

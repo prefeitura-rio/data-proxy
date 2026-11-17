@@ -76,6 +76,32 @@ class TestTransientRetryClassification:
         assert not utils.retry_transient(asyncio.CancelledError())
 
 
+class TestFailureReason:
+    @pytest.mark.parametrize(
+        ("error", "expected"),
+        [
+            pytest.param(ValueError("a  b"), "ValueError: a b", id="a-plain-error"),
+            pytest.param(
+                dbos_error.DBOSMaxStepRetriesExceeded(
+                    "extract_task", 3, [KeyError("a"), OSError("b")]
+                ),
+                "OSError: b",
+                id="the-last-error-of-the-retries",
+            ),
+            pytest.param(
+                dbos_error.DBOSMaxStepRetriesExceeded("extract_task", 3, []),
+                "DBOSMaxStepRetriesExceeded: DBOS Error 7: Step extract_task has exceeded its maximum of 3 retries",
+                id="retries-with-no-recorded-error",
+            ),
+        ],
+    )
+    def test_returns_the_error_that_the_retries_hid(
+        self, error: Exception, expected: str
+    ) -> None:
+        """Show the cause of a failed step and not the DBOS message that wraps it."""
+        assert utils.failure_reason(error) == expected
+
+
 class TestCatalogLockRetryClassification:
     """retry_catalog_locked retries only the DuckLake catalog lock error."""
 
@@ -231,7 +257,27 @@ class TestDumpTask:
 
         assert result.status == DumpStatus.FAILURE
         assert result.failed_paths == task.output_paths
-        recorded.assert_awaited_once_with(task, "boom")
+        recorded.assert_awaited_once_with(task, "RuntimeError: boom")
+
+    @pytest.mark.asyncio
+    async def test_records_the_error_that_the_retries_hid(
+        self, monkeypatch: pytest.MonkeyPatch, recorded: AsyncMock
+    ) -> None:
+        """A dump that fails after its last retry records the last error, not the DBOS message."""
+        task = dump_task()
+        monkeypatch.setattr(
+            workflows,
+            "extract_task",
+            AsyncMock(
+                side_effect=dbos_error.DBOSMaxStepRetriesExceeded(
+                    "extract_task", 3, [OSError("HTTP 500 for HTTP PUT")]
+                )
+            ),
+        )
+
+        await workflow_body(workflows.dump_task)(task)
+
+        recorded.assert_awaited_once_with(task, "OSError: HTTP 500 for HTTP PUT")
 
     @pytest.mark.asyncio
     async def test_raises_the_cancellation_and_records_no_failure(

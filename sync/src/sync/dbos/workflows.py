@@ -45,6 +45,7 @@ from .steps import (
     schema_config,
     seed_schemas,
 )
+from .utils import failure_reason
 
 
 @DBOS.workflow()
@@ -59,7 +60,7 @@ async def dump_task(task: DumpTask) -> DumpResult:
         await extract_task(task)
         result: DumpResult = DumpResult()
     except Exception as error:
-        await record_dump_failure(task, str(error))
+        await record_dump_failure(task, failure_reason(error))
         result = DumpResult(status=DumpStatus.FAILURE, failed_paths=task.output_paths)
 
     await logs.info(
