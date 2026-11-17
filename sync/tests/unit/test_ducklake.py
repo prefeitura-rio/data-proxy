@@ -117,7 +117,7 @@ class TestDucklakePartitionCommit:
 
 
 class TestSortedCommitInsertsOneBatchAtATime:
-    """A sorted table inserts each batch file by itself, so a sort holds one batch and not the whole table."""
+    """A sorted or partitioned table inserts each batch file by itself, so an insert holds one batch and not the whole table."""
 
     @pytest.mark.asyncio
     async def test_a_sorted_table_gets_one_file_for_each_batch_with_sorted_row_groups(
@@ -149,6 +149,32 @@ class TestSortedCommitInsertsOneBatchAtATime:
             """
         )
         assert overlaps == [(0,)]
+
+    @pytest.mark.asyncio
+    async def test_a_partitioned_table_gets_one_insert_for_each_batch(
+        self, duckdb: DuckDB, tmp_path: Path
+    ) -> None:
+        """A partitioned insert keeps every row of the insert in memory until it writes the partition files, so it holds one batch and not the whole table."""
+        await attach_ducklake(duckdb, tmp_path)
+        paths = write_unsorted_batches(tmp_path, 3)
+        table = FullTable(
+            name="p.d.people",
+            resolved_schema="app",
+            ducklake=DuckLakeTableConfig(
+                partitioning=[
+                    DuckLakePartition(
+                        column="cpf",
+                        transform=DuckLakePartitionTransform.BUCKET,
+                        buckets=2,
+                    )
+                ]
+            ),
+        )
+
+        await commit_table(duckdb, table, paths, None)
+
+        assert await ducklake_row_count(duckdb, "people") == 90000
+        assert await data_files(duckdb) == 6
 
     @pytest.mark.asyncio
     async def test_a_table_without_sort_columns_keeps_one_insert(

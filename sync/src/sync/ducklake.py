@@ -367,6 +367,19 @@ async def apply_sort(
         )
 
 
+def partition_expression(
+    table: TableConfig, partitioned: PartitionedTablePlan | None
+) -> str | None:
+    """Return the DuckLake partition expression of a table, or None for a table with no partitioning."""
+    if table.ducklake.partitioning is not None and len(table.ducklake.partitioning) > 0:
+        return custom_partitioning_expression(table.ducklake.partitioning)
+
+    if partitioned is not None:
+        return source_partition_column(partitioned)
+
+    return None
+
+
 async def apply_partitioning(
     duckdb_conn: DuckDB,
     name: Composable,
@@ -375,12 +388,7 @@ async def apply_partitioning(
     existing: bool,
 ) -> None:
     """Set or reset DuckLake partitioning to match the configuration."""
-    if table.ducklake.partitioning is not None and len(table.ducklake.partitioning) > 0:
-        partitioning = custom_partitioning_expression(table.ducklake.partitioning)
-    elif partitioned is not None:
-        partitioning = source_partition_column(partitioned)
-    else:
-        partitioning = None
+    partitioning = partition_expression(table, partitioned)
 
     if partitioning is not None or (
         existing and await has_partitioning(duckdb_conn, table)
@@ -458,12 +466,17 @@ async def delete_existing_rows(
     )
 
 
-def insert_batches(table: TableConfig, paths: list[str]) -> list[list[str]]:
-    """Return the files of each insert: one insert for each file of a sorted table, and one for the others."""
+def insert_batches(
+    table: TableConfig, partitioned: PartitionedTablePlan | None, paths: list[str]
+) -> list[list[str]]:
+    """Return the files of each insert: one insert for each file of a sorted or partitioned table, and one for the others."""
     if len(paths) == 0:
         return []
 
-    if len(table_sort(table)) > 0:
+    if (
+        len(table_sort(table)) > 0
+        or partition_expression(table, partitioned) is not None
+    ):
         return [[path] for path in paths]
 
     return [paths]
@@ -477,8 +490,9 @@ async def commit_table(
 ) -> None:
     """Replace or append scratch files in one DuckLake transaction.
 
-    A sorted table gets one insert for each file. DuckLake sorts the rows of an insert in memory, so a sort holds
-    one batch and not the whole table, and each file keeps tight row groups. A table without sort columns gets one insert.
+    A sorted or partitioned table gets one insert for each file. DuckLake keeps the rows of an insert in memory, to sort
+    them or to split them into partition files, so an insert holds one batch and not the whole table. A sort also keeps
+    tight row groups in each file. A table with neither gets one insert, which streams.
     """
     if len(paths) == 0 and (
         partitioned is None
@@ -493,7 +507,7 @@ async def commit_table(
     async with duckdb_conn.atomic():
         await delete_existing_rows(duckdb_conn, name, partitioned)
 
-        for batch in insert_batches(table, paths):
+        for batch in insert_batches(table, partitioned, paths):
             await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).execute(
                 "duckdb/insert_parquet",
                 mapping={"table": name},
