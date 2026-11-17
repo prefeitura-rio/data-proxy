@@ -17,7 +17,7 @@ export const PARTITIONED_SOURCE = __ENV.PARTITIONED_SOURCE || "rj-ia-desenvolvim
 export const PARTITIONED_TABLE = "partitioned_table";
 export const PARTITION_COLUMN = "date";
 export const PG_IMAGE = __ENV.PG_IMAGE || "registry.localhost:5001/data-proxy-postgres:18.0.0-local";
-export const PIPELINE = __ENV.PIPELINE || "data-proxy-sync";
+export const SYNC_DEPLOYMENT = __ENV.SYNC_DEPLOYMENT || "data-proxy-sync";
 export const CONSOLE_VIEWER_CLIENT_ID = __ENV.OIDC_CONSOLE_CLIENT_ID || "console";
 export const CONSOLE_ADMIN_CLIENT_ID = __ENV.OIDC_ADMIN_CLIENT_ID || "admin";
 

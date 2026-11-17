@@ -6,7 +6,7 @@ import {
     MAINTENANCE_CRONJOB,
     NAMESPACE,
     PG_IMAGE,
-    PIPELINE,
+    SYNC_DEPLOYMENT,
     STATE_DATABASE,
 } from "./env.js";
 import { heartbeat, info, warn } from "./log.js";
@@ -28,7 +28,7 @@ function deploymentPodSpec(k8s, deploymentName) {
  * @returns {KubernetesPodSpec}
  */
 function workerPodSpec(k8s) {
-    return deploymentPodSpec(k8s, PIPELINE);
+    return deploymentPodSpec(k8s, SYNC_DEPLOYMENT);
 }
 
 /**

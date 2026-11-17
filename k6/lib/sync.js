@@ -121,7 +121,7 @@ function pollOnce(metrics) {
  * @param {number} timeoutSeconds
  * @returns {boolean}
  */
-export function waitForPipeline(timeoutSeconds) {
+export function waitForSync(timeoutSeconds) {
     return waitUntil(
         timeoutSeconds,
         () => pollOnce(buildMetrics(userToken())),

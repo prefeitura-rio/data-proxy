@@ -50,13 +50,13 @@ import {
     warn,
     waitForAccessPolicyReplication,
     waitForJob,
-    waitForPipeline,
+    waitForSync,
 } from "./lib/index.js";
 import { contract } from "./scenarios/fixture.js";
 import { STEPS } from "./scenarios/index.js";
 
 const MAX_DURATION = __ENV.MAX_DURATION || "10m";
-const PIPELINE_TIMEOUT_SECONDS = 600;
+const SYNC_TIMEOUT_SECONDS = 600;
 
 /**
  * Parses `E2E_SCENARIOS`, a comma-separated list. An empty list selects every scenario. A scenario that only throws,
@@ -118,7 +118,7 @@ export function setup() {
 function verifyEndToEnd(k8s) {
     contract();
     seedAccessPolicy();
-    const completed = waitForPipeline(PIPELINE_TIMEOUT_SECONDS);
+    const completed = waitForSync(SYNC_TIMEOUT_SECONDS);
 
     scenario("setup").checks({
         "the sync service completed before the deadline": () => completed,
