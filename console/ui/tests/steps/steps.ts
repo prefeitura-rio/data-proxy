@@ -95,12 +95,22 @@ When('I open the {string} tab', async ({ page }, tab: string) => {
 	await expect(mainNav(page, tab)).toHaveAttribute('aria-current', 'page');
 });
 
+/** An admin reaches every schema, so the Access tab opens the first one. Open the schema of the seed. */
+When('I open the Access tab of the schema {string}', async ({ page }, schema: string) => {
+	await page.goto(`${BASE}/access?schema=${schema}`);
+	await expect(mainNav(page, 'Access')).toHaveAttribute('aria-current', 'page');
+});
+
 Then('I see the {string} tab', async ({ page }, tab: string) => {
 	await expect(mainNav(page, tab)).toBeVisible();
 });
 
 Then('I do not see the {string} tab', async ({ page }, tab: string) => {
 	await expect(mainNav(page, tab)).toHaveCount(0);
+});
+
+Then('I see the {string} button', async ({ page }, name: string) => {
+	await expect(page.getByRole('button', { name }).first()).toBeVisible();
 });
 
 Then('I do not see the {string} button', async ({ page }, name: string) => {

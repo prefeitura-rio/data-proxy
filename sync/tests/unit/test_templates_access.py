@@ -77,7 +77,7 @@ class TestPreRequest:
             pytest.param(
                 {"role": "dp_console", "schemas": ["pic"]},
                 True,
-                False,
+                True,
                 True,
                 id="console-of-one-schema",
             ),
@@ -92,8 +92,15 @@ class TestPreRequest:
                 {"role": "dp_admin", "schemas": ["brt"]},
                 True,
                 True,
-                False,
+                True,
                 id="admin-of-another-schema",
+            ),
+            pytest.param(
+                {"role": "dp_console", "schemas": ["brt"]},
+                True,
+                True,
+                False,
+                id="console-of-another-schema",
             ),
             pytest.param(
                 {"role": "dp_ghost", "schemas": ["pic"]},
@@ -129,15 +136,15 @@ class TestPreRequest:
         ("role", "can_control_sync"),
         [
             pytest.param("dp_admin", True, id="admin"),
-            pytest.param("dp_console", False, id="console"),
+            pytest.param("dp_console", True, id="console"),
             pytest.param("dp_policy", False, id="policy"),
             pytest.param("dp_api", False, id="api"),
         ],
     )
-    async def test_only_the_admin_controls_runs_and_schedules(
+    async def test_the_console_and_the_admin_control_runs_and_schedules(
         self, rbac: Postgres, role: str, can_control_sync: bool
     ) -> None:
-        """Cancelling a run and pausing a schedule are rights of dp_admin only."""
+        """Cancelling a run and pausing a schedule are rights of dp_console and dp_admin."""
         await set_setting(
             rbac,
             "request.jwt.claims",

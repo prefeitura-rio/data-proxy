@@ -86,11 +86,11 @@ This also starts the notebook server, which a test run skips.
 
 Add `-d` to run in the background, wait with `devenv processes wait` and stop with `devenv down`. Open `http://console.localhost:13001/console`, or run `devenv --profile console tasks run console:open:browser`. Sign in as `admin` (role `dp_admin`, schema `test`) with the password `admin`. The tests also use six users with the password `web-test`:
 
-- `web_admin`: role `dp_admin`, schema `test`.
-- `web_viewer`: role `dp_console`.
+- `web_admin`: role `dp_admin`, every schema.
+- `web_console`: role `dp_console`.
 - `web_api`: role `dp_api`.
 - `web_policy`: role `dp_policy`.
-- `web_other`: role `dp_admin`, schema `other`.
+- `web_other`: role `dp_console`, schema `other`.
 - `web_root`: role `dp_admin`, every schema.
 
 No sync worker runs, so a sync run that you start stays `ENQUEUED`. A worker for the queues `control` and `schedules` runs, so cancel, resume and the schedule actions work.

@@ -23,17 +23,18 @@ The table shows the permissions that each role has, with the inherited ones. The
 | `read_ducklake` |          |             |              | yes        |
 | `read_files`    |          |             |              | yes        |
 | `read_sync`     |          |             | yes          | yes        |
-| `start_sync`    |          |             |              | yes        |
-| `control_sync`  |          |             |              | yes        |
+| `start_sync`    |          |             | yes          | yes        |
+| `control_sync`  |          |             | yes          | yes        |
 | `read_config`   |          |             | yes          | yes        |
-| `create_config` |          |             |              | yes        |
-| `edit_config`   |          |             |              | yes        |
-| `delete_config` |          |             |              | yes        |
-| `import_config` |          |             |              | yes        |
+| `create_config` |          |             | yes          | yes        |
+| `edit_config`   |          |             | yes          | yes        |
+| `delete_config` |          |             | yes          | yes        |
+| `import_config` |          |             | yes          | yes        |
 | `read_policy`   |          | yes         |              | yes        |
 | `create_policy` |          | yes         |              | yes        |
 | `edit_policy`   |          | yes         |              | yes        |
 | `delete_policy` |          | yes         |              | yes        |
+| `grant_all`     |          |             |              | yes        |
 <!-- roles-matrix:end -->
 
 | Role | Inherits | Adds |

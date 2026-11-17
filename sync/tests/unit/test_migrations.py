@@ -313,6 +313,27 @@ class TestMigrationRun:
         assert (await goose("console", app, "down")).returncode == 0
         assert (await goose("console", app, "up")).returncode == 0
 
+    async def test_the_grant_all_migration_goes_down_and_restores_the_old_answer(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """A role with grant_all reaches a schema that no claim names, until the Down part runs."""
+        app, _ = scratch_databases
+        await goose("console", app, "up")
+
+        async def reaches_schema() -> object:
+            async with await AsyncConnection.connect(scratch_url(app)) as connection:
+                await connection.execute(
+                    b"SELECT set_config('rbac.permissions', ',grant_all,', false)"
+                )
+                cursor = await connection.execute(b"SELECT rbac.mine('s1')")
+                row = await cursor.fetchone()
+                assert row is not None
+                return row[0]
+
+        assert await reaches_schema() is True
+        assert (await goose("console", app, "down")).returncode == 0
+        assert await reaches_schema() is False
+
 
 class TestMigrationFiles:
     """The files of the migrations follow the rules that goose cannot check."""

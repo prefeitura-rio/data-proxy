@@ -53,8 +53,8 @@ Feature: Scenarios that change data that other scenarios read
     Then the schedule "sync-test" shows the cron "0 2 * * *"
 
   # The Access page asks for the first schema of the user, and it answers 406 while a scenario adds or deletes one.
-  # This file runs when no other scenario runs.
-  Scenario: A role of the schema other opens the Access page directly
-    Given I am signed in as "web_other"
+  # An admin reaches every schema, so this file runs when no other scenario runs.
+  Scenario: An admin opens the Access page directly
+    Given I am signed in as "web_admin"
     When I open the address "/access" directly
     Then the answer is 200

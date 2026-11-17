@@ -17,8 +17,8 @@
  * run. The orchestration records a failed check for it and goes on, so read the first failure first.
  *
  * Needs: the Keycloak test realm has one client for each role (`api`, `api_no_policy`, `policy`, `console`, `admin`,
- * `admin_other`). The scenarios `tokens`, `idp` and `roles` need extra clients, and `newschema` needs the table
- * `new_schema_table`, which `seed` creates. Keycloak imports its realm at the first start only, so run `cluster down`
+ * `admin_other`, which has the role dp_console and another schema). The scenarios `tokens`, `idp` and `roles` need
+ * extra clients, and `newschema` needs the table `new_schema_table`, which `seed` creates. Keycloak imports its realm at the first start only, so run `cluster down`
  * and `cluster up` after a change of `k3d/values/keycloak.yaml`.
  *
  * Scenarios: `schedule` and `runs` (a run starts and completes), `newschema` (a new schema is served and removed

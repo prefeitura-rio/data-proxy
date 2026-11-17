@@ -9,6 +9,7 @@ import {
     createSchema,
     FULL_SOURCE,
     FULL_TABLE,
+    GRANT_PROBE_SCHEMA,
     nothing,
     policyRow,
     postgrestCall,
@@ -18,6 +19,7 @@ import {
     proxyGet,
     rbacClosure,
     reloadProxy,
+    removeGrantProbeSchema,
     removePolicy,
     removeSchema,
     rerunConfigureDb,
@@ -116,6 +118,17 @@ const PROBES = {
             () => rowsOf(consoleCall("DELETE", `/schemas?name=eq.${PROBE_SCHEMA}`, client)).length === 1,
         ),
     import_config: (client) => consoleCall("POST", "/rpc/import_config", client, CATALOG_DOCUMENT).status !== 403,
+    grant_all: (client) =>
+        withRow(
+            nothing,
+            removeGrantProbeSchema,
+            () =>
+                consoleCall("POST", "/schemas", client, {
+                    name: GRANT_PROBE_SCHEMA,
+                    source: "bigquery",
+                    settings: { project: "probe" },
+                }).status === 201,
+        ),
     read_policy: (client) => postgrestRows(SCHEMA, "/access_policy?select=subject&limit=1", client) > 0,
     create_policy: (client) =>
         withRow(
@@ -307,9 +320,10 @@ function removeProjects() {
 }
 
 /**
- * Verifies the `projects` claim. `project_user` has `e2eprojecta:*` and no schema in its claim, and `project_other` has
- * `e2eprojectb`. The first token reads every schema of its project, also one that it adds after it got the token. The
- * second token reads none of them and adds none.
+ * Verifies the `projects` claim. `project_user` is a dp_console client with `e2eprojecta:*` and no schema in its claim, and
+ * `project_other` is one with `e2eprojectb`. The first token reads every schema of its project, also one that it adds after
+ * it got the token. The second token reads none of them and adds none. `project_policy` is a dp_policy client with
+ * `e2eprojecta:*`, for the access policy of the schemas of the project.
  */
 function projectClaim() {
     removeProjects();
@@ -383,7 +397,7 @@ function projectClaim() {
             "PostgREST serves the schema of the project to its token",
             waitUntil(
                 PROVISION_TIMEOUT_SECONDS,
-                () => postgrestCall(schema, "GET", "/access_policy", "project_user").status === 200,
+                () => postgrestCall(schema, "GET", "/access_policy", "project_policy").status === 200,
                 "PostgREST to serve the schema of the project",
             ),
         );
@@ -391,11 +405,11 @@ function projectClaim() {
         const policy = { subject: "project_subject", unit_type: "unit", unit_id: "unit_1" };
         expect(
             "a project token writes the access policy of a schema of its project",
-            postgrestCall(schema, "POST", "/access_policy", "project_user", policy).status === 201,
+            postgrestCall(schema, "POST", "/access_policy", "project_policy", policy).status === 201,
         );
         expect(
-            "a token of another project is refused the access policy",
-            [401, 403].includes(postgrestCall(schema, "POST", "/access_policy", "project_other", policy).status),
+            "a policy token of another schema is refused the access policy of the project",
+            [401, 403].includes(postgrestCall(schema, "POST", "/access_policy", "policy", policy).status),
         );
     } finally {
         removeProjects();

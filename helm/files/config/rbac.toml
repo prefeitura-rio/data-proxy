@@ -32,6 +32,10 @@ create = "Add a rule"
 edit = "Change it"
 delete = "Delete a rule"
 
+[permissions.all]
+description = "Every project and schema, whatever the claims say"
+grant = "Reach all of them"
+
 [[roles]]
 name = "dp_api"
 description = "Clients that read the synced data"
@@ -44,21 +48,21 @@ permissions = ["read_policy", "create_policy", "edit_policy", "delete_policy"]
 
 [[roles]]
 name = "dp_console"
-description = "People who watch the system: runs, errors and the sync configuration"
+description = "People who run a project: its runs, its errors and its sync configuration"
 inherits = ["dp_api"]
-permissions = ["read_sync", "read_config"]
-
-[[roles]]
-name = "dp_admin"
-description = "People who run schemas"
-inherits = ["dp_console", "dp_policy"]
 permissions = [
+  "read_sync",
   "start_sync",
   "control_sync",
+  "read_config",
   "create_config",
   "edit_config",
   "delete_config",
   "import_config",
-  "read_files",
-  "read_ducklake",
 ]
+
+[[roles]]
+name = "dp_admin"
+description = "Operators: every project and schema, the files and the catalog"
+inherits = ["dp_console", "dp_policy"]
+permissions = ["grant_all", "read_files", "read_ducklake"]
