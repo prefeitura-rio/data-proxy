@@ -398,7 +398,7 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         run: ci release bump
         env:
-          PIPELINE_SHA: ${{ steps.shas.outputs.sync }}
+          SYNC_SHA: ${{ steps.shas.outputs.sync }}
           PG_SHA: ${{ steps.shas.outputs.postgres }}
           NU_SHA: ${{ steps.shas.outputs.jobs }}
           PROXY_SHA: ${{ steps.shas.outputs.proxy }}
