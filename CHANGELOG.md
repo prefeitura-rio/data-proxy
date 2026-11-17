@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.16.1 - 2026-11-17
+
+### Fixes
+
+- record the last error of a failed dump (#36) (17fe20c)
+
+
+- - -
+
 ## helm-v2.16.0 - 2026-11-17
 
 ### Features
