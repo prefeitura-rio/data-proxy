@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.16.0 - 2026-11-17
+
+### Features
+
+- add grant_all and move config writes to dp_console (#35) (aaf2221)
+
+
+- - -
+
 ## helm-v2.15.2 - 2026-11-16
 
 ### Fixes
