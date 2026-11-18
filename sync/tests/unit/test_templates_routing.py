@@ -38,6 +38,7 @@ from tests.helpers.core import fetch_all, scalar, set_request_headers, set_setti
 from tests.helpers.routing import (
     act_as_token,
     call_table_function,
+    grant_everything,
     grant_unit,
     insert_access_policy,
     install_table_function,
@@ -429,6 +430,7 @@ class TestTableFunction:
         """A role without read_api is refused, a schema outside the claim returns nothing, and the others read."""
         await install_table_function(table_function, has_rls=False, fallbacks=[])
         await put_state(table_function, ROUTED_TABLE, FULL)
+        await grant_everything(table_function)
 
         if outcome == "refused":
             with pytest.raises(psycopg.Error) as error:
@@ -669,16 +671,55 @@ class TestTableFunction:
 
         assert rows == []
 
-    async def test_view_function_passes_an_empty_predicate_without_rls(
-        self, table_function: Postgres
+    @pytest.mark.parametrize(
+        ("subject", "grants", "schemas", "reads"),
+        [
+            pytest.param("u", [], None, False, id="schema-claim-and-no-grant"),
+            pytest.param("u", [("unit", "u1")], None, False, id="unit-grant-only"),
+            pytest.param("u", [("*", "u1")], None, False, id="wildcard-type-only"),
+            pytest.param("u", [("*", "*")], None, True, id="wildcard-grant"),
+            pytest.param("u", [], "*", True, id="every-schema-claim"),
+            pytest.param("u", [], "SCHEMA:*", True, id="schema-wildcard-claim"),
+            pytest.param("u", [], "other:*", False, id="wildcard-of-another-schema"),
+            pytest.param("u", [], "", False, id="empty-schemas-claim"),
+        ],
+    )
+    async def test_view_function_denies_a_table_without_row_rules_by_default(
+        self,
+        table_function: Postgres,
+        subject: str,
+        grants: list[tuple[str, str]],
+        schemas: str | None,
+        reads: bool,
     ) -> None:
-        """Passes an empty predicate without rls."""
+        """A table with no row rules returns a row only to a wildcard claim or to the grant (*, *)."""
         await install_table_function(table_function, has_rls=False, fallbacks=[])
         await put_state(table_function, ROUTED_TABLE, FULL)
+        await set_setting(table_function, "app.claim_sub", subject)
+        for unit_type, unit_id in grants:
+            await insert_access_policy(table_function, subject, unit_type, unit_id)
+        claim = (
+            None
+            if schemas is None
+            else schemas.replace("SCHEMA", table_function.namespace.schema)
+        )
+
+        rows, _ = await call_table_function(table_function, schemas=claim)
+
+        assert rows == ([("ducklake", "", "7")] if reads else [])
+
+    async def test_view_function_denies_a_table_without_row_rules_to_the_wildcard_grant_of_another_subject(
+        self, table_function: Postgres
+    ) -> None:
+        """Only the grant (*, *) of the subject itself lifts the denial."""
+        await install_table_function(table_function, has_rls=False, fallbacks=[])
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await set_setting(table_function, "app.claim_sub", "u")
+        await insert_access_policy(table_function, "other", "*", "*")
 
         rows, _ = await call_table_function(table_function)
 
-        assert rows == [("ducklake", "", "7")]
+        assert rows == []
 
     async def test_view_function_an_empty_ducklake_result_never_calls_bigquery(
         self, table_function: Postgres

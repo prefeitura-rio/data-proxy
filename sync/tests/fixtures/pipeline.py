@@ -32,7 +32,7 @@ from tests.constants import S3_ACCESS_KEY, S3_ENDPOINT, S3_SECRET_KEY
 from tests.fixtures.types import Postgres, RecordedOptions
 from tests.helpers.core import one_worker_at_a_time, scalar
 from tests.helpers.dbos import workflow_body
-from tests.helpers.routing import act_as_token
+from tests.helpers.routing import act_as_token, grant_everything
 from tests.helpers.state import initialize_schemas
 
 
@@ -238,9 +238,13 @@ async def pipeline(
 
 
 async def served(pipeline: Pipeline, table: str) -> int:
-    """Count the rows that a client of the data API reads from the view of a table."""
+    """Count the rows that a client of the data API reads from the view of a table.
+
+    The tables of the pipeline have no row rules, so the client holds the grant (*, *) to read them.
+    """
     pg = pipeline.pg
     await act_as_token(pg, "dp_api", pipeline.schema)
+    await grant_everything(pg)
     count = await scalar(pg, f'SELECT count(*) FROM "{pipeline.schema}"."{table}"')
     assert isinstance(count, int)
 

@@ -314,7 +314,6 @@ def table_function_mapping(
         "dl_view": f"dl_{schema}_{table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim_name}",
-        "has_rls": "true" if len(rls) > 0 else "false",
         "rls_mappings": [
             {"column": mapping.column, "unit_type": mapping.unit_type}
             for mapping in rls
@@ -358,7 +357,6 @@ def table_changes_function_mapping(
         "duckdb_view": f"dl_changes_{schema}_{table.table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim_name}",
-        "has_rls": "true" if len(rls) > 0 else "false",
         "rls_mappings": [
             {"column": mapping.column, "unit_type": mapping.unit_type}
             for mapping in rls

@@ -13,6 +13,7 @@ from tests.helpers.routing import (
     aggregate,
     by,
     call_aggregate_function,
+    grant_everything,
     grant_unit,
     insert_access_policy,
     install_aggregate_function,
@@ -499,6 +500,7 @@ class TestAggregateWideTable:
             aggregate_function, has_rls=False, fallbacks=[], extra_columns=150
         )
         await put_state(aggregate_function, ROUTED_TABLE, FULL)
+        await grant_everything(aggregate_function)
         document = aggregate(
             {"fn": "count", "alias": "n"}, group=["qty"], order=[by("qty")], limit=2
         )
@@ -506,6 +508,41 @@ class TestAggregateWideTable:
         answer, _ = await call_aggregate_function(aggregate_function, document)
 
         assert answer == [{"qty": 1, "n": 1}, {"qty": 2, "n": 1}]
+
+
+@pytest.mark.postgres
+class TestAggregateDeniesByDefault:
+    """A table with no row rules gives no row to a token that holds no wildcard."""
+
+    @pytest.fixture
+    async def open_table(self, aggregate_function: Postgres) -> Postgres:
+        """Install the aggregate function for a table with no row rules, and grant nothing."""
+        await install_aggregate_function(
+            aggregate_function, has_rls=False, fallbacks=[]
+        )
+        await put_state(aggregate_function, ROUTED_TABLE, FULL)
+        await set_setting(aggregate_function, "app.claim_sub", "u")
+        return aggregate_function
+
+    async def test_gives_an_empty_list_to_a_token_with_no_wildcard(
+        self, open_table: Postgres
+    ) -> None:
+        """A subject with the schema in its claim and a unit grant still reads no row."""
+        await insert_access_policy(open_table, "u", "unit", "u1")
+
+        answer, headers = await call_aggregate_function(open_table, aggregate(total()))
+
+        assert (answer, headers) == ([], {})
+
+    async def test_sums_every_row_for_the_wildcard_grant(
+        self, open_table: Postgres
+    ) -> None:
+        """The grant (*, *) of the subject reads the table."""
+        await insert_access_policy(open_table, "u", "*", "*")
+
+        answer, _ = await call_aggregate_function(open_table, aggregate(total()))
+
+        assert answer == [{"n": 47}]
 
 
 @pytest.mark.postgres
@@ -699,6 +736,7 @@ class TestAggregateFallback:
             aggregate_function, has_rls=False, fallbacks=fallbacks
         )
         await put_state(aggregate_function, ROUTED_TABLE, state)
+        await grant_everything(aggregate_function)
 
         answer, _ = await call_aggregate_function(
             aggregate_function, aggregate(total())
@@ -714,6 +752,7 @@ class TestAggregateFallback:
             aggregate_function, has_rls=False, fallbacks=["bigquery"]
         )
         await put_state(aggregate_function, ROUTED_TABLE, FULL)
+        await grant_everything(aggregate_function)
 
         answer, _ = await call_aggregate_function(
             aggregate_function, aggregate(total())

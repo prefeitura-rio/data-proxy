@@ -24,6 +24,7 @@ from tests.helpers.routing import (
     aggregate,
     call_table_function,
     comparison,
+    grant_everything,
     group,
     install_table_function,
     proxy_filter_cases,
@@ -482,6 +483,7 @@ class TestFilterFunctions:
         """Passes the requested columns and the tail that DuckDB can run."""
         await install_table_function(table_function, has_rls=False, fallbacks=[])
         await put_state(table_function, ROUTED_TABLE, FULL)
+        await grant_everything(table_function)
         if document is not None:
             await set_request_headers(
                 table_function, {"x-ducklake-filter": json.dumps(document)}
