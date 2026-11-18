@@ -10,7 +10,6 @@
     "duckdb_view": "DuckDB intermediate view name.",
     "columns": "Structured SQL-safe column metadata.",
     "claim_setting": "PostgreSQL session setting containing the current claim.",
-    "has_rls": "Enable the row-level security branch.",
     "rls_mappings": "Unit mappings used to build the access-policy predicate.",
     "metadata_schema": "Schema of the catalog database that holds the DuckLake tables.",
     "data_path": "S3 data path for the DuckLake attachment.",
@@ -47,7 +46,7 @@ BEGIN
 
   v_subject := current_setting('{{ claim_setting }}', true);
 
-{{ rls_where_clause(schema, schema_literal, has_rls, rls_mappings, true) }}
+{{ rls_where_clause(schema, schema_literal, rls_mappings, true) }}
   IF v_where IS NULL THEN
     RETURN;
   END IF;

@@ -15,7 +15,11 @@ from tests.constants import FULL, POSTGRES_URL, ROUTED_TABLE
 from tests.fixtures.types import Postgres
 from tests.helpers.core import execute_sql
 from tests.helpers.rbac import install_rbac
-from tests.helpers.routing import create_access_policy, install_aggregate_function
+from tests.helpers.routing import (
+    create_access_policy,
+    grant_everything,
+    install_aggregate_function,
+)
 from tests.helpers.state import put_state
 
 
@@ -71,9 +75,13 @@ def rbac_connection(database: str) -> Iterator[psycopg.Connection[TupleRow]]:
 
 @pytest.fixture
 async def installed(aggregate_function: Postgres) -> Postgres:
-    """Install the aggregate function for a table without row rules, and mark DuckLake as complete."""
+    """Install the aggregate function for a table without row rules, and mark DuckLake as complete.
+
+    The subject holds the grant (*, *), because a table without row rules returns no row to anyone else.
+    """
     await install_aggregate_function(aggregate_function, has_rls=False, fallbacks=[])
     await put_state(aggregate_function, ROUTED_TABLE, FULL)
+    await grant_everything(aggregate_function)
     return aggregate_function
 
 
@@ -84,4 +92,5 @@ async def capped(aggregate_function: Postgres) -> Postgres:
         aggregate_function, has_rls=False, fallbacks=[], max_rows=2
     )
     await put_state(aggregate_function, ROUTED_TABLE, FULL)
+    await grant_everything(aggregate_function)
     return aggregate_function

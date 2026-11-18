@@ -58,6 +58,10 @@ The caller returns an empty result for NULL.
 #}
 
 {#
+A table with no rules is denied by default. Only a token with schema:* or *, or a subject with the grant (*, *), reads it.
+#}
+
+{#
 {
   "kind": "macro",
   "name": "postgres.rls_where_clause",
@@ -65,20 +69,20 @@ The caller returns an empty result for NULL.
   "inputs": {
     "schema": "PostgreSQL schema that owns access_policy.",
     "schema_literal": "SQL literal of the schema name, for the all_rows check of the schemas claim.",
-    "has_rls": "Enable the row-level security branch.",
-    "rls_mappings": "Unit mappings used to build the access-policy predicate.",
+    "rls_mappings": "Unit mappings used to build the access-policy predicate. An empty list matches no grant.",
     "list_form": "Render each column as CAST(col AS VARCHAR) IN (SELECT unnest([...])), which DuckDB runs about four times faster than an IN with thousands of literals. Use it for every read that only DuckDB runs: the aggregate function, the change feed, and a table function without a fallback source. A fallback source also receives the predicate and cannot push the list down, so a table with a fallback keeps the literal list."
   },
   "returns": "A PL/pgSQL block assigning v_where."
 }
 #}
-{% macro rls_where_clause(schema, schema_literal, has_rls, rls_mappings, list_form=false) -%}
+{% macro rls_where_clause(schema, schema_literal, rls_mappings, list_form=false) -%}
 {% set predicate_format =
   "'CAST(%I AS VARCHAR) IN (SELECT unnest([%s]))'" if list_form else "'%I IN (%s)'"
 %}
   -- A token with schema:* for this schema, or with *, or a subject with the grant (*, *),
-  -- reads every row.
-  IF NOT {{ has_rls }} OR rbac.all_rows({{ schema_literal }}) OR EXISTS (
+  -- reads every row. Every other request reads the rows of its unit grants, so a table with no
+  -- rules, which has no unit mapping, returns no row.
+  IF rbac.all_rows({{ schema_literal }}) OR EXISTS (
     SELECT 1 FROM {{ schema }}.access_policy p
     WHERE p.subject = v_subject AND p.unit_type = '*' AND p.unit_id = '*'
   ) THEN

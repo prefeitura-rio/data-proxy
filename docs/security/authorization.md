@@ -12,7 +12,7 @@ flowchart TD
   schema -->|"no"| none["200, no rows"]
   schema -->|"yes"| all{"Does the claim have * or<br/>schema:* ?"}
   all -->|"yes"| every["Every row of the table"]
-  all -->|"no"| policy{"Does an access policy row<br/>match the subject and the unit?<br/>A grant * and * matches all."}
+  all -->|"no"| policy{"Does an access policy row<br/>match the subject and the unit?<br/>A grant * and * matches all.<br/>A table with no rules has<br/>no unit to match."}
   policy -->|"yes"| unit["The rows of those units"]
   policy -->|"no"| none
 ```
@@ -63,6 +63,12 @@ OR unit_type/unit_id matches the row
 A token whose `schemas` claim has `*`, or `<schema>:*` for the schema of the table, skips this condition and reads every row.
 
 A subject with the grant `unit_type = '*'` and `unit_id = '*'` in the `access_policy` of the schema reads every row of the tables of that schema too. The grant covers one subject and one schema. Revoking it deletes the row, like any other grant.
+
+### A table with no rules
+
+The default is to deny. A table with no `rls` rules has no unit column to match, so it returns no row to a token that lists the schema. Only two cases read it: a token with `*` or `<schema>:*`, and a subject with the grant `*` and `*`. To give a user the rows, grant `*` and `*`, or add `rls` rules to the table and grant its units.
+
+The same rule applies to the table function, the aggregate function and the change feed of the table.
 
 An access policy row exists only while the grant is active. Revoking access deletes the row. A missing schema claim or access policy grant normally returns `200 []`. It isn't an authentication error.
 
