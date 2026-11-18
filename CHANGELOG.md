@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.16.3 - 2026-11-18
+
+### Fixes
+
+- deny every row of a table that has no row rules (#40) (c0f7876)
+
+
+- - -
+
 ## helm-v2.16.2 - 2026-11-17
 
 ### Fixes

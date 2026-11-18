@@ -4,7 +4,7 @@ sync:
   ## Number of sync worker replicas before KEDA scaling. KEDA manages this after startup.
   replicas: 1
   ## Container image for the DBOS sync workers.
-  image: ghcr.io/prefeitura-rio/data-proxy-sync:feeb46a
+  image: ghcr.io/prefeitura-rio/data-proxy-sync:c0f7876
   imagePullPolicy: IfNotPresent
   ## Mount the local manifests sync-trigger ConfigMap in sync workers.
   trigger:
