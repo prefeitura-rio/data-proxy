@@ -66,7 +66,7 @@ A subject with the grant `unit_type = '*'` and `unit_id = '*'` in the `access_po
 
 ### A table with no rules
 
-The default is to deny. A table with no `rls` rules has no unit column to match, so it returns no row to a token that lists the schema. Only two cases read it: a token with `*` or `<schema>:*`, and a subject with the grant `*` and `*`. Give a user the rows of such a table with the grant `*` and `*`, or add `rls` rules to the table and grant its units.
+The default is to deny. A table with no `rls` rules has no unit column to match, so it returns no row to a token that lists the schema. Only two cases read it: a token with `*` or `<schema>:*`, and a subject with the grant `*` and `*`. To give a user the rows, grant `*` and `*`, or add `rls` rules to the table and grant its units.
 
 The same rule applies to the table function, the aggregate function and the change feed of the table.
 

@@ -58,10 +58,14 @@ The caller returns an empty result for NULL.
 #}
 
 {#
+A table with no rules is denied by default. Only a token with schema:* or *, or a subject with the grant (*, *), reads it.
+#}
+
+{#
 {
   "kind": "macro",
   "name": "postgres.rls_where_clause",
-  "description": "Render the PL/pgSQL block that builds the row-level security predicate. It reads v_subject and sets v_where: empty text for every row, WHERE (...) for a filter, NULL for no row. A table with no rules is denied by default: only a token with schema:* or *, or a subject with the grant (*, *), reads it.",
+  "description": "Render the PL/pgSQL block that builds the row-level security predicate. It reads v_subject and sets v_where: empty text for every row, WHERE (...) for a filter, NULL for no row.",
   "inputs": {
     "schema": "PostgreSQL schema that owns access_policy.",
     "schema_literal": "SQL literal of the schema name, for the all_rows check of the schemas claim.",
