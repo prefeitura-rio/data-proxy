@@ -41,13 +41,13 @@ Feature: Who sees and does what
   Scenario: An admin adds several unit ids at once, with or without a space after the comma
     Given I sign in as "web_admin"
     When I open the Access tab of the schema "test"
-    And I add the policy "bdd-many" for "area" with the unit ids "SMAS,SMTR, SMS"
+    And I add the policy "bdd-many" for "region" with the unit ids "north,south, east"
     Then the toast says "Saved."
     And I see 3 policy rows for "bdd-many"
-    And I see the policy "bdd-many" with unit id "SMAS"
-    And I see the policy "bdd-many" with unit id "SMTR"
-    And I see the policy "bdd-many" with unit id "SMS"
-    When I add the policy "bdd-many" for "area" with the unit ids "SMAS, PGM"
+    And I see the policy "bdd-many" with unit id "north"
+    And I see the policy "bdd-many" with unit id "south"
+    And I see the policy "bdd-many" with unit id "east"
+    When I add the policy "bdd-many" for "region" with the unit ids "north, west"
     Then the toast says "Saved 1, skipped 1 that already exist."
     And I see 4 policy rows for "bdd-many"
     When I remove the policy "bdd-many"
@@ -59,7 +59,7 @@ Feature: Who sees and does what
   Scenario: The form refuses a list that mixes the wildcard with ids
     Given I sign in as "web_admin"
     When I open the Access tab of the schema "test"
-    And I add the policy "bdd-mixed" for "area" with the unit ids "SMAS, *"
+    And I add the policy "bdd-mixed" for "region" with the unit ids "north, *"
     Then the form says "Use * alone, not with other ids."
     And I see no policy "bdd-mixed"
 

@@ -116,7 +116,7 @@
 						class="textarea w-full textarea-sm"
 						name="unit_id"
 						rows="2"
-						placeholder="SMAS, SMTR"
+						placeholder="north, south"
 						aria-describedby="unit-id-help"
 						required></textarea>
 					<span id="unit-id-help" class="text-xs text-base-content/60">

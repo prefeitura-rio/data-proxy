@@ -108,16 +108,16 @@ describe('postgrest client', () => {
 			url = urlOf(target);
 			init = options;
 
-			return Promise.resolve(json([{ unit_id: 'SMAS' }], 201));
+			return Promise.resolve(json([{ unit_id: 'north' }], 201));
 		});
 
-		const result = await client.post('/access_policy', [{ unit_id: 'SMAS' }, { unit_id: 'SMTR' }], 'sales', {
+		const result = await client.post('/access_policy', [{ unit_id: 'north' }, { unit_id: 'south' }], 'sales', {
 			skipDuplicates: ['subject', 'unit_type', 'unit_id']
 		});
 
-		expect(result).toEqual({ ok: true, data: [{ unit_id: 'SMAS' }] });
+		expect(result).toEqual({ ok: true, data: [{ unit_id: 'north' }] });
 		expect(url).toBe('http://api/access_policy?on_conflict=subject,unit_type,unit_id');
-		expect(init?.body).toBe('[{"unit_id":"SMAS"},{"unit_id":"SMTR"}]');
+		expect(init?.body).toBe('[{"unit_id":"north"},{"unit_id":"south"}]');
 		expect(new Headers(init?.headers).get('Prefer')).toBe('return=representation,resolution=ignore-duplicates');
 		expect(new Headers(init?.headers).get('Content-Profile')).toBe('sales');
 	});
