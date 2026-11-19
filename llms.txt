@@ -1238,7 +1238,7 @@ The Secret of a login has the name `<release>-cnpg-<role>`: `-cnpg-ops`, `-cnpg-
 
 The PostgreSQL functions are `SECURITY DEFINER` and read `access_policy` using the request claim settings. They build the allowed-row predicate and pass it into the DuckDB SQL query. This enforces RLS before the Parquet scan returns rows.
 
-An `rls` rule on a list column, such as `ARRAY<STRING>`, gives a row to a user when at least one value of the list matches a grant.
+An `rls` rule on a list column, such as `ARRAY<STRING>`, gives a row to a user. At least one value of the list must match a grant.
 
 The table function builds the access policy predicate once and passes it to each source helper. See Security.
 
