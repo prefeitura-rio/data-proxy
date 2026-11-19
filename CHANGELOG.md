@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.17.2 - 2026-11-19
+
+### Fixes
+
+- **sync**: match a list column of an rls rule with list_has_any (#43) (8bc4ade)
+
+
+- - -
+
 ## helm-v2.17.1 - 2026-11-19
 
 ### Fixes
