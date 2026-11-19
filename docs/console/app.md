@@ -60,6 +60,13 @@ The Config page edits a row in a dialog:
 
 The page doesn't edit `partitioning`. Change it with an import of the document.
 
+The Access page adds grants in one form:
+
+- Write one unit id, or a list of ids separated by a comma or a new line. A space after the comma is optional, so `SMAS,SMTR` and `SMAS, SMTR` mean the same.
+- The page writes one row for each id. A row that exists is skipped, and the message says how many.
+- The wildcard grant is the single pair `*` and `*`. A list can't mix `*` with other ids.
+- A list holds at most 100 ids. The Edit dialog changes one row.
+
 ## Live data
 
 The Sync tab and the page of a sync run reload their data at an interval that the user picks. The choices are off, 2, 5, 10, 30 and 60 seconds. The default is 5 seconds, and the choice stays in the browser. The console polls, because it reads through PostgREST and DBOS sends no notification when a workflow changes its status. The log of a run is the exception, and it streams over server-sent events.

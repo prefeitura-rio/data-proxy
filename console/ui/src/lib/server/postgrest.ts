@@ -37,7 +37,10 @@ export async function toResult<T>(response: Response, schema: v.GenericSchema<un
 	return { ok: false, status: response.status, message };
 }
 
-export function requestHeaders(token: string, options: { profile: string; write: boolean; count?: boolean }): Headers {
+export function requestHeaders(
+	token: string,
+	options: { profile: string; write: boolean; count?: boolean; skipDuplicates?: boolean }
+): Headers {
 	const headers = new Headers({
 		Authorization: `Bearer ${token}`,
 		'Accept-Profile': options.profile
@@ -46,7 +49,10 @@ export function requestHeaders(token: string, options: { profile: string; write:
 	if (options.write) {
 		headers.set('Content-Profile', options.profile);
 		headers.set('Content-Type', 'application/json');
-		headers.set('Prefer', 'return=representation');
+		headers.set(
+			'Prefer',
+			options.skipDuplicates ? 'return=representation,resolution=ignore-duplicates' : 'return=representation'
+		);
 	} else if (options.count) {
 		headers.set('Prefer', 'count=exact');
 	}
@@ -54,18 +60,26 @@ export function requestHeaders(token: string, options: { profile: string; write:
 	return headers;
 }
 
+/**
+ * A client of PostgREST for one token. A `post` with `skipDuplicates` skips a row that exists and does not return it.
+ * PostgREST needs the unique columns for that, so the option is the list of those columns.
+ */
 export function postgrest(baseUrl: string, token: string, fetchFn: typeof fetch = fetch) {
 	async function send<T>(
 		method: string,
 		path: string,
 		schema: v.GenericSchema<unknown, T>,
 		body?: unknown,
-		profile = 'console'
+		profile = 'console',
+		skipDuplicates?: string[]
 	): Promise<Result<T>> {
 		const write = method !== 'GET';
-		const response = await fetchFn(`${baseUrl}${path}`, {
+		const target = skipDuplicates
+			? `${path}${path.includes('?') ? '&' : '?'}on_conflict=${skipDuplicates.join(',')}`
+			: path;
+		const response = await fetchFn(`${baseUrl}${target}`, {
 			method,
-			headers: requestHeaders(token, { profile, write }),
+			headers: requestHeaders(token, { profile, write, skipDuplicates: skipDuplicates !== undefined }),
 			body: body === undefined ? undefined : JSON.stringify(body)
 		});
 
@@ -93,7 +107,8 @@ export function postgrest(baseUrl: string, token: string, fetchFn: typeof fetch 
 		get: <T>(path: string, schema: v.GenericSchema<unknown, T>, profile?: string) =>
 			send('GET', path, schema, undefined, profile),
 		page,
-		post: (path: string, body: unknown, profile?: string) => send('POST', path, any, body, profile),
+		post: (path: string, body: unknown, profile?: string, options?: { skipDuplicates?: string[] }) =>
+			send('POST', path, any, body, profile, options?.skipDuplicates),
 		patch: (path: string, body: unknown, profile?: string) => send('PATCH', path, any, body, profile),
 		delete: (path: string, profile?: string) => send('DELETE', path, any, undefined, profile),
 		rpc: <T>(name: string, schema: v.GenericSchema<unknown, T>, body?: unknown, profile?: string) =>

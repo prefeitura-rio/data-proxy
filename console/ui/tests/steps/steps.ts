@@ -713,8 +713,31 @@ When('I add the policy {string} for {string} {string}', async ({ page }, subject
 	const form = page.locator('form[action^="?/add"]');
 	await form.locator('input[name=subject]').fill(subject);
 	await form.locator('input[name=unit_type]').fill(unit);
-	await form.locator('input[name=unit_id]').fill(id);
+	await form.locator('[name=unit_id]').fill(id);
 	await saved(page, () => form.getByRole('button', { name: 'Add' }).click());
+});
+
+When(
+	'I add the policy {string} for {string} with the unit ids {string}',
+	async ({ page }, subject: string, unit: string, ids: string) => {
+		const form = page.locator('form[action^="?/add"]');
+		await form.locator('input[name=subject]').fill(subject);
+		await form.locator('input[name=unit_type]').fill(unit);
+		await form.locator('[name=unit_id]').fill(ids);
+		await form.getByRole('button', { name: 'Add' }).click();
+	}
+);
+
+Then('the toast says {string}', async ({ page }, message: string) => {
+	await expect(page.getByRole('status')).toContainText(message);
+});
+
+Then('the form says {string}', async ({ page }, message: string) => {
+	await expect(page.getByRole('alert').filter({ hasText: message })).toBeVisible();
+});
+
+Then('I see {int} policy rows for {string}', async ({ page }, count: number, subject: string) => {
+	await expect(policy(page, subject)).toHaveCount(count);
 });
 
 const policy = (page: Page, subject: string) =>
@@ -744,7 +767,7 @@ Then('I see the policy {string}', async ({ page }, subject: string) => {
 });
 
 When('I remove the policy {string}', async ({ page }, subject: string) => {
-	await policy(page, subject).getByRole('button', { name: 'Delete' }).click();
+	await policy(page, subject).first().getByRole('button', { name: 'Delete' }).click();
 	await saved(page, () => page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click());
 });
 
