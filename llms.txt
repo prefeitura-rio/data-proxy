@@ -411,7 +411,7 @@ KEDA reads the length of the DBOS queues in the application database and scales 
 
 ### Release and recovery
 
-The chart keeps `DBOS_APPLICATION_VERSION` (`sync.dbos.applicationVersion`) at `0.1.0` for every release. The recovery Deployment then lets any new pod continue the workflows of a dead pod. A new release replays the saved steps of a workflow that was running. Drain the queues before a release that adds, removes or reorders steps of a workflow, or change `sync.dbos.applicationVersion` for that release. A new version leaves the queued workflows of the old version to the old pods.
+The release raises `DBOS_APPLICATION_VERSION` (`sync.dbos.applicationVersion`) when the code in `sync/src/sync/` changed since the last release. The version starts at `1.0.0`. A hook of `cog.toml` compares that folder with the last `helm-v*` tag. A change raises the major number. A release with no change there keeps the version, so any new pod continues the workflows of a dead pod. A new version leaves the queued workflows of the old version to the old pods. Raise the version by hand for a change outside that folder that alters a workflow.
 
 ### Sync sequence
 
@@ -3697,7 +3697,7 @@ These variables set the DBOS application and its system database.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `DBOS_APPLICATION_NAME` | `data-proxy-sync` | DBOS application name. |
-| `DBOS_APPLICATION_VERSION` | `0.1.0` | DBOS application version. |
+| `DBOS_APPLICATION_VERSION` | `1.0.0` | DBOS application version. |
 | `DBOS_SHUTDOWN_TIMEOUT_SECONDS` | `300` | Seconds that a worker waits for its running workflows after SIGTERM. The chart gives the pod 30 more seconds. |
 | `DBOS_SYSTEM_SCHEMA` | `dbos` | DBOS metadata schema. |
 | `DBOS_APP_SCHEMA` | `data_proxy` | Application state schema. |

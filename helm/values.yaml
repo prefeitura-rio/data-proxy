@@ -97,7 +97,7 @@ sync:
   ## DBOS application and system database configuration.
   dbos:
     applicationName: data-proxy-sync
-    applicationVersion: 0.1.0
+    applicationVersion: 1.0.0
     systemSchema: dbos
     appSchema: data_proxy
   ## The first sync configuration. The provision job imports it once, when the configuration

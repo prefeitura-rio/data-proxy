@@ -1,7 +1,11 @@
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
 from sync.settings import Settings
+
+ROOT = Path(__file__).resolve().parents[3]
 
 SECRETS = {
     "PG_DATABASE_URL": "postgresql://app:pg-p4ss@db.test/app",
@@ -140,3 +144,18 @@ class TestSecrets:
         settings = Settings.model_validate(SECRETS)
 
         assert settings.PG_DATABASE_URL.get_secret_value() == SECRETS["PG_DATABASE_URL"]
+
+
+class TestApplicationVersion:
+    """The chart and the settings start the workers on one DBOS application version."""
+
+    def test_keeps_the_chart_and_the_setting_on_one_version(self) -> None:
+        """A pod with another version than the chart value cannot continue the queued workflows."""
+        values = (ROOT / "helm" / "values.yaml").read_text()
+        chart_version = next(
+            line.split(":", maxsplit=1)[1].strip()
+            for line in values.splitlines()
+            if line.strip().startswith("applicationVersion:")
+        )
+
+        assert chart_version == Settings().DBOS_APPLICATION_VERSION
