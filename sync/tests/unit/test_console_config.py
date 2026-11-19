@@ -1,7 +1,9 @@
 import json
+from typing import ClassVar
 
 import pytest
 from psycopg.types.json import Jsonb
+from pydantic import JsonValue
 
 from sync.models import PartitionedTable, SyncConfig
 from sync.state import read_sync_config
@@ -288,6 +290,171 @@ class TestImportConfig:
         )
 
         assert state == CHECK_VIOLATION
+
+
+@pytest.mark.postgres
+class TestRuleGroups:
+    """A rule can carry a group. Rules in one group must all match, and a rule with no group is an alternative."""
+
+    GROUPED: ClassVar[list[JsonValue]] = [
+        {"column": "region_id", "unit_type": "region", "group": 1},
+        {"column": "unit_id", "unit_type": "unit", "group": 1},
+        {"column": "area", "unit_type": "area"},
+    ]
+
+    async def test_writes_the_group_only_when_a_rule_has_one(
+        self, console_api: Postgres
+    ) -> None:
+        """Keep the document of a table with no group the same as before."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        await console_api.connection.execute(
+            b"SELECT console.replace_rls(%s, %s)",
+            ("p.d.orders", Jsonb(self.GROUPED)),
+        )
+
+        assert await export(console_api) == exported(rules=self.GROUPED)
+
+    async def test_an_export_without_a_group_has_no_group_key(
+        self, console_api: Postgres
+    ) -> None:
+        """Let an old document and a new document be the same when no rule has a group."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+
+        assert await export(console_api) == exported()
+        assert "group" not in json.dumps(await export(console_api))
+
+    async def test_importing_an_export_with_groups_changes_no_value(
+        self, console_api: Postgres
+    ) -> None:
+        """Make the export and the import the two halves of one round trip, groups included."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        await console_api.connection.execute(
+            b"SELECT console.replace_rls(%s, %s)",
+            ("p.d.orders", Jsonb(self.GROUPED)),
+        )
+        before = await export(console_api)
+
+        await console_api.connection.execute(
+            b"SELECT console.import_config(%s)", (Jsonb(before),)
+        )
+
+        assert await export(console_api) == before
+
+    async def test_replace_swaps_all_the_rules_of_one_table_at_once(
+        self, console_api: Postgres
+    ) -> None:
+        """Delete the old rules and insert the new ones in one call."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+
+        await console_api.connection.execute(
+            b"SELECT console.replace_rls(%s, %s)",
+            ("p.d.orders", Jsonb([{"column": "email", "unit_type": "mail"}])),
+        )
+
+        cursor = await console_api.connection.execute(
+            b"SELECT column_name, unit_type, rule_group FROM console.rls WHERE table_name = 'p.d.orders'"
+        )
+        assert await cursor.fetchall() == [("email", "mail", None)]
+
+    @pytest.mark.parametrize(
+        ("rules", "state"),
+        [
+            pytest.param(
+                [{"column": "a", "unit_type": "x", "group": 0}],
+                CHECK_VIOLATION,
+                id="group-below-one",
+            ),
+            pytest.param(
+                [{"column": "", "unit_type": "x"}], CHECK_VIOLATION, id="empty-column"
+            ),
+            pytest.param(
+                [
+                    {"column": "a", "unit_type": "x"},
+                    {"column": "a", "unit_type": "x"},
+                ],
+                "23505",
+                id="the-same-rule-twice",
+            ),
+        ],
+    )
+    async def test_replace_keeps_the_old_rules_when_one_new_rule_is_wrong(
+        self,
+        console_api: Postgres,
+        rules: list[dict[str, object]],
+        state: str,
+    ) -> None:
+        """Roll the delete back, so a bad list never leaves a table with fewer rules."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        before = await scalar(
+            console_api,
+            "SELECT count(*) FROM console.rls WHERE table_name = 'p.d.orders'",
+        )
+
+        found = await refusal(
+            console_api,
+            "SELECT console.replace_rls(%s, %s)",
+            "p.d.orders",
+            Jsonb(rules),
+        )
+        await console_api.connection.execute(b"ROLLBACK")
+
+        assert found == state
+        assert before == 2
+
+    async def test_replace_needs_the_create_and_delete_permissions(
+        self, console_api: Postgres
+    ) -> None:
+        """Refuse a token that may only read the configuration."""
+        await seed(console_api)
+        await as_token(console_api, "dp_policy", ["sales"], database_role=True)
+
+        state = await refusal(
+            console_api,
+            "SELECT console.replace_rls(%s, %s)",
+            "p.d.orders",
+            Jsonb([]),
+        )
+
+        assert state == INSUFFICIENT
+
+    async def test_replace_refuses_a_table_outside_the_claim_of_the_token(
+        self, console_api: Postgres
+    ) -> None:
+        """Let the row policies of console.rls stop a write to another schema."""
+        await seed(console_api)
+        await as_token(console_api, "dp_console", ["hr"], database_role=True)
+
+        state = await refusal(
+            console_api,
+            "SELECT console.replace_rls(%s, %s)",
+            "p.d.orders",
+            Jsonb([{"column": "a", "unit_type": "x"}]),
+        )
+
+        assert state in {INSUFFICIENT, CHECK_VIOLATION}
+
+    async def test_the_history_names_a_grouped_rule_by_its_table_and_its_column(
+        self, console_api: Postgres
+    ) -> None:
+        """Record a group in the change history like any other rule."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        await console_api.connection.execute(
+            b"SELECT console.replace_rls(%s, %s)",
+            ("p.d.orders", Jsonb(self.GROUPED)),
+        )
+
+        keys = await scalar(
+            console_api,
+            "SELECT array_agg(key ORDER BY key) FROM console.config_history WHERE object = 'rls' AND action = 'insert' AND new_row ->> 'rule_group' IS NOT NULL",
+        )
+
+        assert keys == ["p.d.orders.region_id", "p.d.orders.unit_id"]
 
 
 @pytest.mark.postgres

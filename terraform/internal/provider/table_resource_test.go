@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -57,7 +59,75 @@ func tableConfig(t *testing.T, rules ...rlsModel) tableModel {
 
 // ruleModel returns a row policy block.
 func ruleModel(column, unit string) rlsModel {
-	return rlsModel{ColumnName: types.StringValue(column), UnitType: types.StringValue(unit)}
+	return rlsModel{ColumnName: types.StringValue(column), UnitType: types.StringValue(unit), Group: types.Int64Null()}
+}
+
+// groupedRule builds a row policy that belongs to a group.
+func groupedRule(column, unit string, group int64) rlsModel {
+	return rlsModel{ColumnName: types.StringValue(column), UnitType: types.StringValue(unit), Group: types.Int64Value(group)}
+}
+
+func TestRLSRulesKeepTheGroup(t *testing.T) {
+	model := tableModel{RLS: []rlsModel{
+		groupedRule("region_id", "region", 1),
+		groupedRule("unit_id", "unit", 1),
+		ruleModel("area", "area"),
+	}}
+
+	got := rlsRules(model)
+
+	want := []client.RLSRule{
+		{ColumnName: "region_id", UnitType: "region", Group: ptr(1)},
+		{ColumnName: "unit_id", UnitType: "unit", Group: ptr(1)},
+		{ColumnName: "area", UnitType: "area"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rlsRules() = %+v, want %+v", got, want)
+	}
+}
+
+func TestApplyTableRowReadsTheGroup(t *testing.T) {
+	var model tableModel
+
+	diagnostics := applyTableRow(t.Context(), &model, client.Table{Name: "sales.orders"}, []client.RLSRule{
+		{ColumnName: "region_id", UnitType: "region", Group: ptr(2)},
+		{ColumnName: "area", UnitType: "area"},
+	})
+	if diagnostics.HasError() {
+		t.Fatalf("applyTableRow() = %v", diagnostics)
+	}
+
+	if got := model.RLS[0].Group; got.IsNull() || got.ValueInt64() != 2 {
+		t.Errorf("first rule group = %v, want 2", got)
+	}
+
+	if got := model.RLS[1].Group; !got.IsNull() {
+		t.Errorf("second rule group = %v, want null", got)
+	}
+}
+
+func TestRLSRuleJSONOmitsAnEmptyGroup(t *testing.T) {
+	tests := []struct {
+		name string
+		rule client.RLSRule
+		want string
+	}{
+		{name: "no group", rule: client.RLSRule{ColumnName: "a", UnitType: "x"}, want: `{"column_name":"a","unit_type":"x"}`},
+		{name: "a group", rule: client.RLSRule{ColumnName: "a", UnitType: "x", Group: ptr(3)}, want: `{"column_name":"a","unit_type":"x","rule_group":3}`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := json.Marshal(test.rule)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if string(got) != test.want {
+				t.Fatalf("json = %s, want %s", got, test.want)
+			}
+		})
+	}
 }
 
 // twoRules are the row policies of the tests, in order.

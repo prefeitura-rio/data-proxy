@@ -656,7 +656,7 @@ These fields describe one table of a schema in `sync.json`. The table says which
 | `n`         | No               | Keep the newest `n` time partitions.                                                                       |
 | `fallback`  | Partitioned only | Allow the configured source to serve uncovered partitions when it has fallback metadata. Default: `false`. |
 | `cache_ttl` | No               | Proxy cache lifetime in seconds.                                                                           |
-| `rls`       | No               | Unit column and unit type pairs. A table with no rules returns no row, except to a wildcard claim or a `*` grant. See Security. |
+| `rls`       | No               | Unit column, unit type and optional `group`. A table with no rules returns no row, except to a wildcard claim or a `*` grant. See Security. |
 | `ducklake`  | No               | Table-level DuckLake settings, including `sort` and `partitioning`.                                        |
 | `ducklake`  | No               | Table-level DuckLake settings, including custom partition transforms.                                      |
 
@@ -2116,6 +2116,22 @@ A subject with the grant `unit_type = '*'` and `unit_id = '*'` in the `access_po
 
 The column of an `rls` rule can hold a list of text, such as `area_responsavel` with the type `ARRAY<STRING>` in BigQuery. A row is visible when at least one value of the list equals a unit of the grant. A row with an empty list or a NULL list is visible only to a reader of every row. A list of another type stops the sync with an error.
 
+#### Groups of rules
+
+Rules are alternatives by default. A reader sees a row when any one rule matches a grant. Give rules the same `group` to make them all necessary:
+
+```json
+"rls": [
+  {"column": "region_id", "unit_type": "region", "group": 1},
+  {"column": "unit_id", "unit_type": "unit", "group": 1},
+  {"column": "area", "unit_type": "area"}
+]
+```
+
+A reader sees a row when its `region_id` and its `unit_id` match grants, or when its `area` matches a grant.
+
+A group needs a grant for each of its rules. A reader who lacks one grant gets no row from that group. A missing grant never widens the filter.
+
 #### A table with no rules
 
 The default is to deny. A table with no `rls` rules has no unit column to match, so it returns no row to a token that lists the schema. Only two cases read it: a token with `*` or `<schema>:*`, and a subject with the grant `*` and `*`. To give a user the rows, grant `*` and `*`, or add `rls` rules to the table and grant its units.
@@ -2567,14 +2583,14 @@ The sync configuration is data in three tables of the `console` schema. The migr
 | `projects` | One row per project: `name`. A project has schemas. |
 | `schemas` | One row per synced schema: `project`, `short_name`, `name`, `source`, `settings`, `claim`, `encrypted`. |
 | `tables` | One row per source table: `name`, its `schema`, `strategy`, `n`, `fallback`, `cache_ttl`, `partitioning`, `sort`. |
-| `rls` | One row per rule: the `table_name`, the `column_name`, and the `unit_type`. |
+| `rls` | One row per rule: the `table_name`, the `column_name`, the `unit_type`, and an optional `group`. |
 
 Every row records `updated_at` and `updated_by`. The database sets both. The name comes from the `preferred_username` claim of the token, then from `sub`.
 
 Constraints replace a validation step:
 
 - A project name uses lowercase letters and digits. The project `default` always exists. A project with schemas can't be deleted.
-- A schema has one project. Its `name` is the physical name that the sync, the proxy, S3 and the roles use: `<project>_<short_name>`, or `<short_name>` in `default`. The database builds it from the project and the short name.
+- A schema has one project. Its `name` is the physical name that the sync, the proxy, S3 and the roles use: `<project>_<short_name>`, or `<short_name>` in `default`.
 - A physical name uses lowercase letters, digits and underscores, and it starts with a letter. It has at most 56 characters, so that the role name `schema_<name>` fits in 63. Two schemas can't share one.
 - A schema can't change its project or its short name. Delete it and add it again to rename it.
 - A table name is unique in the whole configuration, and unique in its schema by its last part.
@@ -4344,7 +4360,7 @@ resource "data_proxy_table" "orders" {
 - `strategy`: `full` (default) or `partitioned`. `n` and `fallback` need `partitioned`.
 - `cache_ttl`: the seconds that the proxy caches an answer.
 - `partitioning`: a JSON array of partition transforms. `sort`: a list of columns.
-- `rls`: the row policies in order. The schema needs a `claim`, or the database refuses them.
+- `rls`: the row policies in order. The schema needs a `claim`, or the database refuses them. Policies with the same `group` all must match. A policy with no `group` is an alternative.
 
 A change of `rls` deletes the policies of the table and adds them again, in two calls. It isn't atomic. A change of the strategy, the partitioning, the sort or the policies makes the next sync rebuild the table. Import with the name.
 

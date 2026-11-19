@@ -41,6 +41,7 @@ const PARSER_DISABLED = [
 
 const LONG_FUNCTIONS = [
     migrations/console/00011_console_config.sql
+    migrations/console/00017_rls_groups.sql
     sync/src/sync/templates/postgres/views/create_aggregate_function.sql
     sync/src/sync/templates/postgres/views/create_function.sql
     sync/src/sync/templates/postgres/views/routing/filter.sql

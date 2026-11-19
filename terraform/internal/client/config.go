@@ -81,10 +81,12 @@ type TableUpdate struct {
 	Sort         []string        `json:"sort"`
 }
 
-// RLSRule is a row policy of a table: the column that holds the unit and the type of the unit.
+// RLSRule is a row policy of a table: the column that holds the unit and the type of the unit. Rules with the same
+// Group must all match. A rule with no group is an alternative.
 type RLSRule struct {
 	ColumnName string `json:"column_name"`
 	UnitType   string `json:"unit_type"`
+	Group      *int   `json:"rule_group,omitempty"`
 }
 
 // rlsRow is a row of console.rls: a rule and the table that it belongs to.

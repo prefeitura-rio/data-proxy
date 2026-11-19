@@ -331,8 +331,30 @@ class TestMigrationRun:
                 return row[0]
 
         assert await reaches_schema() is True
-        assert (await goose("console", app, "down")).returncode == 0
+        assert (await goose("console", app, "down-to", "15")).returncode == 0
         assert await reaches_schema() is False
+
+    async def test_the_rule_group_migration_goes_down_and_up_again(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """Drop the column and the replace function on the way down, and bring both back on the way up."""
+        app, _ = scratch_databases
+        await goose("console", app, "up")
+
+        async def parts() -> tuple[bool, bool]:
+            async with await AsyncConnection.connect(scratch_url(app)) as connection:
+                cursor = await connection.execute(
+                    b"SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'console' AND table_name = 'rls' AND column_name = 'rule_group'), to_regprocedure('console.replace_rls(text, jsonb)') IS NOT NULL"
+                )
+                row = await cursor.fetchone()
+                assert row is not None
+                return (bool(row[0]), bool(row[1]))
+
+        assert await parts() == (True, True)
+        assert (await goose("console", app, "down")).returncode == 0
+        assert await parts() == (False, False)
+        assert (await goose("console", app, "up")).returncode == 0
+        assert await parts() == (True, True)
 
 
 class TestMigrationFiles:

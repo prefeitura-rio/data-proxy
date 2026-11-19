@@ -46,8 +46,77 @@ class TestListColumns:
         )
 
         assert mapping["rls_mappings"] == [
-            {"column": "area", "unit_type": "area", "duckdb_type": duckdb_type}
+            {
+                "column": "area",
+                "unit_type": "area",
+                "duckdb_type": duckdb_type,
+                "group": "",
+            }
         ]
+
+    @pytest.mark.parametrize(
+        ("group", "expected"),
+        [
+            pytest.param(None, "", id="no-group"),
+            pytest.param(1, "1", id="group-one"),
+            pytest.param(12, "12", id="group-twelve"),
+        ],
+    )
+    def test_passes_the_group_of_an_rls_rule_as_text(
+        self, group: int | None, expected: str
+    ) -> None:
+        """The template tells a rule with no group from a rule in a group by the empty text."""
+        table = FullTable(
+            name="p.d.people",
+            resolved_source="bigquery",
+            rls=[UnitMapping(column="area", unit_type="area", group=group)],
+        )
+
+        mapping = utils.table_function_mapping(
+            "app", table, [("area", "VARCHAR")], "sub"
+        )
+
+        assert mapping["rls_mappings"] == [
+            {
+                "column": "area",
+                "unit_type": "area",
+                "duckdb_type": "VARCHAR",
+                "group": expected,
+            }
+        ]
+
+    @pytest.mark.parametrize("group", [0, -1])
+    def test_refuses_a_group_below_one(self, group: int) -> None:
+        """A group is a positive number, so the sync config stops on a wrong value."""
+        with pytest.raises(ValueError, match="greater than or equal to 1"):
+            UnitMapping(column="area", unit_type="area", group=group)
+
+    def test_a_table_without_a_group_keeps_its_config_signature(self) -> None:
+        """Leave the signature as it was, so no table rebuilds its data because of this release."""
+        plain = FullTable(
+            name="p.d.people",
+            resolved_source="bigquery",
+            rls=[UnitMapping(column="area", unit_type="area")],
+        )
+
+        assert plain.config_signature_fields()["rls"] == [
+            {"column": "area", "unit_type": "area"}
+        ]
+
+    def test_a_group_changes_the_config_signature(self) -> None:
+        """Rebuild the function when a rule joins a group."""
+        plain = FullTable(
+            name="p.d.people",
+            resolved_source="bigquery",
+            rls=[UnitMapping(column="area", unit_type="area")],
+        )
+        grouped = FullTable(
+            name="p.d.people",
+            resolved_source="bigquery",
+            rls=[UnitMapping(column="area", unit_type="area", group=1)],
+        )
+
+        assert plain.config_signature_fields() != grouped.config_signature_fields()
 
     @pytest.mark.parametrize(
         "duckdb_type",

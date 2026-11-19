@@ -208,6 +208,7 @@ func newTableDataSource() datasource.DataSource {
 				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 					"column_name": computedString("The column that holds the unit."),
 					"unit_type":   computedString("The type of the unit."),
+					"group":       schema.Int64Attribute{Description: "The group of the rule. Rules with the same group all must match.", Computed: true},
 				}},
 			},
 		}),

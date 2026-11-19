@@ -33,6 +33,8 @@ class UnitMapping(BaseModel):
 
     column: NonEmptyString
     unit_type: NonEmptyString
+    group: int | None = Field(default=None, ge=1)
+    """Rules with the same group all must match. A rule with no group is an alternative."""
 
 
 class DuckLakePartitionTransform(StrEnum):
@@ -122,7 +124,7 @@ class Table(BaseModel):
         return {
             "name": self.name,
             "source": source,
-            "rls": [r.model_dump() for r in self.rls]
+            "rls": [r.model_dump(exclude_none=True) for r in self.rls]
             if self.rls is not None and len(self.rls) > 0
             else None,
             "ducklake": self.ducklake.model_dump(),

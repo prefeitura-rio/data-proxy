@@ -64,6 +64,7 @@ def rls_mapping_entries(
                 "column": mapping.column,
                 "unit_type": mapping.unit_type,
                 "duckdb_type": duckdb_type.upper(),
+                "group": "" if mapping.group is None else str(mapping.group),
             }
         )
 

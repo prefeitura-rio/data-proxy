@@ -66,7 +66,7 @@ resource "data_proxy_table" "orders" {
 - `strategy`: `full` (default) or `partitioned`. `n` and `fallback` need `partitioned`.
 - `cache_ttl`: the seconds that the proxy caches an answer.
 - `partitioning`: a JSON array of partition transforms. `sort`: a list of columns.
-- `rls`: the row policies in order. The schema needs a `claim`, or the database refuses them.
+- `rls`: the row policies in order. The schema needs a `claim`, or the database refuses them. Policies with the same `group` all must match. A policy with no `group` is an alternative.
 
 A change of `rls` deletes the policies of the table and adds them again, in two calls. It isn't atomic. A change of the strategy, the partitioning, the sort or the policies makes the next sync rebuild the table. Import with the name.
 

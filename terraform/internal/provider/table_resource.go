@@ -45,6 +45,7 @@ type tableResource struct {
 type rlsModel struct {
 	ColumnName types.String `tfsdk:"column_name"`
 	UnitType   types.String `tfsdk:"unit_type"`
+	Group      types.Int64  `tfsdk:"group"`
 }
 
 // tableModel maps the data_proxy_table resource and data source.
@@ -95,6 +96,7 @@ func applyTableRow(ctx context.Context, model *tableModel, row client.Table, rul
 		model.RLS = append(model.RLS, rlsModel{
 			ColumnName: types.StringValue(rule.ColumnName),
 			UnitType:   types.StringValue(rule.UnitType),
+			Group:      intValue(rule.Group),
 		})
 	}
 
@@ -121,6 +123,7 @@ func rlsRules(model tableModel) []client.RLSRule {
 		rules = append(rules, client.RLSRule{
 			ColumnName: block.ColumnName.ValueString(),
 			UnitType:   block.UnitType.ValueString(),
+			Group:      intPointer(block.Group),
 		})
 	}
 
@@ -212,6 +215,11 @@ func (r *tableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 							Description: "The type of the unit, unique in the table with the column.",
 							Required:    true,
 							Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+						},
+						"group": schema.Int64Attribute{
+							Description: "Rules with the same group all must match. A rule with no group is an alternative to the others. A group needs a grant for each of its rules, or it gives no row.",
+							Optional:    true,
+							Validators:  []validator.Int64{int64validator.AtLeast(1)},
 						},
 					},
 				},
