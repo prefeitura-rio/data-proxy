@@ -621,7 +621,7 @@ export def next-dbos-version [current: string, stored: string, found: string]: n
 # Replace one line pattern in a file. It fails unless the pattern matches exactly once.
 export def replace-once [file: path, pattern: string, line: string]: nothing -> nothing {
     let text = read-text $file
-    let found = $text | lines | where {|row| $row =~ $pattern } | length
+    let found = $text | lines | where $it =~ $pattern | length
 
     if $found != 1 {
         fail $'Expected one line that matches ($pattern) in ($file), found ($found)'

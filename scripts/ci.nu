@@ -235,9 +235,14 @@ def 'main chart bump' [
 def 'main dbos version bump' []: nothing -> nothing {
     let stored = read-text sync/workflow-steps.sha256 | str trim
     let found = python3 scripts/workflow_steps.py | complete | check-result 'workflow_steps.py' | str trim
-    let current = read-text sync/src/sync/settings.py
+    let versions = read-text sync/src/sync/settings.py
     | parse --regex 'DBOS_APPLICATION_VERSION: str = "(?<version>[^"]+)"'
-    | get version.0
+
+    if ($versions | is-empty) {
+        fail 'sync/src/sync/settings.py has no DBOS_APPLICATION_VERSION line'
+    }
+
+    let current = $versions | first | get version
     let next = next-dbos-version $current $stored $found
 
     if $next == $current {
