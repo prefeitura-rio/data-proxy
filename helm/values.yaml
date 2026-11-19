@@ -402,7 +402,7 @@ cnpg:
 ## The web console. It signs in people with OIDC, calls PostgREST with their token, and runs the query tab.
 console:
   enabled: false
-  image: ghcr.io/prefeitura-rio/data-proxy-console:5c5a529
+  image: ghcr.io/prefeitura-rio/data-proxy-console:e927a97
   imagePullPolicy: IfNotPresent
   ## One replica is enough. The server keeps no state, so more replicas also work.
   resources:

@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.17.1 - 2026-11-19
+
+### Fixes
+
+- **console**: give the unit id box the height of the other fields (#42) (e927a97)
+
+
+- - -
+
 ## helm-v2.17.0 - 2026-11-19
 
 ### Features
