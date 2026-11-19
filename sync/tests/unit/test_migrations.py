@@ -331,8 +331,33 @@ class TestMigrationRun:
                 return row[0]
 
         assert await reaches_schema() is True
-        assert (await goose("console", app, "down")).returncode == 0
+        assert (await goose("console", app, "down-to", "15")).returncode == 0
         assert await reaches_schema() is False
+
+    async def test_the_rename_migration_goes_down_to_the_trigger_of_inserts_and_deletes(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """The reconcile of the schedules follows a rename of a schema, until the Down part runs."""
+        app, _ = scratch_databases
+        await goose("console", app, "up")
+
+        async def trigger_definition() -> object:
+            async with await AsyncConnection.connect(scratch_url(app)) as connection:
+                cursor = await connection.execute(
+                    b"SELECT pg_get_triggerdef(oid) FROM pg_trigger "
+                    b"WHERE tgname = 'reconcile_schedules'"
+                )
+                row = await cursor.fetchone()
+                assert row is not None
+                return row[0]
+
+        assert "INSERT OR DELETE OR UPDATE OF name, project, short_name" in str(
+            await trigger_definition()
+        )
+        assert (await goose("console", app, "down-to", "16")).returncode == 0
+        assert "AFTER INSERT OR DELETE ON console.schemas" in str(
+            await trigger_definition()
+        )
 
 
 class TestMigrationFiles:
