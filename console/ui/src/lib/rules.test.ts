@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	asEditor,
 	describe as sentence,
+	explain,
 	fieldsOf,
 	intoAlternatives,
 	intoCard,
@@ -377,5 +378,109 @@ describe('the state of the editor', () => {
 		const text = (stored: Stored[]) => stored.map((way) => JSON.stringify(way)).sort();
 
 		expect(text(toRows(asEditor(ways)))).toEqual(text(toRows(asEditor(start()))));
+	});
+});
+
+describe('explain', () => {
+	const grants = (...pairs: [string, string][]) => pairs.map(([unit_type, unit_id]) => ({ unit_type, unit_id }));
+	const found = (column: string, unit_type: string, values: string[]) => ({ column, unit_type, values });
+
+	it.each([
+		[
+			'no rule',
+			{ any: [], all: [] },
+			grants(['x', '1']),
+			{ everything: false, any: [], cards: [], rows: 'No rule, so the subject sees no row.' }
+		],
+		[
+			'an alternative with grants',
+			{ any: [rule('a', 'x')], all: [] },
+			grants(['x', '1'], ['x', '2'], ['y', '9']),
+			{
+				everything: false,
+				any: [found('a', 'x', ['1', '2'])],
+				cards: [],
+				rows: 'The subject sees a row when its a is 1 or 2.'
+			}
+		],
+		[
+			'an alternative with no grant',
+			{ any: [rule('a', 'x')], all: [] },
+			grants(['y', '9']),
+			{
+				everything: false,
+				any: [found('a', 'x', [])],
+				cards: [],
+				rows: 'The subject sees no row, because no condition has a grant.'
+			}
+		],
+		[
+			'a card with every grant',
+			{ any: [], all: [[rule('a', 'x'), rule('b', 'y')]] },
+			grants(['x', '1'], ['y', '2']),
+			{
+				everything: false,
+				any: [],
+				cards: [{ active: true, missing: [], conditions: [found('a', 'x', ['1']), found('b', 'y', ['2'])] }],
+				rows: 'The subject sees a row when its a is 1 and its b is 2.'
+			}
+		],
+		[
+			'a card with a missing grant drops out',
+			{ any: [], all: [[rule('a', 'x'), rule('b', 'y')]] },
+			grants(['x', '1']),
+			{
+				everything: false,
+				any: [],
+				cards: [{ active: false, missing: ['y'], conditions: [found('a', 'x', ['1']), found('b', 'y', [])] }],
+				rows: 'The subject sees no row, because no condition has a grant.'
+			}
+		],
+		[
+			'a dropped card beside a kept alternative',
+			{ any: [rule('c', 'z')], all: [[rule('a', 'x'), rule('b', 'y')]] },
+			grants(['x', '1'], ['z', '3']),
+			{
+				everything: false,
+				any: [found('c', 'z', ['3'])],
+				cards: [{ active: false, missing: ['y'], conditions: [found('a', 'x', ['1']), found('b', 'y', [])] }],
+				rows: 'The subject sees a row when its c is 3.'
+			}
+		],
+		[
+			'two kept ways',
+			{ any: [rule('c', 'z')], all: [[rule('a', 'x'), rule('b', 'y')]] },
+			grants(['x', '1'], ['y', '2'], ['z', '3']),
+			{
+				everything: false,
+				any: [found('c', 'z', ['3'])],
+				cards: [{ active: true, missing: [], conditions: [found('a', 'x', ['1']), found('b', 'y', ['2'])] }],
+				rows: 'The subject sees a row when its c is 3, or when its a is 1 and its b is 2.'
+			}
+		],
+		[
+			'the wildcard grant',
+			{ any: [rule('a', 'x')], all: [] },
+			grants(['*', '*']),
+			{
+				everything: true,
+				any: [found('a', 'x', [])],
+				cards: [],
+				rows: 'The subject sees every row, because it holds the grant * on * .'
+			}
+		],
+		[
+			'a repeated grant value is shown once',
+			{ any: [rule('a', 'x')], all: [] },
+			grants(['x', '1'], ['x', '1']),
+			{
+				everything: false,
+				any: [found('a', 'x', ['1'])],
+				cards: [],
+				rows: 'The subject sees a row when its a is 1.'
+			}
+		]
+	])('explains %s', (_name, editor, held, expected) => {
+		expect(explain(editor, held)).toEqual(expected);
 	});
 });

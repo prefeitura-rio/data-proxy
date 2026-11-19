@@ -258,3 +258,65 @@ export function intoNewCard(ways: Ways, id: string, card: string, second: string
 
 	return { ...rest, cards: [...rest.cards, { id: card, items: [{ ...entry, card }, blank(second, card)] }] };
 }
+
+export type Grant = { unit_type: string | null; unit_id: string | null };
+export type Found = { column: string; unit_type: string; values: string[] };
+export type CardResult = { active: boolean; missing: string[]; conditions: Found[] };
+export type Explained = { everything: boolean; any: Found[]; cards: CardResult[]; rows: string };
+
+const WILDCARD = '*';
+
+const valuesOf = (grants: Grant[], unitType: string) => [
+	...new Set(
+		grants.filter((grant) => grant.unit_type === unitType && grant.unit_id !== null).map((grant) => grant.unit_id ?? '')
+	)
+];
+
+const isOne = (found: Found) => found.values.length > 0;
+
+const clause = (found: Found) => `its ${found.column} is ${found.values.join(' or ')}`;
+
+/**
+ * Say what the rules give to a subject that holds these grants. A card with a rule that has no grant drops out, as the
+ * database does. The grant `*` on `*` gives every row. It shows no row count, because a count needs a read of the data.
+ */
+export function explain(editor: Editor, grants: Grant[]): Explained {
+	const find = (rule: Rule): Found => ({
+		column: rule.column,
+		unit_type: rule.unit_type,
+		values: valuesOf(grants, rule.unit_type)
+	});
+	const any = editor.any.map(find);
+	const cards = editor.all
+		.filter((card) => card.length > 0)
+		.map((card): CardResult => {
+			const conditions = card.map(find);
+			const missing = conditions.filter((found) => !isOne(found)).map((found) => found.unit_type);
+
+			return { active: missing.length === 0, missing, conditions };
+		});
+	const everything = grants.some((grant) => grant.unit_type === WILDCARD && grant.unit_id === WILDCARD);
+
+	if (everything) {
+		return { everything, any, cards, rows: 'The subject sees every row, because it holds the grant * on * .' };
+	}
+
+	if (any.length === 0 && cards.length === 0) {
+		return { everything, any, cards, rows: 'No rule, so the subject sees no row.' };
+	}
+
+	const ways = [
+		...any.filter(isOne).map(clause),
+		...cards.filter((card) => card.active).map((card) => joined(card.conditions.map(clause)))
+	];
+
+	return {
+		everything,
+		any,
+		cards,
+		rows:
+			ways.length === 0
+				? 'The subject sees no row, because no condition has a grant.'
+				: `The subject sees a row when ${ways.join(', or when ')}.`
+	};
+}
