@@ -331,6 +331,68 @@ class TestAggregateFunction:
         assert (re.search(r"%I IN \(%s\)", sql) is not None) is not as_list
 
     @pytest.mark.parametrize(
+        ("duckdb_type", "is_list"),
+        [
+            pytest.param("VARCHAR[]", True, id="list-of-text"),
+            pytest.param("VARCHAR[][]", True, id="nested-list"),
+            pytest.param("varchar[]", True, id="lower-case"),
+            pytest.param("VARCHAR", False, id="text"),
+            pytest.param("STRUCT(a VARCHAR)", False, id="struct"),
+            pytest.param("VARCHAR[3]", False, id="fixed-size-array"),
+        ],
+    )
+    def test_tells_a_list_column_from_a_scalar_one(
+        self, duckdb_type: str, is_list: bool
+    ) -> None:
+        """A list column gets the list_has_any predicate in the rls rule."""
+        assert utils.is_list(duckdb_type) is is_list
+
+    @pytest.mark.parametrize(
+        ("duckdb_type", "is_list"),
+        [
+            pytest.param("VARCHAR[]", True, id="list-of-text"),
+            pytest.param("VARCHAR", False, id="text"),
+        ],
+    )
+    def test_flags_the_list_column_of_an_rls_rule(
+        self, duckdb_type: str, is_list: bool
+    ) -> None:
+        """The mapping of the table function carries the flag to the macro."""
+        table = FullTable(
+            name="p.d.people",
+            resolved_source="bigquery",
+            rls=[UnitMapping(column="area", unit_type="area")],
+        )
+
+        mapping = utils.table_function_mapping(
+            "app", table, [("area", duckdb_type)], "sub"
+        )
+
+        assert mapping["rls_mappings"] == [
+            {"column": "area", "unit_type": "area", "is_list": is_list}
+        ]
+
+    @pytest.mark.parametrize(
+        "duckdb_type",
+        [
+            pytest.param("BIGINT[]", id="numbers"),
+            pytest.param("VARCHAR[][]", id="nested"),
+        ],
+    )
+    def test_rejects_a_list_column_that_is_not_a_list_of_text(
+        self, duckdb_type: str
+    ) -> None:
+        """A grant holds text, so another element type cannot match and the sync stops with a clear message."""
+        table = FullTable(
+            name="p.d.people",
+            resolved_source="bigquery",
+            rls=[UnitMapping(column="area", unit_type="area")],
+        )
+
+        with pytest.raises(ValueError, match="must be VARCHAR"):
+            utils.table_function_mapping("app", table, [("area", duckdb_type)], "sub")
+
+    @pytest.mark.parametrize(
         ("table_name", "rendered"),
         [
             pytest.param("people", True, id="short-name"),

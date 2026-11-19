@@ -31,6 +31,36 @@ def is_nested_or_json(duckdb_type: str) -> bool:
     return upper.startswith(("STRUCT", "ARRAY", "LIST", "JSON"))
 
 
+def is_list(duckdb_type: str) -> bool:
+    """Return true when the DuckDB type is a list, such as `VARCHAR[]`."""
+    return duckdb_type.endswith("[]")
+
+
+def rls_mapping_entries(
+    rls: list[UnitMapping], columns: list[tuple[str, str]]
+) -> list[dict[str, TemplateValue]]:
+    """Return the rls mappings with the flag that tells a list column from a scalar one.
+
+    A list column matches a grant when one of its values equals the unit id, so only a list of text can work.
+    """
+    types = dict(columns)
+    entries: list[dict[str, TemplateValue]] = []
+    for mapping in rls:
+        duckdb_type = types.get(mapping.column, "")
+        if is_list(duckdb_type) and duckdb_type.upper() != "VARCHAR[]":
+            raise ValueError(
+                f"Column {mapping.column!r} has type {duckdb_type}, but a list column with an rls rule must be VARCHAR[]"
+            )
+        entries.append(
+            {
+                "column": mapping.column,
+                "unit_type": mapping.unit_type,
+                "is_list": is_list(duckdb_type),
+            }
+        )
+    return entries
+
+
 def pg_scalar_type(duckdb_type: str) -> str:
     """Return the PostgreSQL scalar type for one DuckDB column type."""
     match duckdb_type.upper():
@@ -314,10 +344,7 @@ def table_function_mapping(
         "dl_view": f"dl_{schema}_{table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim_name}",
-        "rls_mappings": [
-            {"column": mapping.column, "unit_type": mapping.unit_type}
-            for mapping in rls
-        ],
+        "rls_mappings": rls_mapping_entries(rls, columns),
         "source_table": Literal(table.name),
         "fallbacks": fallback,
         "user_role": Identifier(settings.AUTH_USER_ROLE),
@@ -357,10 +384,7 @@ def table_changes_function_mapping(
         "duckdb_view": f"dl_changes_{schema}_{table.table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim_name}",
-        "rls_mappings": [
-            {"column": mapping.column, "unit_type": mapping.unit_type}
-            for mapping in rls
-        ],
+        "rls_mappings": rls_mapping_entries(rls, columns),
         "metadata_schema": schema,
         "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
         "user_role": Identifier(settings.AUTH_USER_ROLE),

@@ -591,6 +591,36 @@ class TestTableFunction:
             where.split("[")[1].split("]", maxsplit=1)[0].split(",")
         )
 
+    @pytest.mark.parametrize(
+        ("fallbacks", "pattern"),
+        [
+            pytest.param(
+                [],
+                r"WHERE \(list_has_any\(unit_id, \['u[12]','u[12]'\]\)\)",
+                id="without-fallback",
+            ),
+            pytest.param(
+                ["bigquery"],
+                r"WHERE \(list_has_any\(unit_id, \['u[12]','u[12]'\]\)\)",
+                id="with-fallback",
+            ),
+        ],
+    )
+    async def test_view_function_matches_a_list_column_with_list_has_any(
+        self, table_function: Postgres, fallbacks: list[str], pattern: str
+    ) -> None:
+        """A list column cannot take IN, so a row shows when one of its values has a grant."""
+        await install_table_function(
+            table_function, has_rls=True, fallbacks=fallbacks, rls_is_list=True
+        )
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await grant_unit(table_function, "u")
+        await insert_access_policy(table_function, "u", "unit", "u2")
+
+        rows, _ = await call_table_function(table_function)
+
+        assert re.fullmatch(pattern, str(rows[-1][1])) is not None
+
     async def test_view_function_passes_an_empty_predicate_to_the_wildcard_schema_claim(
         self, table_function: Postgres
     ) -> None:
