@@ -39,14 +39,18 @@ def is_list(duckdb_type: str) -> bool:
 def rls_mapping_entries(
     rls: list[UnitMapping], columns: list[tuple[str, str]]
 ) -> list[dict[str, TemplateValue]]:
-    """Return the rls mappings with the flag that tells a list column from a scalar one.
+    """Return the rls mappings with the DuckDB type of each column, which the macro uses to choose the predicate.
 
     A list column matches a grant when one of its values equals the unit id, so only a list of text can work.
     """
     types = dict(columns)
     entries: list[dict[str, TemplateValue]] = []
     for mapping in rls:
-        duckdb_type = types.get(mapping.column, "")
+        if mapping.column not in types:
+            raise ValueError(
+                f"The rls column {mapping.column!r} is not a column of the source table"
+            )
+        duckdb_type = types[mapping.column]
         if is_list(duckdb_type) and duckdb_type.upper() != "VARCHAR[]":
             raise ValueError(
                 f"Column {mapping.column!r} has type {duckdb_type}, but a list column with an rls rule must be VARCHAR[]"
@@ -55,7 +59,7 @@ def rls_mapping_entries(
             {
                 "column": mapping.column,
                 "unit_type": mapping.unit_type,
-                "is_list": is_list(duckdb_type),
+                "duckdb_type": duckdb_type.upper(),
             }
         )
     return entries

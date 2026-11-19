@@ -87,7 +87,7 @@ async def grant_everything(pg: Postgres, subject: str = "u") -> None:
 
 
 async def install_table_function(
-    pg: Postgres, *, has_rls: bool, fallbacks: list[str], rls_is_list: bool = False
+    pg: Postgres, *, has_rls: bool, fallbacks: list[str], rls_type: str = "VARCHAR"
 ) -> None:
     """Render the per-table function over the stub source helpers. A table without row rules (`has_rls=False`) has no unit mapping."""
     from sync.views.mappings import function_columns
@@ -108,7 +108,7 @@ async def install_table_function(
             "claim_setting": "app.claim_sub",
             "has_rls": str(has_rls).lower(),
             "rls_mappings": [
-                {"column": "unit_id", "unit_type": "unit", "is_list": rls_is_list}
+                {"column": "unit_id", "unit_type": "unit", "duckdb_type": rls_type}
             ]
             if has_rls
             else [],
@@ -169,7 +169,7 @@ async def install_aggregate_function(
             "claim_setting": "app.claim_sub",
             "has_rls": str(has_rls).lower(),
             "rls_mappings": [
-                {"column": "unit_id", "unit_type": "unit", "is_list": False}
+                {"column": "unit_id", "unit_type": "unit", "duckdb_type": "VARCHAR"}
             ]
             if has_rls
             else [],

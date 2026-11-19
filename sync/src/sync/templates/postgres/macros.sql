@@ -40,16 +40,16 @@
   "name": "postgres.rls_mapping_values",
   "description": "Render RLS unit mappings as SQL VALUES rows.",
   "inputs": {
-    "rls_mappings": "Mappings with column, unit_type and is_list fields."
+    "rls_mappings": "Mappings with column, unit_type and duckdb_type fields."
   },
   "returns": "Comma-separated SQL VALUES rows."
 }
 #}
 {% macro rls_mapping_values(rls_mappings) -%}
 {% for mapping in rls_mappings %}
-('{{ mapping.column }}', '{{ mapping.unit_type }}', {{ 'true' if mapping.is_list else 'false' }}){% if not loop.last %}, {% endif %}
+('{{ mapping.column }}', '{{ mapping.unit_type }}', '{{ mapping.duckdb_type | replace("'", "''") }}'){% if not loop.last %}, {% endif %}
 {% else %}
-('', '', false)
+('', '', '')
 {% endfor %}
 {%- endmacro %}
 
@@ -90,8 +90,9 @@ A table with no rules is denied by default. Only a token with schema:* or *, or 
   ELSE
     SELECT string_agg(predicate, ' OR ') INTO v_where
     FROM (
-      SELECT CASE WHEN t.is_list
-        THEN format('list_has_any(%I, [%s])', t.col, string_agg(quote_literal(p.unit_id), ','))
+      SELECT CASE
+        WHEN t.ty = 'VARCHAR[]' THEN
+          format('list_has_any(%I, [%s])', t.col, string_agg(quote_literal(p.unit_id), ','))
         ELSE format(
           {{ predicate_format }},
           t.col,
@@ -100,10 +101,10 @@ A table with no rules is denied by default. Only a token with schema:* or *, or 
       END AS predicate
       FROM (VALUES
         {{ rls_mapping_values(rls_mappings) }}
-      ) AS t(col, ut, is_list)
+      ) AS t(col, ut, ty)
       JOIN {{ schema }}.access_policy p ON p.unit_type = t.ut
       WHERE p.subject = v_subject
-      GROUP BY t.col, t.is_list
+      GROUP BY t.col, t.ty
     ) filters;
 
     v_where := 'WHERE (' || v_where || ')';
