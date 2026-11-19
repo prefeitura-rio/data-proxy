@@ -48,3 +48,41 @@ export def "test replace-once-needs-exactly-one-match" []: nothing -> nothing {
 
     remove-path $file
 }
+
+# Return the subcommands that ci.nu defines, such as `plan chart`.
+def defined-commands []: nothing -> list<string> {
+    open --raw ($SCRIPT) | lines | parse --regex "^def 'main (?<name>[^']+)'" | get name
+}
+
+# Return the commands that a text calls, such as `plan chart`, from the lines that start `ci ` or `nu scripts/ci.nu `.
+def called-commands [text: string]: nothing -> list<string> {
+    $text
+    | lines
+    | parse --regex '(?:^|[\s`"-])(?:nu scripts/ci\.nu|ci) (?<words>[a-z]+(?: [a-z]+)?)'
+    | get words
+    | each {|words| $words | split row ' ' }
+}
+
+# Verify that every command that a workflow, an action, cog.toml or a docs page names exists in ci.nu.
+export def "test every-called-ci-command-exists" []: nothing -> nothing {
+    let root = $SCRIPT | path dirname | path dirname
+    let defined = defined-commands
+    let files = [
+        ...(glob $'($root)/.github/workflows/*.yaml')
+        ...(glob $'($root)/.github/actions/*/action.yaml')
+        $'($root)/cog.toml'
+        ...(glob $'($root)/docs/**/*.md')
+    ]
+
+    let missing = $files | each {|file|
+        called-commands (open --raw $file)
+        | each {|words|
+            let found = $defined | any {|name| $name == ($words | str join ' ') or ($name | str starts-with $'($words | first) ') and ($words | length) == 1 }
+            let two = $words | take 2 | str join ' '
+
+            if ($defined | any {|name| $name == $two or $name == ($words | first) }) { null } else { $'($file | path basename): ci ($two)' }
+        }
+    } | flatten | compact | uniq
+
+    assert equal $missing [] 'A caller names a command that ci.nu does not define'
+}

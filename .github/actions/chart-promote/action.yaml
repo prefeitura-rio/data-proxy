@@ -35,7 +35,7 @@ runs:
       id: next
       if: inputs.command == 'next'
       shell: devenv --profile chart shell -- bash -e {0}
-      run: ci chart next
+      run: ci plan promotion
       env:
         VERSION: ${{ inputs.version }}
         CI_REGISTRY_TOKEN: ${{ inputs.registry-token }}
@@ -43,7 +43,7 @@ runs:
     - name: Move the tag prod to the chart
       if: inputs.command == 'promote'
       shell: devenv --profile chart shell -- bash -e {0}
-      run: ci chart promote "$VERSION" $LATEST_ONLY
+      run: ci promote chart "$VERSION" $LATEST_ONLY
       env:
         VERSION: ${{ inputs.version }}
         LATEST_ONLY: ${{ inputs.latest-only == 'true' && '--if-latest' || '' }}

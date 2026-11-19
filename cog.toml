@@ -4,9 +4,7 @@ ignore_merge_commits = true
 
 # The hooks run after cog checks that the checkout is clean, and before the release commit. The commit then has their changes.
 pre_bump_hooks = [
-  "nu scripts/ci.nu images pin",
-  "nu scripts/ci.nu chart bump {{version}}",
-  "nu scripts/ci.nu dbos bump",
+  "nu scripts/ci.nu prepare chart {{version}}",
 ]
 
 [changelog]

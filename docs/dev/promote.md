@@ -28,9 +28,8 @@ Start `promote.yaml` by hand with the input `version`, such as `2.11.0`. The job
 
 | Command | Work |
 | --- | --- |
-| `ci chart prod` | Prints the version that production runs. |
-| `ci chart next` | Writes the version to promote, the version of production and whether they differ. |
-| `ci chart promote <version>` | Moves the tag `prod` to a released version. `--if-latest` skips an old version. |
+| `ci plan promotion` | Writes the version to promote, the version of production and whether they differ. |
+| `ci promote chart <version>` | Moves the tag `prod` to a released version. `--if-latest` skips an old version. |
 
 ## Settings
 
