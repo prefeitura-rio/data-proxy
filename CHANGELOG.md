@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.17.0 - 2026-11-19
+
+### Features
+
+- **console**: add many unit ids at once on the Access page (#41) (5c5a529)
+
+
+- - -
+
 ## helm-v2.16.3 - 2026-11-18
 
 ### Fixes
