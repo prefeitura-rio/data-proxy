@@ -45,16 +45,20 @@ def rls_mapping_entries(
     """
     types = dict(columns)
     entries: list[dict[str, TemplateValue]] = []
+
     for mapping in rls:
         if mapping.column not in types:
             raise ValueError(
                 f"The rls column {mapping.column!r} is not a column of the source table"
             )
+
         duckdb_type = types[mapping.column]
+
         if is_list(duckdb_type) and duckdb_type.upper() != "VARCHAR[]":
             raise ValueError(
                 f"Column {mapping.column!r} has type {duckdb_type}, but a list column with an rls rule must be VARCHAR[]"
             )
+
         entries.append(
             {
                 "column": mapping.column,
@@ -62,6 +66,7 @@ def rls_mapping_entries(
                 "duckdb_type": duckdb_type.upper(),
             }
         )
+
     return entries
 
 
