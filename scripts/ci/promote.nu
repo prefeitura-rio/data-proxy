@@ -1,7 +1,17 @@
 use std/log
 use ../lib.nu [checked fail]
-use ../lib/release.nu [check-version newest-version valid-chart-version version-of-digest]
-use common.nu [chart-repository crane-login write-output write-summary]
+use ../lib/release.nu [
+    check-version
+    newest-version
+    valid-chart-version
+    version-of-digest
+]
+use common.nu [
+    chart-repository
+    crane-login
+    write-output
+    write-summary
+]
 
 # Return every tag of the chart repository with its digest.
 def chart-tags [repository: string]: nothing -> list<record<tag: string, digest: string>> {

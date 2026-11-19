@@ -1,7 +1,30 @@
 use std/log
-use ../lib.nu [checked fail IMAGES make-dir read-data read-text write-text]
-use ../lib/release.nu [chart-files images-changed next-dbos-version release-commit release-tag replace-once]
-use common.nu [ci-config ci-repository-owner commits-since image-name previous-helm-tag required-env write-output]
+use ../lib.nu [
+    checked
+    fail
+    IMAGES
+    make-dir
+    read-data
+    read-text
+    write-text
+]
+use ../lib/release.nu [
+    chart-files
+    images-changed
+    next-dbos-version
+    release-commit
+    release-tag
+    replace-once
+]
+use common.nu [
+    ci-config
+    ci-repository-owner
+    commits-since
+    image-name
+    previous-helm-tag
+    required-env
+    write-output
+]
 
 # Resolve the tag of the image that the latest tag of the registry points to.
 def resolve-image [image: record]: nothing -> string {

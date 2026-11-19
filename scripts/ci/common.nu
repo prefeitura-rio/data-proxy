@@ -1,5 +1,11 @@
 use std/log
-use ../lib.nu [checked fail IMAGES read-text write-text]
+use ../lib.nu [
+    checked
+    fail
+    IMAGES
+    read-text
+    write-text
+]
 use ../lib/release.nu [latest-tag]
 
 # CI platform configuration with GitHub Actions defaults. It reads the environment at each call.

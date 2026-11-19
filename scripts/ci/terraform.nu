@@ -1,6 +1,20 @@
 use std/log
-use ../lib.nu [checked make-dir sha256-file write-text]
-use ../lib/release.nu [check-version latest-tag next-terraform-version parse-sha256sums provider-archive registry-documents terraform-bump terraform-tag-version]
+use ../lib.nu [
+    checked
+    make-dir
+    sha256-file
+    write-text
+]
+use ../lib/release.nu [
+    check-version
+    latest-tag
+    next-terraform-version
+    parse-sha256sums
+    provider-archive
+    registry-documents
+    terraform-bump
+    terraform-tag-version
+]
 use common.nu [commits-since required-env write-output]
 
 # The provider type in the binary and in the archives, and the systems that the release builds for.

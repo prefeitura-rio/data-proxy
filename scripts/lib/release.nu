@@ -1,4 +1,9 @@
-use ../lib.nu [fail IMAGES read-text write-text]
+use ../lib.nu [
+    fail
+    IMAGES
+    read-text
+    write-text
+]
 
 # Return the paths of a list that belong to the chart: the files of helm/ except its tests, and the values file.
 export def chart-files []: list<string> -> list<string> {
