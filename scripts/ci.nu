@@ -1,12 +1,11 @@
 use std/log
 use lib.nu [
     chart-files
-    check-result
+    checked
     fail
     IMAGES
     images-changed
-    latest-helm-tag
-    latest-terraform-tag
+    latest-tag
     make-dir
     newest-version
     next-dbos-version
@@ -22,6 +21,7 @@ use lib.nu [
     sha256-file
     terraform-bump
     terraform-tag-version
+    check-version
     valid-chart-version
     version-of-digest
     write-text
@@ -61,7 +61,7 @@ def required-env [name: string]: nothing -> string {
 
 # Return the latest Helm release tag of the repository, or null when there is none.
 def previous-helm-tag []: nothing -> oneof<string, nothing> {
-    git tag --sort=-v:refname | lines | latest-helm-tag
+    git tag --sort=-v:refname | lines | latest-tag helm-v
 }
 
 # Write one CI output to the output file or print it locally.
@@ -129,7 +129,7 @@ def resolve-image [image: record]: nothing -> string {
     log info $'Resolving latest tag for image ($name)...'
 
     let repository = $'($ci.registry)/(ci-repository-owner)/($name)'
-    let latest = crane digest $'($repository):latest' | complete | check-result 'crane digest'
+    let latest = checked 'crane digest' crane digest $'($repository):latest'
     let tag = crane ls $repository
     | lines
     | where $it =~ '^([0-9]+-)?[0-9a-f]{7}$'
@@ -168,7 +168,7 @@ def 'main version' []: nothing -> nothing {
 
     write-output current (read-data helm/Chart.yaml | get version)
 
-    let tag = cog bump --auto --dry-run | complete | check-result 'cog bump --dry-run' | release-tag
+    let tag = checked 'cog bump --dry-run' cog bump --auto --dry-run | release-tag
 
     if $tag == null {
         write-output release (false | into string)
@@ -233,7 +233,7 @@ def 'main chart bump' [
 
 # Raise the DBOS application version when the code of the sync changed since the last release. The pre-bump hook of cog.toml calls it.
 def 'main dbos bump' []: nothing -> nothing {
-    let tag = git tag --list 'helm-v*' --sort=-v:refname | lines | latest-helm-tag
+    let tag = previous-helm-tag
 
     if $tag == null {
         fail 'No helm-v tag found, so the last release is unknown'
@@ -279,9 +279,7 @@ def 'main chart login' []: nothing -> nothing {
     log info $'Logging in to ($ci.registry)...'
 
     $ci.registry_token
-    | helm registry login $ci.registry --username $ci.registry_user --password-stdin
-    | complete
-    | check-result 'helm registry login'
+    | checked 'helm registry login' helm registry login $ci.registry --username $ci.registry_user --password-stdin
     | ignore
 
     log info $'Logged in to ($ci.registry).'
@@ -301,7 +299,7 @@ def 'main release bump' []: nothing -> nothing {
 
     git config user.name $ci.bot_name
     git config user.email $ci.bot_email
-    cog bump --auto --skip-ci | complete | check-result 'cog bump' | print
+    checked 'cog bump' cog bump --auto --skip-ci | print
 
     log info 'Helm release committed and tagged.'
 }
@@ -312,7 +310,7 @@ def 'main release push' [
 ]: nothing -> nothing {
     log info $'Pushing Helm release ($tag)...'
 
-    git push --atomic origin HEAD:main $tag | complete | check-result 'git push' | ignore
+    checked 'git push' git push --atomic origin HEAD:main $tag | ignore
 
     log info $'Pushed Helm release ($tag).'
 }
@@ -324,7 +322,7 @@ def 'main release notes' [
     log info $'Writing the notes of ($tag)...'
 
     make-dir packaged
-    cog changelog --at $tag | complete | check-result 'cog changelog' | write-text packaged/notes.md
+    checked 'cog changelog' cog changelog --at $tag | write-text packaged/notes.md
 }
 
 # Publish the packaged chart to the OCI registry.
@@ -333,7 +331,7 @@ def 'main chart publish' []: nothing -> nothing {
 
     log info $'Publishing ($package)...'
 
-    helm push $package $'oci://($ci.registry)/(ci-repository-owner)/charts' | complete | check-result 'helm push' | ignore
+    checked 'helm push' helm push $package $'oci://($ci.registry)/(ci-repository-owner)/charts' | ignore
 
     log info 'Published the Helm chart.'
 }
@@ -350,9 +348,7 @@ def crane-login []: nothing -> nothing {
     }
 
     $ci.registry_token
-    | crane auth login $ci.registry --username $ci.registry_user --password-stdin
-    | complete
-    | check-result 'crane auth login'
+    | checked 'crane auth login' crane auth login $ci.registry --username $ci.registry_user --password-stdin
     | ignore
 }
 
@@ -414,9 +410,7 @@ def 'main chart promote' [
     version: string # The chart version, such as 2.13.0.
     --if-latest # Do nothing when a newer version exists, so an old approval does not undo a newer one.
 ]: nothing -> nothing {
-    if not (valid-chart-version $version) {
-        fail $'($version) is not a chart version such as 2.13.0'
-    }
+    check-version $version
 
     crane-login
 
@@ -437,7 +431,7 @@ def 'main chart promote' [
 
     let current = tag-version $tags prod | default none
 
-    crane tag $'($repository):($version)' prod | complete | check-result 'crane tag' | ignore
+    checked 'crane tag' crane tag $'($repository):($version)' prod | ignore
 
     write-summary $'prod: ($current) to ($version)'
 }
@@ -489,7 +483,7 @@ def --env import-signing-key []: nothing -> string {
     chmod 700 $home
     $env.GNUPGHOME = $home
 
-    required-env GPG_PRIVATE_KEY | gpg --batch --quiet --import | complete | check-result 'gpg --import' | ignore
+    required-env GPG_PRIVATE_KEY | checked 'gpg --import' gpg --batch --quiet --import | ignore
 
     gpg-output --with-colons --list-secret-keys
     | lines
@@ -500,12 +494,12 @@ def --env import-signing-key []: nothing -> string {
 
 # Run gpg and return its output, or stop with its error.
 def --wrapped gpg-output [...arguments: string]: nothing -> string {
-    gpg --batch ...$arguments | complete | check-result $'gpg ($arguments | first)'
+    checked $'gpg ($arguments | first)' gpg --batch ...$arguments
 }
 
 # Run gh and return its output, or stop with its error.
 def --wrapped gh-output [...arguments: string]: nothing -> string {
-    gh ...$arguments | complete | check-result $'gh ($arguments | first)'
+    checked $'gh ($arguments | first)' gh ...$arguments
 }
 
 # Sign a file with the imported key. The signature is the file `<file>.sig`, as the registry protocol wants.
@@ -513,9 +507,7 @@ def sign-file [file: path]: nothing -> nothing {
     let passphrase = if 'GPG_PASSPHRASE' in $env { $env.GPG_PASSPHRASE } else { '' }
 
     $passphrase
-    | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --detach-sign --output $'($file).sig' $file
-    | complete
-    | check-result 'gpg --detach-sign'
+    | checked 'gpg --detach-sign' gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 --detach-sign --output $'($file).sig' $file
     | ignore
 }
 
@@ -532,8 +524,8 @@ def build-provider [target: record<os: string, arch: string>, version: string, o
     log info $'Building ($archive)...'
 
     load-env {GOOS: $target.os, GOARCH: $target.arch, CGO_ENABLED: '0'}
-    go build -C terraform -trimpath -ldflags $flags -o $binary . | complete | check-result $'go build for ($target.os) ($target.arch)' | ignore
-    ^zip --quiet --junk-paths ($output | path join $archive) $binary | complete | check-result 'zip' | ignore
+    checked $'go build for ($target.os) ($target.arch)' go build -C terraform -trimpath -ldflags $flags -o $binary . | ignore
+    checked 'zip' zip --quiet --junk-paths ($output | path join $archive) $binary | ignore
 
     $archive
 }
@@ -543,7 +535,7 @@ def build-provider [target: record<os: string, arch: string>, version: string, o
 # outputs `release` and `version`.
 def 'main terraform next' []: nothing -> nothing {
     let requested = $env.VERSION?
-    let last = git tag --sort=-v:refname | lines | latest-terraform-tag
+    let last = git tag --sort=-v:refname | lines | latest-tag terraform-v
     let base = $last | default (git rev-list --max-parents=0 HEAD | lines | first)
     let bump = commits-since $base | terraform-bump
     let previous = if $last == null { null } else { $last | terraform-tag-version }
@@ -554,9 +546,7 @@ def 'main terraform next' []: nothing -> nothing {
         next-terraform-version $previous $bump
     }
 
-    if $version != null and not (valid-chart-version $version) {
-        fail $'($version) is not a version such as 0.1.0'
-    }
+    if $version != null { check-version $version }
 
     if $version == null {
         write-output release 'false'
@@ -574,16 +564,14 @@ def 'main terraform next' []: nothing -> nothing {
 def 'main terraform release' [
     version: string # The provider version, such as 0.1.0.
 ]: nothing -> nothing {
-    if not (valid-chart-version $version) {
-        fail $'($version) is not a version such as 0.1.0'
-    }
+    check-version $version
 
     import-signing-key | ignore
 
     let tag = $'terraform-v($version)'
-    let previous = git tag --sort=-v:refname | lines | latest-terraform-tag
+    let previous = git tag --sort=-v:refname | lines | latest-tag terraform-v
     let range = if $previous == null { 'HEAD' } else { $'($previous)..HEAD' }
-    let notes = git log --no-merges --format='- %s' $range -- terraform | complete | check-result 'git log'
+    let notes = checked 'git log' git log --no-merges --format='- %s' $range -- terraform
     let output = $env.PWD | path join packaged terraform
 
     let archives = $PROVIDER_TARGETS | each {|target| build-provider $target $version $output }
@@ -596,7 +584,7 @@ def 'main terraform release' [
 
     let files = [$sums $'($sums).sig' ...$archives] | each {|file| $output | path join $file }
 
-    gh release create $tag ...$files --target (git rev-parse HEAD | str trim) --title $tag --notes $notes | complete | check-result 'gh release create' | print
+    checked 'gh release create' gh release create $tag ...$files --target (git rev-parse HEAD | str trim) --title $tag --notes $notes | print
 }
 
 # Write the static registry of the provider from the published releases and upload it to the bucket of the registry. The
@@ -635,7 +623,7 @@ def 'main terraform registry' []: nothing -> nothing {
     let bucket = required-env TERRAFORM_REGISTRY_BUCKET
     let sources = ['.well-known' v1] | each {|name| $output | path join $name }
 
-    gcloud storage cp --recursive --content-type=application/json --cache-control='public, max-age=60' ...$sources $'gs://($bucket)/' | complete | check-result 'gcloud storage cp' | print
+    checked 'gcloud storage cp' gcloud storage cp --recursive --content-type=application/json --cache-control='public, max-age=60' ...$sources $'gs://($bucket)/' | print
 }
 
 # Print the available CI subcommands.

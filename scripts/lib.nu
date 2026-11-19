@@ -187,6 +187,14 @@ export def check-result [what: string]: record<stdout: string, stderr: string, e
     $result.stdout
 }
 
+# Run an external command with the input of the pipeline, and return its output or fail with its error text and name.
+export def --wrapped checked [what: string, ...command: string]: nothing -> string, string -> string {
+    let input = $in
+    let arguments = $command | skip 1
+
+    $input | ^($command | first) ...$arguments | complete | check-result $what
+}
+
 # Poll a readiness check until it returns true or attempts are exhausted.
 export def poll [check: closure, config: record<interval: duration, max_attempts: int>]: nothing -> bool {
     mut attempts = $config.max_attempts
@@ -399,6 +407,13 @@ export def valid-chart-version [text: string]: nothing -> bool {
     $text =~ '^\d+\.\d+\.\d+$'
 }
 
+# Fail unless a text is a full version such as 0.1.0. The chart and the provider use the same form.
+export def check-version [text: string]: nothing -> nothing {
+    if not (valid-chart-version $text) {
+        fail $'($text) is not a version such as 0.1.0'
+    }
+}
+
 # Return the newest chart version of a list of tags, or null when none is a version. It compares the numbers.
 export def newest-version []: list<string> -> oneof<string, nothing> {
     where (valid-chart-version $it)
@@ -414,14 +429,9 @@ export def version-of-digest [tags: list<record<tag: string, digest: string>>, d
     | get --optional 0.tag
 }
 
-# Return the first Helm release tag of a list that is newest first, or null when there is none.
-export def latest-helm-tag []: list<string> -> oneof<string, nothing> {
-    where $it =~ ^helm-v | get --optional 0
-}
-
-# Return the first provider release tag of a list that is newest first, or null when there is none.
-export def latest-terraform-tag []: list<string> -> oneof<string, nothing> {
-    where $it =~ ^terraform-v | get --optional 0
+# Return the first tag of a list that is newest first and starts with the prefix, such as helm-v or terraform-v, or null.
+export def latest-tag [prefix: string]: list<string> -> oneof<string, nothing> {
+    where ($it | str starts-with $prefix) | get --optional 0
 }
 
 # Return the file name of a provider archive. The name follows the layout of a Terraform mirror.

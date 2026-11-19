@@ -3,8 +3,9 @@ use ../lib.nu [
     chart-files
     gcp-credentials-problem
     images-changed
-    latest-helm-tag
-    latest-terraform-tag
+    check-version
+    checked
+    latest-tag
     newest-version
     next-terraform-version
     parse-sha256sums
@@ -18,21 +19,41 @@ use ../lib.nu [
     version-of-digest
 ]
 
-# Verify that the newest Helm tag wins and that other tags do not count.
-export def "test latest-helm-tag-skips-other-tags" []: nothing -> nothing {
-    assert equal ([v1.0.0 helm-v0.2.0 helm-v0.1.0] | latest-helm-tag) 'helm-v0.2.0'
+# Verify which tag wins for each prefix, and that a tag with another prefix or no tag gives null.
+export def "test latest-tag-follows-the-prefix" []: nothing -> nothing {
+    let cases = [
+        [name tags prefix expected];
+        [newest-helm-tag [v1.0.0 helm-v0.2.0 helm-v0.1.0] helm-v 'helm-v0.2.0']
+        [helm-tag-among-provider-tags [terraform-v0.3.0 helm-v2.0.0 terraform-v0.2.0] helm-v 'helm-v2.0.0']
+        [newest-provider-tag [helm-v2.0.0 terraform-v0.2.0 terraform-v0.1.0] terraform-v 'terraform-v0.2.0']
+        [no-tag-with-the-prefix [v1.0.0 helm-v2.0.0] terraform-v null]
+        [no-tag-at-all [] helm-v null]
+    ]
+
+    for case in $cases {
+        assert equal ($case.tags | latest-tag $case.prefix) $case.expected $case.name
+    }
 }
 
-# Verify the first release, which has no Helm tag.
-export def "test latest-helm-tag-is-null-without-a-helm-tag" []: nothing -> nothing {
-    assert equal ([v1.0.0] | latest-helm-tag) null
-    assert equal ([] | latest-helm-tag) null
+# Verify that a full version passes and that anything else stops with the text in the message.
+export def "test check-version-accepts-only-a-full-version" []: nothing -> nothing {
+    check-version 2.13.0
+
+    for text in ['2.13' '^2.13.0' 'latest' ''] {
+        let result = try { check-version $text; 'no error' } catch {|err| $err.msg }
+
+        assert str contains $result 'is not a version such as 0.1.0' $text
+    }
 }
 
-# Verify that the newest provider tag wins and that the chart tags do not count.
-export def "test latest-terraform-tag-skips-other-tags" []: nothing -> nothing {
-    assert equal ([helm-v2.0.0 terraform-v0.2.0 terraform-v0.1.0] | latest-terraform-tag) 'terraform-v0.2.0'
-    assert equal ([helm-v2.0.0] | latest-terraform-tag) null
+# Verify that checked returns the output, passes the pipeline input, and names the command in a failure.
+export def "test checked-returns-the-output-and-names-a-failure" []: nothing -> nothing {
+    assert equal (checked 'echo' echo hi | str trim) hi
+    assert equal ('abc' | checked 'cat' cat) abc
+
+    let result = try { checked 'the false command' 'false'; 'no error' } catch {|err| $err.msg }
+
+    assert str contains $result 'the false command failed'
 }
 
 # Verify the name of a provider archive, which follows the layout of a Terraform mirror.
