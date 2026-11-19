@@ -232,7 +232,7 @@ def 'main chart bump' [
 }
 
 # Raise the DBOS application version when the code of the sync changed since the last release. The pre-bump hook of cog.toml calls it.
-def 'main dbos version bump' []: nothing -> nothing {
+def 'main dbos bump' []: nothing -> nothing {
     let tag = git tag --list 'helm-v*' --sort=-v:refname | lines | latest-helm-tag
 
     if $tag == null {
