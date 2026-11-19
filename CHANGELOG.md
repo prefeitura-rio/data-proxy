@@ -2,6 +2,20 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.18.0 - 2026-11-19
+
+### Features
+
+- **sync**: bump the DBOS application version when the sync code changes (#47) (268c50a)
+
+### Fixes
+
+- **ci**: run the workflow on a change under migrations/ [DEV-676] (#45) (b530c76)
+- **helm**: allow HEAD on the public proxy routes (#46) (aaa1ddf)
+
+
+- - -
+
 ## helm-v2.17.2 - 2026-11-19
 
 ### Fixes

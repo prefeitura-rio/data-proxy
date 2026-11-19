@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     AUTH_USER_ROLE: str = "dp_api"
     DBOS_APPLICATION_NAME: str = "data-proxy-sync"
-    DBOS_APPLICATION_VERSION: str = "1.0.0"
+    DBOS_APPLICATION_VERSION: str = "2.0.0"
     DBOS_APP_SCHEMA: str = "data_proxy"
     DBOS_SHUTDOWN_TIMEOUT_SECONDS: int = Field(default=300, gt=0)
     DBOS_SYSTEM_DATABASE_URL: SecretStr = Field(default=...)
