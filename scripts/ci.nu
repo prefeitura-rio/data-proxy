@@ -231,16 +231,20 @@ def 'main chart bump' [
     log info 'Helm chart version updated.'
 }
 
-# Raise the DBOS application version when a release changes the steps of a workflow. The pre-bump hook of cog.toml calls it.
+# Raise the DBOS application version when the code of the sync changed since the last release. The pre-bump hook of cog.toml calls it.
 def 'main dbos version bump' []: nothing -> nothing {
-    let stored = read-text sync/workflow-steps.sha256 | str trim
-    let steps = python3 scripts/workflow_steps.py | complete
+    let tag = git tag --list 'helm-v*' --sort=-v:refname | lines | latest-helm-tag
 
-    if $steps.exit_code != 0 {
-        fail $'workflow_steps.py failed: ($steps.stderr | str trim)'
+    if $tag == null {
+        fail 'No helm-v tag found, so the last release is unknown'
     }
 
-    let found = $steps.stdout | str trim
+    let diff = git diff --quiet $tag HEAD -- sync/src/sync | complete
+
+    if $diff.exit_code > 1 {
+        fail $'git diff failed: ($diff.stderr | str trim)'
+    }
+
     let versions = read-text sync/src/sync/settings.py
     | parse --regex 'DBOS_APPLICATION_VERSION: str = "(?<version>[^"]+)"'
 
@@ -249,19 +253,18 @@ def 'main dbos version bump' []: nothing -> nothing {
     }
 
     let current = $versions | first | get version
-    let next = next-dbos-version $current $stored $found
+    let next = next-dbos-version $current ($diff.exit_code == 1)
 
     if $next == $current {
-        log info $'The workflow steps did not change. The application version stays ($current).'
+        log info $'The code of the sync did not change since ($tag). The application version stays ($current).'
         return
     }
 
-    log info $'The workflow steps changed. Raising the application version from ($current) to ($next).'
+    log info $'The code of the sync changed since ($tag). Raising the application version from ($current) to ($next).'
 
     replace-once helm/values.yaml '^\s+applicationVersion: ' $'    applicationVersion: ($next)'
     replace-once sync/src/sync/settings.py '^\s+DBOS_APPLICATION_VERSION: str = ' $'    DBOS_APPLICATION_VERSION: str = "($next)"'
     replace-once docs/operations/environment.md '^\| `DBOS_APPLICATION_VERSION` \|' $'| `DBOS_APPLICATION_VERSION` | `($next)` | DBOS application version. |'
-    $'($found)(char nl)' | write-text sync/workflow-steps.sha256
 }
 
 # Update the checkout from main.

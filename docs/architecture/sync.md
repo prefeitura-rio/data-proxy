@@ -43,7 +43,7 @@ KEDA reads the length of the DBOS queues in the application database and scales 
 
 ## Release and recovery
 
-The release raises `DBOS_APPLICATION_VERSION` (`sync.dbos.applicationVersion`) when a release changes the steps of a workflow. The version starts at `1.0.0`. A hook of `cog.toml` fingerprints the steps of `workflows.py` and compares them with `sync/workflow-steps.sha256`. A change raises the major number and writes the new fingerprint. A release with no step change keeps the version, so any new pod continues the workflows of a dead pod. A new version leaves the queued workflows of the old version to the old pods. Raise the version by hand for a change that the fingerprint does not see, such as a step in another module.
+The release raises `DBOS_APPLICATION_VERSION` (`sync.dbos.applicationVersion`) when the code in `sync/src/sync/` changed since the last release. The version starts at `1.0.0`. A hook of `cog.toml` compares that folder with the last `helm-v*` tag. A change raises the major number. A release with no change there keeps the version, so any new pod continues the workflows of a dead pod. A new version leaves the queued workflows of the old version to the old pods. Raise the version by hand for a change outside that folder that alters a workflow.
 
 ## Sync sequence
 

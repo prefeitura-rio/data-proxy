@@ -12,24 +12,24 @@ export def "test ci-script-parses" []: nothing -> nothing {
 }
 
 # Verify when the DBOS application version changes.
-export def "test next-dbos-version-follows-the-fingerprint" []: nothing -> nothing {
+export def "test next-dbos-version-follows-the-code-change" []: nothing -> nothing {
     let cases = [
-        [name current stored found expected];
-        [same-fingerprint 1.0.0 aaa aaa 1.0.0]
-        [changed-fingerprint 1.0.0 aaa bbb 2.0.0]
-        [raises-only-the-major-number 1.4.7 aaa bbb 2.0.0]
-        [second-bump 2.0.0 aaa bbb 3.0.0]
+        [name current changed expected];
+        [no-change 1.0.0 false 1.0.0]
+        [change 1.0.0 true 2.0.0]
+        [raises-only-the-major-number 1.4.7 true 2.0.0]
+        [second-bump 2.0.0 true 3.0.0]
     ]
 
     for case in $cases {
-        assert equal (next-dbos-version $case.current $case.stored $case.found) $case.expected $case.name
+        assert equal (next-dbos-version $case.current $case.changed) $case.expected $case.name
     }
 }
 
 # Verify that a version with a wrong shape stops the release.
 export def "test next-dbos-version-refuses-a-wrong-shape" []: nothing -> nothing {
     for current in ['1.0' 'one.0.0' '1.0.0.1'] {
-        let result = try { next-dbos-version $current aaa bbb; 'no error' } catch { 'error' }
+        let result = try { next-dbos-version $current true; 'no error' } catch { 'error' }
 
         assert equal $result 'error' $current
     }

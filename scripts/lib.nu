@@ -605,9 +605,9 @@ export def dbos-migrate [url: string]: nothing -> nothing {
     | ignore
 }
 
-# Return the next DBOS application version. It raises the major number when the fingerprint of the workflow steps changed.
-export def next-dbos-version [current: string, stored: string, found: string]: nothing -> string {
-    if $stored == $found { return $current }
+# Return the next DBOS application version. It raises the major number when the code of the sync changed since the last release.
+export def next-dbos-version [current: string, changed: bool]: nothing -> string {
+    if not $changed { return $current }
 
     let parts = $current | split row '.'
 
