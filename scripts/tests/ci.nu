@@ -78,7 +78,7 @@ export def "test every-called-ci-command-exists" []: nothing -> nothing {
     | each {|file|
         called-commands (read-text $file)
         | each {|words| $words | take 2 | str join ' ' }
-        | where {|command| $command not-in $defined }
+        | where $it not-in $defined
         | each {|command| $'($file | path basename): ci ($command)' }
     }
     | flatten
