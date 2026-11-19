@@ -234,7 +234,13 @@ def 'main chart bump' [
 # Raise the DBOS application version when a release changes the steps of a workflow. The pre-bump hook of cog.toml calls it.
 def 'main dbos version bump' []: nothing -> nothing {
     let stored = read-text sync/workflow-steps.sha256 | str trim
-    let found = python3 scripts/workflow_steps.py | complete | check-result 'workflow_steps.py' | str trim
+    let steps = python3 scripts/workflow_steps.py | complete
+
+    if $steps.exit_code != 0 {
+        fail $'workflow_steps.py failed: ($steps.stderr | str trim)'
+    }
+
+    let found = $steps.stdout | str trim
     let versions = read-text sync/src/sync/settings.py
     | parse --regex 'DBOS_APPLICATION_VERSION: str = "(?<version>[^"]+)"'
 
