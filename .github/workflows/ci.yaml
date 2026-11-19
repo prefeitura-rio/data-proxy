@@ -13,6 +13,7 @@ on:
       - proxy/**
       - helm/**
       - k6/**
+      - migrations/**
       - scripts/**
       - terraform/**
       - Containerfile.sync

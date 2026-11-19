@@ -4,7 +4,7 @@ The workflow `.github/workflows/ci.yaml` checks, tests, builds and releases. A s
 
 ## Triggers
 
-The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `terraform/`, `nix/`, `k3d/`, `k6/`, `scripts/`, the workflows, the container files and the linter and devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
+The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `terraform/`, `nix/`, `k3d/`, `k6/`, `migrations/`, `scripts/`, the workflows, the container files and the linter and devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
 
 A manual start has three inputs. `force_checks` runs every check and test without the saved task state. `force_full` does the same, builds every image and starts the release job, which still needs a release-level commit and a chart or image change. `provider_version` sets the version of the provider release.
 
