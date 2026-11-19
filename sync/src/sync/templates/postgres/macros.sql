@@ -40,16 +40,16 @@
   "name": "postgres.rls_mapping_values",
   "description": "Render RLS unit mappings as SQL VALUES rows.",
   "inputs": {
-    "rls_mappings": "Mappings with column and unit_type fields."
+    "rls_mappings": "Mappings with column, unit_type and duckdb_type fields."
   },
   "returns": "Comma-separated SQL VALUES rows."
 }
 #}
 {% macro rls_mapping_values(rls_mappings) -%}
 {% for mapping in rls_mappings %}
-('{{ mapping.column }}', '{{ mapping.unit_type }}'){% if not loop.last %}, {% endif %}
+('{{ mapping.column }}', '{{ mapping.unit_type }}', '{{ mapping.duckdb_type | replace("'", "''") }}'){% if not loop.last %}, {% endif %}
 {% else %}
-('', '')
+('', '', '')
 {% endfor %}
 {%- endmacro %}
 
@@ -72,7 +72,7 @@ A table with no rules is denied by default. Only a token with schema:* or *, or 
     "rls_mappings": "Unit mappings used to build the access-policy predicate. An empty list matches no grant.",
     "list_form": "Render each column as CAST(col AS VARCHAR) IN (SELECT unnest([...])), which DuckDB runs about four times faster than an IN with thousands of literals. Use it for every read that only DuckDB runs: the aggregate function, the change feed, and a table function without a fallback source. A fallback source also receives the predicate and cannot push the list down, so a table with a fallback keeps the literal list."
   },
-  "returns": "A PL/pgSQL block assigning v_where."
+  "returns": "A PL/pgSQL block assigning v_where. A list column matches with list_has_any, because IN does not apply to it."
 }
 #}
 {% macro rls_where_clause(schema, schema_literal, rls_mappings, list_form=false) -%}
@@ -90,17 +90,21 @@ A table with no rules is denied by default. Only a token with schema:* or *, or 
   ELSE
     SELECT string_agg(predicate, ' OR ') INTO v_where
     FROM (
-      SELECT format(
-        {{ predicate_format }},
-        t.col,
-        string_agg(quote_literal(p.unit_id), ',')
-      ) AS predicate
+      SELECT CASE
+        WHEN t.ty = 'VARCHAR[]' THEN
+          format('list_has_any(%I, [%s])', t.col, string_agg(quote_literal(p.unit_id), ','))
+        ELSE format(
+          {{ predicate_format }},
+          t.col,
+          string_agg(quote_literal(p.unit_id), ',')
+        )
+      END AS predicate
       FROM (VALUES
         {{ rls_mapping_values(rls_mappings) }}
-      ) AS t(col, ut)
+      ) AS t(col, ut, ty)
       JOIN {{ schema }}.access_policy p ON p.unit_type = t.ut
       WHERE p.subject = v_subject
-      GROUP BY t.col
+      GROUP BY t.col, t.ty
     ) filters;
 
     v_where := 'WHERE (' || v_where || ')';

@@ -64,6 +64,10 @@ A token whose `schemas` claim has `*`, or `<schema>:*` for the schema of the tab
 
 A subject with the grant `unit_type = '*'` and `unit_id = '*'` in the `access_policy` of the schema reads every row of the tables of that schema too. The grant covers one subject and one schema. Revoking it deletes the row, like any other grant.
 
+### A list column
+
+The column of an `rls` rule can hold a list of text, such as `area_responsavel` with the type `ARRAY<STRING>` in BigQuery. A row is visible when at least one value of the list equals a unit of the grant. A row with an empty list or a NULL list is visible only to a reader of every row. A list of another type stops the sync with an error.
+
 ### A table with no rules
 
 The default is to deny. A table with no `rls` rules has no unit column to match, so it returns no row to a token that lists the schema. Only two cases read it: a token with `*` or `<schema>:*`, and a subject with the grant `*` and `*`. To give a user the rows, grant `*` and `*`, or add `rls` rules to the table and grant its units.

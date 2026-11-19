@@ -4,6 +4,7 @@ import json
 import re
 from typing import Final
 
+import duckdb
 import psycopg
 import pytest
 from psycopg.sql import SQL, Identifier
@@ -590,6 +591,77 @@ class TestTableFunction:
         assert {"'u1'", "'u2'"} <= set(
             where.split("[")[1].split("]", maxsplit=1)[0].split(",")
         )
+
+    @pytest.mark.parametrize(
+        ("fallbacks", "pattern"),
+        [
+            pytest.param(
+                [],
+                r"WHERE \(list_has_any\(unit_id, \['u[12]','u[12]'\]\)\)",
+                id="without-fallback",
+            ),
+            pytest.param(
+                ["bigquery"],
+                r"WHERE \(list_has_any\(unit_id, \['u[12]','u[12]'\]\)\)",
+                id="with-fallback",
+            ),
+        ],
+    )
+    async def test_view_function_matches_a_list_column_with_list_has_any(
+        self, table_function: Postgres, fallbacks: list[str], pattern: str
+    ) -> None:
+        """A list column cannot take IN, so a row shows when one of its values has a grant."""
+        await install_table_function(
+            table_function, has_rls=True, fallbacks=fallbacks, rls_type="VARCHAR[]"
+        )
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await grant_unit(table_function, "u")
+        await insert_access_policy(table_function, "u", "unit", "u2")
+
+        rows, _ = await call_table_function(table_function)
+
+        assert re.fullmatch(pattern, str(rows[-1][1])) is not None
+
+    @pytest.mark.parametrize(
+        ("grants", "expected"),
+        [
+            pytest.param([("unit", "SMAS")], [1], id="one-value-of-the-list"),
+            pytest.param([("unit", "SMAS"), ("unit", "SME")], [1, 2], id="two-grants"),
+            pytest.param([("unit", "SMT")], [], id="no-value-matches"),
+            pytest.param([("*", "*")], [1, 2, 3, 4], id="wildcard-grant"),
+        ],
+    )
+    @pytest.mark.parametrize("fallbacks", [[], ["bigquery"]], ids=["dl", "fallback"])
+    async def test_view_function_predicate_of_a_list_column_filters_rows_in_duckdb(
+        self,
+        table_function: Postgres,
+        fallbacks: list[str],
+        grants: list[tuple[str, str]],
+        expected: list[int],
+    ) -> None:
+        """DuckDB runs the predicate on both paths. A row with an empty or NULL list stays hidden."""
+        await install_table_function(
+            table_function, has_rls=True, fallbacks=fallbacks, rls_type="VARCHAR[]"
+        )
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await set_setting(table_function, "app.claim_sub", "u")
+        for unit_type, unit_id in grants:
+            await insert_access_policy(table_function, "u", unit_type, unit_id)
+
+        rows, _ = await call_table_function(table_function)
+        where = str(rows[-1][1]).replace("unit_id", "area")
+
+        duck = duckdb.connect()
+        duck.execute("CREATE TABLE t(id INT, area VARCHAR[])")
+        duck.execute(
+            "INSERT INTO t VALUES (1, ['SMAS','SMS']), (2, ['SME']), (3, []), (4, NULL)"
+        )
+        found = [
+            row[0]
+            for row in duck.execute(f"SELECT id FROM t {where} ORDER BY id").fetchall()
+        ]
+
+        assert found == expected
 
     async def test_view_function_passes_an_empty_predicate_to_the_wildcard_schema_claim(
         self, table_function: Postgres
