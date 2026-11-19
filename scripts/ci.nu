@@ -88,7 +88,7 @@ def comparison-base []: nothing -> string {
 }
 
 # Detect changed components and write the build outputs.
-def 'main changes' []: nothing -> nothing {
+def find-changes []: nothing -> nothing {
     log info 'Detecting changed components...'
     let force_full = ($env.FORCE_FULL? | default 'false') == 'true'
     let before = comparison-base
@@ -150,7 +150,7 @@ def resolve-image [image: record]: nothing -> string {
 }
 
 # Resolve the latest image tags and write the resolved outputs.
-def 'main images resolve' []: nothing -> nothing {
+def resolve-images []: nothing -> nothing {
     log info 'Resolving latest image tags from GHCR...'
 
     let resolved = $IMAGES | par-each {|image| {id: $image.id tag: (resolve-image $image)} }
@@ -162,8 +162,8 @@ def 'main images resolve' []: nothing -> nothing {
     log info 'Resolved all image tags.'
 }
 
-# Calculate and write the next Helm chart version from commit history.
-def 'main version' []: nothing -> nothing {
+# Calculate and write the next Helm chart version from commit history. Return true when a release is due.
+def read-next-version []: nothing -> bool {
     log info 'Calculating the next Helm chart version...'
 
     write-output current (read-data helm/Chart.yaml | get version)
@@ -173,7 +173,7 @@ def 'main version' []: nothing -> nothing {
     if $tag == null {
         write-output release (false | into string)
         log info 'No release-level Conventional Commit found.'
-        return
+        return false
     }
 
     let next = $tag | str replace helm-v ''
@@ -183,10 +183,12 @@ def 'main version' []: nothing -> nothing {
     write-output tag $tag
 
     log info $'Next Helm chart version: ($next)'
+
+    true
 }
 
 # Pin image tags in the chart values file.
-def 'main images pin' []: nothing -> nothing {
+def pin-images []: nothing -> nothing {
     log info 'Pinning image tags in helm/values.yaml...'
 
     let replacements = $IMAGES
@@ -219,7 +221,7 @@ def 'main images pin' []: nothing -> nothing {
 }
 
 # Set the chart version. The pre-bump hook of cog.toml calls it with the next version.
-def 'main chart bump' [
+def bump-chart-version [
     version: string # The next chart version, without the helm-v prefix.
 ]: nothing -> nothing {
     log info $'Bumping Helm chart version to ($version)...'
@@ -232,7 +234,7 @@ def 'main chart bump' [
 }
 
 # Raise the DBOS application version when the code of the sync changed since the last release. The pre-bump hook of cog.toml calls it.
-def 'main dbos bump' []: nothing -> nothing {
+def bump-dbos-version []: nothing -> nothing {
     let tag = previous-helm-tag
 
     if $tag == null {
@@ -267,15 +269,8 @@ def 'main dbos bump' []: nothing -> nothing {
     replace-once docs/operations/environment.md '^\| `DBOS_APPLICATION_VERSION` \|' $'| `DBOS_APPLICATION_VERSION` | `($next)` | DBOS application version. |'
 }
 
-# Update the checkout from main.
-def 'main git update' []: nothing -> nothing {
-    log info 'Updating checkout from main...'
-    git pull --rebase origin main
-    log info 'Checkout updated from main.'
-}
-
 # Log in to the OCI chart registry.
-def 'main chart login' []: nothing -> nothing {
+def login-chart-registry []: nothing -> nothing {
     log info $'Logging in to ($ci.registry)...'
 
     $ci.registry_token
@@ -286,7 +281,7 @@ def 'main chart login' []: nothing -> nothing {
 }
 
 # Package the Helm chart into the packaged directory.
-def 'main chart package' []: nothing -> nothing {
+def package-chart []: nothing -> nothing {
     log info 'Packaging Helm chart...'
     make-dir packaged
     helm package helm/ --destination packaged
@@ -294,7 +289,7 @@ def 'main chart package' []: nothing -> nothing {
 }
 
 # Bump the chart version, write the changelog, commit and tag with cog. The hooks of cog.toml pin the images first.
-def 'main release bump' []: nothing -> nothing {
+def tag-release []: nothing -> nothing {
     log info 'Bumping the Helm release with cog...'
 
     git config user.name $ci.bot_name
@@ -304,19 +299,8 @@ def 'main release bump' []: nothing -> nothing {
     log info 'Helm release committed and tagged.'
 }
 
-# Push the release commit and its tag to main. The push is atomic, so a rejected main leaves no tag behind.
-def 'main release push' [
-    tag: string # The release tag, such as helm-v1.128.0.
-]: nothing -> nothing {
-    log info $'Pushing Helm release ($tag)...'
-
-    checked 'git push' git push --atomic origin HEAD:main $tag | ignore
-
-    log info $'Pushed Helm release ($tag).'
-}
-
 # Write the changelog section of a release to packaged/notes.md, for the release page of any forge.
-def 'main release notes' [
+def write-release-notes [
     tag: string # The release tag, such as helm-v1.128.0.
 ]: nothing -> nothing {
     log info $'Writing the notes of ($tag)...'
@@ -326,7 +310,7 @@ def 'main release notes' [
 }
 
 # Publish the packaged chart to the OCI registry.
-def 'main chart publish' []: nothing -> nothing {
+def push-chart []: nothing -> nothing {
     let package = glob packaged/*.tgz | first
 
     log info $'Publishing ($package)...'
@@ -375,16 +359,9 @@ def write-summary [line: string]: nothing -> nothing {
     }
 }
 
-# Print the chart version that production runs, which is the version that the tag prod points to.
-def 'main chart prod' []: nothing -> nothing {
-    crane-login
-
-    print (tag-version (chart-tags (chart-repository)) prod | default 'none')
-}
-
 # Find the version to promote and say whether production runs another one. It writes the outputs `version`, `current` and `pending`.
 # A run that names a version in the variable VERSION promotes that version. Another run promotes the newest chart.
-def 'main chart next' []: nothing -> nothing {
+def find-promotion []: nothing -> nothing {
     crane-login
 
     let tags = chart-tags (chart-repository)
@@ -406,7 +383,7 @@ def 'main chart next' []: nothing -> nothing {
 }
 
 # Move the tag prod of the chart to a released version. Prod Flux follows that tag.
-def 'main chart promote' [
+def move-prod-tag [
     version: string # The chart version, such as 2.13.0.
     --if-latest # Do nothing when a newer version exists, so an old approval does not undo a newer one.
 ]: nothing -> nothing {
@@ -450,14 +427,13 @@ def commits-since [base: string]: nothing -> table<subject: string, files: list<
 
 # Decide whether a Helm release is needed: a chart file or an image path changed since the last release tag, and a
 # release commit outside the Terraform provider and the docs came since then.
-def 'main guard' []: nothing -> nothing {
+def check-release-needed [release: bool]: nothing -> nothing {
     log info 'Checking whether a Helm release is needed...'
 
     let base = previous-helm-tag | default HEAD~1
     let files = git diff --name-only $base HEAD | lines
     let changed = ($files | chart-files | is-not-empty) or (images-changed $files false | is-not-empty)
     let product = commits-since $base | any {|commit| release-commit $commit }
-    let release = ($env.RELEASE? | default 'true') == 'true'
     let skip = (not $release) or (not $changed) or (not $product)
 
     write-output skip ($skip | into string)
@@ -533,7 +509,7 @@ def build-provider [target: record<os: string, arch: string>, version: string, o
 # Decide whether a provider release is due and which version it has. The version comes from the variable VERSION when a
 # person sets it, and else from the commits that changed terraform/ since the last tag terraform-v*. It writes the
 # outputs `release` and `version`.
-def 'main terraform next' []: nothing -> nothing {
+def find-provider-version []: nothing -> nothing {
     let requested = $env.VERSION?
     let last = git tag --sort=-v:refname | lines | latest-tag terraform-v
     let base = $last | default (git rev-list --max-parents=0 HEAD | lines | first)
@@ -561,7 +537,7 @@ def 'main terraform next' []: nothing -> nothing {
 
 # Build the Terraform provider for each system, sign the checksums and publish a GitHub Release with the archives.
 # The tag is `terraform-v<version>`. The notes list the subjects of the commits of terraform/ since the last provider tag.
-def 'main terraform release' [
+def build-provider-release [
     version: string # The provider version, such as 0.1.0.
 ]: nothing -> nothing {
     check-version $version
@@ -590,7 +566,7 @@ def 'main terraform release' [
 # Write the static registry of the provider from the published releases and upload it to the bucket of the registry. The
 # variables TERRAFORM_REGISTRY_NAMESPACE and TERRAFORM_REGISTRY_BUCKET name the registry, and GITHUB_SERVER_URL and
 # GITHUB_REPOSITORY name the downloads. The public key is the one of the imported private key.
-def 'main terraform registry' []: nothing -> nothing {
+def upload-registry []: nothing -> nothing {
     let fingerprint = import-signing-key
     let armor = gpg-output --armor --export $fingerprint
     let output = $env.PWD | path join packaged registry
@@ -624,6 +600,79 @@ def 'main terraform registry' []: nothing -> nothing {
     let sources = ['.well-known' v1] | each {|name| $output | path join $name }
 
     checked 'gcloud storage cp' gcloud storage cp --recursive --content-type=application/json --cache-control='public, max-age=60' ...$sources $'gs://($bucket)/' | print
+}
+
+# Find what changed and write the build outputs.
+def 'main detect changes' []: nothing -> nothing {
+    find-changes
+}
+
+# Plan the chart release: resolve the image tags, read the next version, and decide whether to skip. It writes the image ids,
+# `current`, `release`, `next`, `tag` and `skip`. It changes no file.
+def 'main plan chart' []: nothing -> nothing {
+    resolve-images
+    check-release-needed (read-next-version)
+}
+
+# Prepare the files of a chart release for cog: pin the images, set the chart version and raise the DBOS version.
+# The pre-bump hook of cog.toml calls it with the next version.
+def 'main prepare chart' [
+    version: string # The next chart version, without the helm-v prefix.
+]: nothing -> nothing {
+    pin-images
+    bump-chart-version $version
+    bump-dbos-version
+}
+
+# Commit and tag the chart release with cog. The hook of cog.toml prepares the files first. The login comes first, so a bad
+# token stops the job before the release commit and the tag exist.
+def 'main release chart' []: nothing -> nothing {
+    login-chart-registry
+    tag-release
+}
+
+# Package the chart into the packaged directory.
+def 'main package chart' []: nothing -> nothing {
+    package-chart
+}
+
+# Publish the packaged chart and write the release notes. It logs in again, so a run at an old tag works alone.
+def 'main publish chart' [
+    tag: string # The release tag, such as helm-v1.128.0.
+]: nothing -> nothing {
+    login-chart-registry
+    push-chart
+    write-release-notes $tag
+}
+
+# Find the chart to promote and say whether production runs another one. It writes `version`, `current` and `pending`.
+def 'main plan promotion' []: nothing -> nothing {
+    find-promotion
+}
+
+# Move the tag prod to a released chart version.
+def 'main promote chart' [
+    version: string # The chart version, such as 2.13.0.
+    --if-latest # Do nothing when a newer version exists, so an old approval does not undo a newer one.
+]: nothing -> nothing {
+    move-prod-tag $version --if-latest=$if_latest
+}
+
+# Decide whether a provider release is due and write `release` and `version`.
+def 'main plan terraform' []: nothing -> nothing {
+    find-provider-version
+}
+
+# Build, sign and publish the provider release.
+def 'main release terraform' [
+    version: string # The provider version, such as 0.1.0.
+]: nothing -> nothing {
+    build-provider-release $version
+}
+
+# Write the registry files of the provider and upload them.
+def 'main publish terraform' []: nothing -> nothing {
+    upload-registry
 }
 
 # Print the available CI subcommands.

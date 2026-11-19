@@ -6,11 +6,11 @@ The Terraform provider has its own versions and its own releases. A chart releas
 
 CI runs on every push to `main`. When `repo` and `test-terraform` pass, the job `terraform` of CI runs the action `terraform-release` on the same commit. The action decides whether a release is due. The job doesn't wait for the chart release. A failed provider release turns the run red, so the chart stays out of staging.
 
-1. `ci terraform next` reads the commits that changed `terraform/` since the last tag `terraform-v<version>`.
+1. `ci plan terraform` reads the commits that changed `terraform/` since the last tag `terraform-v<version>`.
 2. A `feat` or a breaking commit raises the minor version, and a `fix` raises the patch. Other types give no release. The major version stays 0 until a person sets it.
-3. `ci terraform release` builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and signs the checksums with the GPG key.
+3. `ci release terraform` builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and signs the checksums with the GPG key.
 4. It creates the GitHub Release `terraform-v<version>` with the archives, the checksum file and its signature. The notes list the commit subjects under `terraform/`.
-5. `ci terraform registry` writes the registry files from every release and uploads them to a bucket.
+5. `ci publish terraform` writes the registry files from every release and uploads them to a bucket.
 
 A tag that exists already makes the job fail, so a version never changes after its release. To release a version by hand, start CI with the input `provider_version`.
 
@@ -56,16 +56,16 @@ Replace the source with `<host>/<namespace>/data-proxy` of your registry. A loca
 
 ## Roll back and rotate
 
-- A bad release stays in the registry. Fix it with a new `fix` commit. Or delete the GitHub Release and run `ci terraform registry` again, which drops the version from the files.
-- To rotate the key, add the new key and rerun `ci terraform registry`. A release that the old key signed fails to install with the new key, so keep the old key until you release again.
+- A bad release stays in the registry. Fix it with a new `fix` commit. Or delete the GitHub Release and run `ci publish terraform` again, which drops the version from the files.
+- To rotate the key, add the new key and rerun `ci publish terraform`. A release that the old key signed fails to install with the new key, so keep the old key until you release again.
 
 ## Commands
 
 | Command | Work |
 | --- | --- |
-| `ci terraform next` | Writes `release` and `version` from the commits since the last provider tag. |
-| `ci terraform release <version>` | Builds, signs and publishes the GitHub Release. |
-| `ci terraform registry` | Writes the registry files from the releases and uploads them to the bucket. |
+| `ci plan terraform` | Writes `release` and `version` from the commits since the last provider tag. |
+| `ci release terraform <version>` | Builds, signs and publishes the GitHub Release. |
+| `ci publish terraform` | Writes the registry files from the releases and uploads them to the bucket. |
 
 [CI and releases](./ci.md) describes the chart release.
 

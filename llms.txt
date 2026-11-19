@@ -2953,7 +2953,7 @@ flowchart LR
 
 | Job | Work |
 | --- | --- |
-| `changes` | Runs `ci changes`. It writes which images need a build and whether the chart needs a release. |
+| `changes` | Runs `ci detect changes`. It writes which images need a build and whether the chart needs a release. |
 | `repo` | Runs `repo:lint` and `repo:test:unit`. |
 | `test-sync`, `test-console`, `test-proxy` | Run the `:int` task of the component in the `integration` profile. A task runs only if one of its inputs changed. |
 | `test-terraform` | Runs `tf:test:int`. Only `terraform` waits for it. |
@@ -2968,7 +2968,7 @@ Each job restores the task state of the last green run of `main` before it runs,
 
 ### Images
 
-`ci changes` matches the files that changed since the last `helm-v*` tag against the table `IMAGES` in `scripts/lib.nu`. A push to `main` compares with the last tag. A pull request compares with its base. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `18-` to the hash.
+`ci detect changes` matches the files that changed since the last `helm-v*` tag against the table `IMAGES` in `scripts/lib.nu`. A push to `main` compares with the last tag. A pull request compares with its base. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `18-` to the hash.
 
 | Image | Rebuilds when this changes |
 | --- | --- |
@@ -2983,17 +2983,14 @@ CI releases the Helm chart from Conventional Commits with `cog`. `cog` reads the
 
 | Command | Work |
 | --- | --- |
-| `ci version` | Prints the next version, or says that no release is due. It changes nothing. |
-| `ci guard` | Skips the release when no chart file and no image path changed since the last tag, or when every release commit changed only the provider or the docs. |
-| `ci images resolve`, `ci images pin` | Find the newest tag of each image and write the tags in `helm/values.yaml`, so a release never uses `latest`. |
-| `ci release bump` | Runs `cog bump`. It sets the chart version, writes `CHANGELOG.md`, commits and tags. |
-| `ci chart package` | Package the chart. |
-| `ci release push <tag>` | Push the commit and the tag in one push. |
-| `ci chart publish`, `ci release notes <tag>` | Publish the chart, and write the release notes. |
+| `ci plan chart` | Finds the newest tag of each image, reads the next version, and decides whether a release is due. It changes no file. Release is due when a chart file or an image path changed since the last tag, and a commit outside the provider and the docs can release. |
+| `ci release chart` | Runs `cog bump`. The hook of `cog.toml` runs `ci prepare chart`, which pins the images and sets the chart version and the DBOS version. `cog` writes `CHANGELOG.md`, commits and tags. |
+| `ci package chart` | Package the chart. |
+| `ci publish chart <tag>` | Publish the chart, and write the release notes. |
 
 A commit that changes only `terraform/`, `docs/` or `llms.txt` never releases the chart, even as a `feat` or a `fix`. A later release still counts it in the version and the changelog.
 
-The job pushes the commit and the tag before it publishes the chart. A failed push publishes nothing, so run the workflow again. After a failed publish, run `ci chart package` and `ci chart publish` at the tag. `GITHUB_TOKEN` can't push to `main`. The job pushes with the deploy key `bot` (the secret `RELEASE_DEPLOY_KEY` of the environment `release`), which `protect-main` lists as a bypass.
+The job pushes the commit and the tag with `git push --atomic` before it publishes the chart. A failed push publishes nothing, so run the workflow again. After a failed publish, run `ci package chart` and `ci publish chart` at the tag. `GITHUB_TOKEN` can't push to `main`. The job pushes with the deploy key `bot` (the secret `RELEASE_DEPLOY_KEY` of the environment `release`), which `protect-main` lists as a bypass.
 
 Staging follows every chart. Production follows the chart tag `prod`, which a reviewer moves. See Production deploys.
 
@@ -3041,9 +3038,8 @@ Start `promote.yaml` by hand with the input `version`, such as `2.11.0`. The job
 
 | Command | Work |
 | --- | --- |
-| `ci chart prod` | Prints the version that production runs. |
-| `ci chart next` | Writes the version to promote, the version of production and whether they differ. |
-| `ci chart promote <version>` | Moves the tag `prod` to a released version. `--if-latest` skips an old version. |
+| `ci plan promotion` | Writes the version to promote, the version of production and whether they differ. |
+| `ci promote chart <version>` | Moves the tag `prod` to a released version. `--if-latest` skips an old version. |
 
 ### Settings
 
@@ -3061,11 +3057,11 @@ The Terraform provider has its own versions and its own releases. A chart releas
 
 CI runs on every push to `main`. When `repo` and `test-terraform` pass, the job `terraform` of CI runs the action `terraform-release` on the same commit. The action decides whether a release is due. The job doesn't wait for the chart release. A failed provider release turns the run red, so the chart stays out of staging.
 
-1. `ci terraform next` reads the commits that changed `terraform/` since the last tag `terraform-v<version>`.
+1. `ci plan terraform` reads the commits that changed `terraform/` since the last tag `terraform-v<version>`.
 2. A `feat` or a breaking commit raises the minor version, and a `fix` raises the patch. Other types give no release. The major version stays 0 until a person sets it.
-3. `ci terraform release` builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and signs the checksums with the GPG key.
+3. `ci release terraform` builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and signs the checksums with the GPG key.
 4. It creates the GitHub Release `terraform-v<version>` with the archives, the checksum file and its signature. The notes list the commit subjects under `terraform/`.
-5. `ci terraform registry` writes the registry files from every release and uploads them to a bucket.
+5. `ci publish terraform` writes the registry files from every release and uploads them to a bucket.
 
 A tag that exists already makes the job fail, so a version never changes after its release. To release a version by hand, start CI with the input `provider_version`.
 
@@ -3111,16 +3107,16 @@ Replace the source with `<host>/<namespace>/data-proxy` of your registry. A loca
 
 ### Roll back and rotate
 
-- A bad release stays in the registry. Fix it with a new `fix` commit. Or delete the GitHub Release and run `ci terraform registry` again, which drops the version from the files.
-- To rotate the key, add the new key and rerun `ci terraform registry`. A release that the old key signed fails to install with the new key, so keep the old key until you release again.
+- A bad release stays in the registry. Fix it with a new `fix` commit. Or delete the GitHub Release and run `ci publish terraform` again, which drops the version from the files.
+- To rotate the key, add the new key and rerun `ci publish terraform`. A release that the old key signed fails to install with the new key, so keep the old key until you release again.
 
 ### Commands
 
 | Command | Work |
 | --- | --- |
-| `ci terraform next` | Writes `release` and `version` from the commits since the last provider tag. |
-| `ci terraform release <version>` | Builds, signs and publishes the GitHub Release. |
-| `ci terraform registry` | Writes the registry files from the releases and uploads them to the bucket. |
+| `ci plan terraform` | Writes `release` and `version` from the commits since the last provider tag. |
+| `ci release terraform <version>` | Builds, signs and publishes the GitHub Release. |
+| `ci publish terraform` | Writes the registry files from the releases and uploads them to the bucket. |
 
 CI and releases describes the chart release.
 
