@@ -110,7 +110,19 @@
 			<form method="POST" action={`?/add&schema=${data.schema}`} use:enhance={add.submit} class="toolbar">
 				<Field label="Subject" name="subject" placeholder="subject" required />
 				<Field label="Unit type" name="unit_type" placeholder="unit type" required />
-				<Field label="Unit id" name="unit_id" placeholder="unit id" required />
+				<label class="flex min-w-64 flex-col gap-1 text-sm">
+					<span class="text-base-content/70">Unit id</span>
+					<textarea
+						class="textarea w-full textarea-sm"
+						name="unit_id"
+						rows="2"
+						placeholder="north, south"
+						aria-describedby="unit-id-help"
+						required></textarea>
+					<span id="unit-id-help" class="text-xs text-base-content/60">
+						One id, or several separated by a comma or a new line. For every row use unit type * and unit id *.
+					</span>
+				</label>
 				<SubmitButton class="btn-primary btn-sm" pending={add.pending}><Plus size={14} /> Add</SubmitButton>
 			</form>
 		{/if}

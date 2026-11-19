@@ -2,6 +2,7 @@ import * as v from 'valibot';
 import { error, fail } from '@sveltejs/kit';
 import { text } from '#lib/forms.js';
 import { containsFilter, pageOf, rangeQuery } from '#lib/list.js';
+import { parseUnits } from '#lib/policy.js';
 import { can } from '#lib/permissions.js';
 import { writeMessage } from '#lib/messages.js';
 import { api, need } from '#lib/server/api.js';
@@ -77,6 +78,10 @@ export const load: PageServerLoad = async ({ locals, parent, url }) => {
 const done = (result: Result<unknown>) =>
 	result.ok ? { toast: 'Saved.' } : fail(result.status, { message: writeMessage(result) });
 
+/** The toast of an add. Every row new gives the plain "Saved.", as every other form does. */
+const addedMessage = (asked: number, added: number) =>
+	added === asked ? 'Saved.' : `Saved ${added}, skipped ${asked - added} that already exist.`;
+
 const match = (form: FormData, prefix: string) =>
 	['subject', 'unit_type', 'unit_id']
 		.map((column) => `${column}=eq.${encodeURIComponent(text(form, `${prefix}${column}`))}`)
@@ -85,22 +90,42 @@ const match = (form: FormData, prefix: string) =>
 export const actions: Actions = {
 	add: async ({ locals, request, url }) => {
 		const form = await request.formData();
+		const units = parseUnits(text(form, 'unit_type'), text(form, 'unit_id'));
 
-		return done(
-			await api(locals.session).post(
-				'/access_policy',
-				{ subject: text(form, 'subject'), unit_type: text(form, 'unit_type'), unit_id: text(form, 'unit_id') },
-				url.searchParams.get('schema') ?? undefined
-			)
+		if (!units.ok) {
+			return fail(400, { message: units.message });
+		}
+
+		const subject = text(form, 'subject');
+		const result = await api(locals.session).post(
+			'/access_policy',
+			units.rows.map((row) => ({ subject, ...row })),
+			url.searchParams.get('schema') ?? undefined,
+			{ skipDuplicates: ['subject', 'unit_type', 'unit_id'] }
 		);
+
+		if (!result.ok) {
+			return fail(result.status, { message: writeMessage(result) });
+		}
+
+		return { toast: addedMessage(units.rows.length, Array.isArray(result.data) ? result.data.length : 0) };
 	},
 	edit: async ({ locals, request, url }) => {
 		const form = await request.formData();
+		const units = parseUnits(text(form, 'unit_type'), text(form, 'unit_id'));
+
+		if (!units.ok) {
+			return fail(400, { message: units.message });
+		}
+
+		if (units.rows.length !== 1) {
+			return fail(400, { message: 'Edit one unit id at a time. Use Add for a list.' });
+		}
 
 		return done(
 			await api(locals.session).patch(
 				`/access_policy?${match(form, 'old_')}`,
-				{ subject: text(form, 'subject'), unit_type: text(form, 'unit_type'), unit_id: text(form, 'unit_id') },
+				{ subject: text(form, 'subject'), ...units.rows[0] },
 				url.searchParams.get('schema') ?? undefined
 			)
 		);

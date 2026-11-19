@@ -57,6 +57,18 @@ describe('requestHeaders', () => {
 		expect(headers.get('Prefer')).toBe('return=representation');
 		expect(headers.get('Content-Type')).toBe('application/json');
 	});
+
+	it('skips the rows that exist when the write asks for it', () => {
+		const headers = requestHeaders('tok', { profile: 'sales', write: true, skipDuplicates: true });
+
+		expect(headers.get('Prefer')).toBe('return=representation,resolution=ignore-duplicates');
+	});
+
+	it('ignores the skip option on a read', () => {
+		const headers = requestHeaders('tok', { profile: 'sales', write: false, skipDuplicates: true });
+
+		expect(headers.has('Prefer')).toBe(false);
+	});
 });
 
 describe('postgrest client', () => {
@@ -87,6 +99,43 @@ describe('postgrest client', () => {
 
 		expect(init?.method).toBe('POST');
 		expect(init?.body).toBe('{"column_name":"x"}');
+	});
+
+	it('posts a list of rows and skips the rows that exist when it is asked to', async () => {
+		let init: RequestInit | undefined;
+		let url = '';
+		const client = postgrest('http://api', 'tok', (target, options) => {
+			url = urlOf(target);
+			init = options;
+
+			return Promise.resolve(json([{ unit_id: 'north' }], 201));
+		});
+
+		const result = await client.post('/access_policy', [{ unit_id: 'north' }, { unit_id: 'south' }], 'sales', {
+			skipDuplicates: ['subject', 'unit_type', 'unit_id']
+		});
+
+		expect(result).toEqual({ ok: true, data: [{ unit_id: 'north' }] });
+		expect(url).toBe('http://api/access_policy?on_conflict=subject,unit_type,unit_id');
+		expect(init?.body).toBe('[{"unit_id":"north"},{"unit_id":"south"}]');
+		expect(new Headers(init?.headers).get('Prefer')).toBe('return=representation,resolution=ignore-duplicates');
+		expect(new Headers(init?.headers).get('Content-Profile')).toBe('sales');
+	});
+
+	it('keeps the plain write header and the path when the option is not set', async () => {
+		let init: RequestInit | undefined;
+		let url = '';
+		const client = postgrest('http://api', 'tok', (target, options) => {
+			url = urlOf(target);
+			init = options;
+
+			return Promise.resolve(json([], 201));
+		});
+
+		await client.post('/rls', { column_name: 'x' });
+
+		expect(url).toBe('http://api/rls');
+		expect(new Headers(init?.headers).get('Prefer')).toBe('return=representation');
 	});
 
 	it('calls a function with the POST method and the body', async () => {
