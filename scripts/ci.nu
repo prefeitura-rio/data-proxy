@@ -9,6 +9,7 @@ use lib.nu [
     latest-terraform-tag
     make-dir
     newest-version
+    next-dbos-version
     next-terraform-version
     parse-sha256sums
     provider-archive
@@ -17,6 +18,7 @@ use lib.nu [
     read-text
     release-commit
     release-tag
+    replace-once
     sha256-file
     terraform-bump
     terraform-tag-version
@@ -227,6 +229,28 @@ def 'main chart bump' [
     | write-text helm/Chart.yaml
 
     log info 'Helm chart version updated.'
+}
+
+# Raise the DBOS application version when a release changes the steps of a workflow. The pre-bump hook of cog.toml calls it.
+def 'main dbos version bump' []: nothing -> nothing {
+    let stored = read-text sync/workflow-steps.sha256 | str trim
+    let found = python3 scripts/workflow_steps.py | complete | check-result 'workflow_steps.py' | str trim
+    let current = read-text sync/src/sync/settings.py
+    | parse --regex 'DBOS_APPLICATION_VERSION: str = "(?<version>[^"]+)"'
+    | get version.0
+    let next = next-dbos-version $current $stored $found
+
+    if $next == $current {
+        log info $'The workflow steps did not change. The application version stays ($current).'
+        return
+    }
+
+    log info $'The workflow steps changed. Raising the application version from ($current) to ($next).'
+
+    replace-once helm/values.yaml '^\s+applicationVersion: ' $'    applicationVersion: ($next)'
+    replace-once sync/src/sync/settings.py '^\s+DBOS_APPLICATION_VERSION: str = ' $'    DBOS_APPLICATION_VERSION: str = "($next)"'
+    replace-once docs/operations/environment.md '^\| `DBOS_APPLICATION_VERSION` \|' $'| `DBOS_APPLICATION_VERSION` | `($next)` | DBOS application version. |'
+    $'($found)(char nl)' | write-text sync/workflow-steps.sha256
 }
 
 # Update the checkout from main.

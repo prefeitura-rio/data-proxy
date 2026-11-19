@@ -604,3 +604,33 @@ export def dbos-migrate [url: string]: nothing -> nothing {
     | check-result $'dbos migrate on ($url)'
     | ignore
 }
+
+# Return the next DBOS application version. It raises the major number when the fingerprint of the workflow steps changed.
+export def next-dbos-version [current: string, stored: string, found: string]: nothing -> string {
+    if $stored == $found { return $current }
+
+    let parts = $current | split row '.'
+
+    if ($parts | length) != 3 or ($parts | any {|part| $part !~ '^\d+$' }) {
+        fail $'The application version ($current) is not major.minor.patch'
+    }
+
+    $'(($parts | first | into int) + 1).0.0'
+}
+
+# Replace one line pattern in a file. It fails unless the pattern matches exactly once.
+export def replace-once [file: path, pattern: string, line: string]: nothing -> nothing {
+    let text = read-text $file
+    let found = $text | lines | where {|row| $row =~ $pattern } | length
+
+    if $found != 1 {
+        fail $'Expected one line that matches ($pattern) in ($file), found ($found)'
+    }
+
+    $text
+    | lines
+    | each {|row| if $row =~ $pattern { $line } else { $row } }
+    | str join (char nl)
+    | $in + (char nl)
+    | write-text $file
+}

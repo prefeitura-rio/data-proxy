@@ -6,6 +6,7 @@ ignore_merge_commits = true
 pre_bump_hooks = [
   "nu scripts/ci.nu images pin",
   "nu scripts/ci.nu chart bump {{version}}",
+  "nu scripts/ci.nu dbos version bump",
 ]
 
 [changelog]
