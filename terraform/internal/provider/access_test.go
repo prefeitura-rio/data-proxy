@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
 	"terraform-provider-data-proxy/internal/client"
 )
@@ -277,4 +280,49 @@ func TestAccessPolicyUpdateNeverRuns(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAccAccessPolicyResource(t *testing.T) {
+	subject := testAccName() + "@example.org"
+
+	config := fmt.Sprintf(`
+resource "data_proxy_access_policy" "this" {
+  provider  = data-proxy
+  schema    = %q
+  subject   = %q
+  unit_type = "unit"
+  unit_id   = "1"
+}
+`, testAccProvisionedSchema, subject)
+
+	destroyed := func(*terraform.State) error {
+		apiClient, err := testAccClient()
+		if err != nil {
+			return err
+		}
+
+		rows, err := apiClient.ListAccessPolicy(context.Background(), testAccProvisionedSchema, client.AccessPolicy{Subject: subject, UnitType: ptr("unit"), UnitID: ptr("1")})
+		if err != nil {
+			return err
+		}
+
+		if len(rows) != 0 {
+			return fmt.Errorf("the row of %s still exists after the destroy", subject)
+		}
+
+		return nil
+	}
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		CheckDestroy:             destroyed,
+		Steps: []acc.TestStep{
+			{
+				Config: config,
+				Check:  acc.TestCheckResourceAttr("data_proxy_access_policy.this", "id", fmt.Sprintf("%s/%s/unit/1", testAccProvisionedSchema, subject)),
+			},
+			{ResourceName: "data_proxy_access_policy.this", ImportState: true, ImportStateVerify: true, ImportStateVerifyIdentifierAttribute: "id"},
+		},
+	})
 }

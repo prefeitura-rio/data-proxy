@@ -2,11 +2,14 @@ package provider
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
 	"terraform-provider-data-proxy/internal/client"
 )
@@ -294,4 +297,96 @@ func TestSchemaImportKeepsDeletionProtection(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAccSchemaResource(t *testing.T) {
+	project := testAccName()
+	testAccCleanup(t, "projects", client.Eq("name", project))
+	testAccCleanup(t, "schemas", client.Eq("project", project))
+
+	physical := project + "_orders"
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{
+				Config: schemaConfig(project, "orders", "preferred_username"),
+				Check: acc.ComposeAggregateTestCheckFunc(
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "name", physical),
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "id", physical),
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "source", "bigquery"),
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "claim", "preferred_username"),
+				),
+			},
+			{
+				Config: schemaConfig(project, "orders", "email"),
+				Check:  acc.TestCheckResourceAttr("data_proxy_schema.this", "claim", "email"),
+			},
+			{
+				ResourceName:            "data_proxy_schema.this",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"deletion_protection", "timeouts"},
+			},
+			{
+				Config: schemaConfig(project, "invoices", "email"),
+				Check:  acc.TestCheckResourceAttr("data_proxy_schema.this", "name", project+"_invoices"),
+			},
+		},
+	})
+}
+
+func TestAccSchemaResourceInTheDefaultProject(t *testing.T) {
+	short := testAccName()
+	testAccCleanup(t, "schemas", client.Eq("name", short))
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "data_proxy_schema" "this" {
+  provider            = data-proxy
+  short_name          = %q
+  deletion_protection = false
+
+  timeouts {
+    create = "0s"
+    delete = "0s"
+  }
+}
+`, short),
+				Check: acc.ComposeAggregateTestCheckFunc(
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "project", "default"),
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "name", short),
+				),
+			},
+		},
+	})
+}
+
+func TestAccSchemaResourceRefusesAReservedName(t *testing.T) {
+	testAccCleanup(t, "schemas", client.Eq("name", "dbos"))
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{
+				Config: `
+resource "data_proxy_schema" "this" {
+  provider   = data-proxy
+  short_name = "dbos"
+
+  timeouts {
+    create = "0s"
+  }
+}
+`,
+				ExpectError: regexp.MustCompile(`Couldn't create the schema`),
+			},
+		},
+	})
 }

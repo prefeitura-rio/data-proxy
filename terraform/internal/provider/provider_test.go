@@ -2,21 +2,32 @@ package provider
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
+	"regexp"
 	"slices"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	datasourceschema "github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/provider"
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-framework/resource"
+	resourceschema "github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
+	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
+	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
 	"terraform-provider-data-proxy/internal/client"
 )
@@ -654,4 +665,491 @@ func TestConfigure(t *testing.T) {
 			}
 		})
 	}
+}
+
+// testAccNamePrefix starts every name that an acceptance test creates, so a row that a test left behind is easy to find.
+const testAccNamePrefix = "tfacc"
+
+// testAccProviderName is the local name of the provider in the test configurations. A local name has no underscore,
+// so it differs from TypeName, and each resource of a test names it with provider = data-proxy.
+const testAccProviderName = "data-proxy"
+
+// testAccProviderFactories serves the provider inside the test process, so Terraform needs no provider binary.
+var testAccProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
+	testAccProviderName: providerserver.NewProtocol6WithError(New("test")()),
+}
+
+// testAccPreCheck fails the test when a required DATA_PROXY_* variable is empty.
+func testAccPreCheck(t *testing.T) {
+	t.Helper()
+
+	for _, name := range []string{EnvEndpoint, EnvTokenURL, EnvClientID, EnvClientSecret} {
+		if os.Getenv(name) == "" {
+			t.Fatalf("set %s for the acceptance tests", name)
+		}
+	}
+}
+
+// testAccName returns a new name for an object that a test creates. The name is valid for a project and for a schema.
+func testAccName() string {
+	return testAccNamePrefix + acctest.RandStringFromCharSet(10, acctest.CharSetAlphaNum)
+}
+
+// testAccClient returns a client with the credentials of the DATA_PROXY_* variables.
+func testAccClient() (*client.Client, error) {
+	tokens, err := client.NewCredentialsSource(client.Credentials{
+		TokenURL:     os.Getenv(EnvTokenURL),
+		ClientID:     os.Getenv(EnvClientID),
+		ClientSecret: os.Getenv(EnvClientSecret),
+		Scopes:       splitScopes(os.Getenv(EnvScopes)),
+	}, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build the token source: %w", err)
+	}
+
+	apiClient, err := client.New(os.Getenv(EnvEndpoint), tokens, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build the client: %w", err)
+	}
+
+	return apiClient, nil
+}
+
+// testAccCleanup deletes the rows of table that match every filter when the test ends. Cleanups run in reverse
+// order, so register a parent, such as a project, before its children.
+func testAccCleanup(t testing.TB, table string, filters ...client.Filter) {
+	t.Helper()
+
+	if os.Getenv(acc.EnvTfAcc) == "" {
+		return
+	}
+
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), client.DefaultTimeout)
+		defer cancel()
+
+		apiClient, err := testAccClient()
+		if err != nil {
+			t.Errorf("clean up %s: %v", table, err)
+
+			return
+		}
+
+		if err := apiClient.Delete(ctx, client.ConsoleProfile, table, filters, nil); err != nil {
+			t.Errorf("clean up %s: %v", table, err)
+		}
+	})
+}
+
+// TestTestAccName checks that each name fits the name rules of the database and that two names differ.
+func TestTestAccName(t *testing.T) {
+	// These patterns copy the name checks of console.projects and console.schemas in migration 00012.
+	tests := []struct {
+		name    string
+		pattern *regexp.Regexp
+	}{
+		{name: "the shape of a test name", pattern: regexp.MustCompile(`^tfacc[a-z0-9]{10}$`)},
+		{name: "the name of a project", pattern: regexp.MustCompile(`^[a-z][a-z0-9]{0,29}$`)},
+		{name: "the name of a schema", pattern: regexp.MustCompile(`^[a-z][a-z0-9_]{0,55}$`)},
+	}
+
+	first, second := testAccName(), testAccName()
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, name := range []string{first, second} {
+				if !tt.pattern.MatchString(name) {
+					t.Errorf("testAccName() = %q, want a match of %s", name, tt.pattern)
+				}
+			}
+		})
+	}
+
+	t.Run("two names differ", func(t *testing.T) {
+		if first == second {
+			t.Errorf("testAccName() returned %q twice", first)
+		}
+	})
+}
+
+// cleanupRecorder is a testing.TB that keeps the cleanups and the errors of testAccCleanup.
+type cleanupRecorder struct {
+	testing.TB
+
+	cleanups []func()
+	errors   []string
+}
+
+// Helper does nothing.
+func (r *cleanupRecorder) Helper() {}
+
+// Cleanup keeps the cleanup so that the test can run it.
+func (r *cleanupRecorder) Cleanup(cleanup func()) {
+	r.cleanups = append(r.cleanups, cleanup)
+}
+
+// Errorf keeps the error so that the test can read it.
+func (r *cleanupRecorder) Errorf(format string, args ...any) {
+	r.errors = append(r.errors, fmt.Sprintf(format, args...))
+}
+
+func TestTestAccCleanup(t *testing.T) {
+	tests := []struct {
+		name        string
+		acceptance  bool
+		tokenStatus int
+		status      int
+		body        string
+		requests    []apiRequest
+		errors      func(api fakeAPI) []string
+	}{
+		{
+			name:   "no cleanup without TF_ACC",
+			status: http.StatusOK,
+			body:   `[]`,
+		},
+		{
+			name:       "a delete of the matching rows",
+			acceptance: true,
+			status:     http.StatusOK,
+			body:       `[{"name":"tfaccabc"}]`,
+			requests:   []apiRequest{{method: http.MethodDelete, uri: "/schemas?name=eq.tfaccabc", contentProfile: "console", authorization: "Bearer jwt-123"}},
+		},
+		{
+			name:       "no row left to delete",
+			acceptance: true,
+			status:     http.StatusOK,
+			body:       `[]`,
+			requests:   []apiRequest{{method: http.MethodDelete, uri: "/schemas?name=eq.tfaccabc", contentProfile: "console", authorization: "Bearer jwt-123"}},
+		},
+		{
+			name:       "the database refuses the delete",
+			acceptance: true,
+			status:     http.StatusForbidden,
+			body:       `{"code":"42501","message":"permission denied for table schemas"}`,
+			requests:   []apiRequest{{method: http.MethodDelete, uri: "/schemas?name=eq.tfaccabc", contentProfile: "console", authorization: "Bearer jwt-123"}},
+			errors: func(fakeAPI) []string {
+				return []string{"clean up schemas: postgrest: HTTP 403 42501: permission denied for table schemas"}
+			},
+		},
+		{
+			name:        "the identity provider refuses the secret",
+			acceptance:  true,
+			tokenStatus: http.StatusUnauthorized,
+			errors: func(api fakeAPI) []string {
+				return []string{"clean up schemas: get the token: fetch a token from " + api.tokenURL +
+					`: oauth2: "unauthorized_client" "Invalid client or Invalid client credentials"`}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tokenStatus := tt.tokenStatus
+			if tokenStatus == 0 {
+				tokenStatus = http.StatusOK
+			}
+
+			api := newFakeAPI(t, tokenStatus, tt.status, tt.body)
+
+			acceptance := ""
+			if tt.acceptance {
+				acceptance = "1"
+			}
+
+			t.Setenv(acc.EnvTfAcc, acceptance)
+			t.Setenv(EnvEndpoint, api.endpoint)
+			t.Setenv(EnvTokenURL, api.tokenURL)
+			t.Setenv(EnvClientID, "terraform")
+			t.Setenv(EnvClientSecret, "secret-123")
+			t.Setenv(EnvScopes, "")
+
+			recorder := &cleanupRecorder{TB: t}
+
+			testAccCleanup(recorder, "schemas", client.Eq("name", "tfaccabc"))
+
+			wantCleanups := 0
+			if tt.acceptance {
+				wantCleanups = 1
+			}
+
+			if len(recorder.cleanups) != wantCleanups {
+				t.Fatalf("testAccCleanup registered %d cleanups, want %d", len(recorder.cleanups), wantCleanups)
+			}
+
+			if len(*api.requests) != 0 {
+				t.Fatalf("the API got %d requests before the cleanup, want none", len(*api.requests))
+			}
+
+			for _, cleanup := range recorder.cleanups {
+				cleanup()
+			}
+
+			if !reflect.DeepEqual(*api.requests, tt.requests) {
+				t.Errorf("requests = %+v, want %+v", *api.requests, tt.requests)
+			}
+
+			var wantErrors []string
+			if tt.errors != nil {
+				wantErrors = tt.errors(api)
+			}
+
+			if !reflect.DeepEqual(recorder.errors, wantErrors) {
+				t.Errorf("errors = %q, want %q", recorder.errors, wantErrors)
+			}
+		})
+	}
+}
+
+// testAccProvisionedSchema is a schema that the console stack provisions at start, so its access policy table exists.
+const testAccProvisionedSchema = "test"
+
+// projectConfig returns the configuration of a project.
+func projectConfig(name string) string {
+	return fmt.Sprintf(`
+resource "data_proxy_project" "this" {
+  provider = data-proxy
+  name     = %q
+}
+`, name)
+}
+
+// schemaConfig returns the configuration of a project and a schema in it. The timeouts of 0s skip the wait for the
+// sync, which the console stack doesn't run.
+func schemaConfig(project, shortName, claim string) string {
+	return projectConfig(project) + fmt.Sprintf(`
+resource "data_proxy_schema" "this" {
+  provider            = data-proxy
+  project             = data_proxy_project.this.name
+  short_name          = %q
+  claim               = %q
+  deletion_protection = false
+
+  timeouts {
+    create = "0s"
+    delete = "0s"
+  }
+}
+`, shortName, claim)
+}
+
+// step is one request that a test server expects, and the answer that it gives. An empty field is not checked.
+type step struct {
+	method   string
+	uri      string
+	profile  string
+	body     string
+	status   int
+	response string
+}
+
+// newStepClient starts a server that expects the steps in order and returns a client for it. A request that differs
+// from its step fails the test, and so does a step that no request reached.
+func newStepClient(t *testing.T, steps []step) *client.Client {
+	t.Helper()
+
+	next := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if next >= len(steps) {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.RequestURI())
+			w.WriteHeader(http.StatusInternalServerError)
+
+			return
+		}
+
+		want := steps[next]
+		next++
+
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read the request body: %v", err)
+		}
+
+		checkStep(t, want, r, raw)
+
+		status := want.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(status)
+
+		if _, err := w.Write([]byte(want.response)); err != nil {
+			t.Errorf("write the response: %v", err)
+		}
+	}))
+	t.Cleanup(func() {
+		server.Close()
+
+		if next != len(steps) {
+			t.Errorf("the server got %d requests, want %d", next, len(steps))
+		}
+	})
+
+	apiClient, err := client.New(server.URL, staticToken("jwt-123"), server.Client())
+	if err != nil {
+		t.Fatalf("client.New: %v", err)
+	}
+
+	return apiClient
+}
+
+// checkStep compares a request with the step that it should match.
+func checkStep(t *testing.T, want step, r *http.Request, body []byte) {
+	t.Helper()
+
+	if want.method != "" && r.Method != want.method {
+		t.Errorf("method = %s, want %s", r.Method, want.method)
+	}
+
+	if want.uri != "" && r.URL.RequestURI() != want.uri {
+		t.Errorf("uri = %s, want %s", r.URL.RequestURI(), want.uri)
+	}
+
+	profile := r.Header.Get("Accept-Profile") + r.Header.Get("Content-Profile")
+	if want.profile != "" && profile != want.profile {
+		t.Errorf("profile = %q, want %q", profile, want.profile)
+	}
+
+	if want.body != "" && !sameJSON(want.body, string(body)) {
+		t.Errorf("body = %s, want %s", body, want.body)
+	}
+}
+
+// timeoutAttributes are the types of the timeouts attribute of a resource.
+var timeoutAttributes = map[string]attr.Type{"create": types.StringType, "delete": types.StringType}
+
+// timeoutsOf builds the timeouts attribute of a model. An empty text leaves its timeout null.
+func timeoutsOf(create, deleted string) timeouts.Value {
+	text := func(value string) attr.Value {
+		if value == "" {
+			return types.StringNull()
+		}
+
+		return types.StringValue(value)
+	}
+
+	return timeouts.Value{Object: types.ObjectValueMust(timeoutAttributes, map[string]attr.Value{"create": text(create), "delete": text(deleted)})}
+}
+
+// resourceSchema returns the schema of a resource.
+func resourceSchema(t *testing.T, res resource.Resource) resourceschema.Schema {
+	t.Helper()
+
+	var resp resource.SchemaResponse
+
+	res.Schema(context.Background(), resource.SchemaRequest{}, &resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Schema: %v", resp.Diagnostics)
+	}
+
+	return resp.Schema
+}
+
+// configured returns the resource with the client of the test.
+func configured(t *testing.T, res resource.Resource, apiClient *client.Client) resource.Resource {
+	t.Helper()
+
+	withClient, ok := res.(resource.ResourceWithConfigure)
+	if !ok {
+		t.Fatalf("the resource doesn't implement Configure")
+	}
+
+	var resp resource.ConfigureResponse
+
+	withClient.Configure(context.Background(), resource.ConfigureRequest{ProviderData: apiClient}, &resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Configure: %v", resp.Diagnostics)
+	}
+
+	return res
+}
+
+// nullState returns an empty state of the schema, as a create starts with.
+func nullState(s resourceschema.Schema) tfsdk.State {
+	return tfsdk.State{Schema: s, Raw: tftypes.NewValue(s.Type().TerraformType(context.Background()), nil)}
+}
+
+// stateOf returns a state of the schema that holds the model.
+func stateOf(t *testing.T, s resourceschema.Schema, model any) tfsdk.State {
+	t.Helper()
+
+	state := nullState(s)
+
+	if diagnostics := state.Set(context.Background(), model); diagnostics.HasError() {
+		t.Fatalf("build the state: %v", diagnostics)
+	}
+
+	return state
+}
+
+// planOf returns a plan of the schema that holds the model.
+func planOf(t *testing.T, s resourceschema.Schema, model any) tfsdk.Plan {
+	t.Helper()
+
+	plan := tfsdk.Plan{Schema: s, Raw: tftypes.NewValue(s.Type().TerraformType(context.Background()), nil)}
+
+	if diagnostics := plan.Set(context.Background(), model); diagnostics.HasError() {
+		t.Fatalf("build the plan: %v", diagnostics)
+	}
+
+	return plan
+}
+
+// dataSourceSchema returns the schema of a data source.
+func dataSourceSchema(t *testing.T, source datasource.DataSource) datasourceschema.Schema {
+	t.Helper()
+
+	var resp datasource.SchemaResponse
+
+	source.Schema(context.Background(), datasource.SchemaRequest{}, &resp)
+
+	if resp.Diagnostics.HasError() {
+		t.Fatalf("Schema: %v", resp.Diagnostics)
+	}
+
+	return resp.Schema
+}
+
+// readDataSource runs a data source on a config model and returns its diagnostics and its state.
+func readDataSource(t *testing.T, source datasource.DataSource, apiClient *client.Client, config any) (datasource.ReadResponse, []diagnostic) {
+	t.Helper()
+
+	ctx := context.Background()
+	s := dataSourceSchema(t, source)
+
+	withClient, ok := source.(datasource.DataSourceWithConfigure)
+	if !ok {
+		t.Fatalf("the data source doesn't implement Configure")
+	}
+
+	var configureResp datasource.ConfigureResponse
+
+	withClient.Configure(ctx, datasource.ConfigureRequest{ProviderData: apiClient}, &configureResp)
+
+	if configureResp.Diagnostics.HasError() {
+		t.Fatalf("Configure: %v", configureResp.Diagnostics)
+	}
+
+	raw := tftypes.NewValue(s.Type().TerraformType(ctx), nil)
+	cfg := tfsdk.Config{Schema: s, Raw: raw}
+
+	// A config is a state of the same schema for the purpose of building it from a model.
+	state := tfsdk.State{Schema: s, Raw: raw}
+
+	if diagnostics := state.Set(ctx, config); diagnostics.HasError() {
+		t.Fatalf("build the config: %v", diagnostics)
+	}
+
+	cfg.Raw = state.Raw
+
+	resp := datasource.ReadResponse{State: tfsdk.State{Schema: s, Raw: raw}}
+
+	source.Read(ctx, datasource.ReadRequest{Config: cfg}, &resp)
+
+	return resp, diagnosticsOf(resp.Diagnostics)
 }
