@@ -21,17 +21,32 @@ import (
 	"terraform-provider-data-proxy/internal/client"
 )
 
+// TestMetadata checks the type name and the version that the provider reports.
 func TestMetadata(t *testing.T) {
-	var resp provider.MetadataResponse
-
-	New("1.2.3")().Metadata(context.Background(), provider.MetadataRequest{}, &resp)
-
-	if resp.TypeName != "data_proxy" {
-		t.Errorf("TypeName = %q, want %q", resp.TypeName, "data_proxy")
+	tests := []struct {
+		name        string
+		version     string
+		wantType    string
+		wantVersion string
+	}{
+		{name: "a release", version: "1.2.3", wantType: "data_proxy", wantVersion: "1.2.3"},
+		{name: "a development build", version: "dev", wantType: "data_proxy", wantVersion: "dev"},
 	}
 
-	if resp.Version != "1.2.3" {
-		t.Errorf("Version = %q, want %q", resp.Version, "1.2.3")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var resp provider.MetadataResponse
+
+			New(tt.version)().Metadata(context.Background(), provider.MetadataRequest{}, &resp)
+
+			if resp.TypeName != tt.wantType {
+				t.Errorf("TypeName = %q, want %q", resp.TypeName, tt.wantType)
+			}
+
+			if resp.Version != tt.wantVersion {
+				t.Errorf("Version = %q, want %q", resp.Version, tt.wantVersion)
+			}
+		})
 	}
 }
 

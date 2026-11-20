@@ -52,14 +52,27 @@ func TestAccessPolicyOperations(t *testing.T) {
 	}
 }
 
+// TestCreateAccessPolicySendsNullUnits checks that an empty unit becomes JSON null, and a set unit keeps its value.
 func TestCreateAccessPolicySendsNullUnits(t *testing.T) {
-	c := newStepClient(t, []step{{
-		method: "POST", uri: "/access_policy", status: 201, response: "[]",
-		body: `{"subject":"svc","unit_type":null,"unit_id":null}`,
-	}})
+	unit, id := "unit", "7"
 
-	if err := c.CreateAccessPolicy(context.Background(), "sales_orders", AccessPolicy{Subject: "svc"}); err != nil {
-		t.Fatalf("CreateAccessPolicy: %v", err)
+	tests := []struct {
+		name   string
+		policy AccessPolicy
+		body   string
+	}{
+		{name: "no unit", policy: AccessPolicy{Subject: "svc"}, body: `{"subject":"svc","unit_type":null,"unit_id":null}`},
+		{name: "a unit", policy: AccessPolicy{Subject: "svc", UnitType: &unit, UnitID: &id}, body: `{"subject":"svc","unit_type":"unit","unit_id":"7"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := newStepClient(t, []step{{method: "POST", uri: "/access_policy", status: 201, response: "[]", body: tt.body}})
+
+			if err := c.CreateAccessPolicy(context.Background(), "sales_orders", tt.policy); err != nil {
+				t.Fatalf("CreateAccessPolicy: %v", err)
+			}
+		})
 	}
 }
 

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -57,51 +58,53 @@ func TestJSONValue(t *testing.T) {
 	}
 }
 
+// TestJSONRaw checks that a null or unknown text gives no JSON, and a known text gives itself.
 func TestJSONRaw(t *testing.T) {
-	if got := jsonRaw(types.StringNull()); got != nil {
-		t.Errorf("jsonRaw(null) = %s, want nil", got)
+	tests := []struct {
+		name  string
+		input types.String
+		want  string
+	}{
+		{name: "null", input: types.StringNull()},
+		{name: "unknown", input: types.StringUnknown()},
+		{name: "a value", input: types.StringValue(`{"a":1}`), want: `{"a":1}`},
 	}
 
-	if got := jsonRaw(types.StringUnknown()); got != nil {
-		t.Errorf("jsonRaw(unknown) = %s, want nil", got)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := jsonRaw(tt.input)
 
-	if got := jsonRaw(types.StringValue(`{"a":1}`)); string(got) != `{"a":1}` {
-		t.Errorf("jsonRaw = %s, want the text", got)
+			if (got == nil) != (tt.want == "") || string(got) != tt.want {
+				t.Errorf("jsonRaw() = %s, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
+// TestOptionalConversions checks the pointer and value conversions of the optional text and number attributes.
 func TestOptionalConversions(t *testing.T) {
-	if got := stringValue(nil); !got.IsNull() {
-		t.Errorf("stringValue(nil) = %v, want null", got)
+	tests := []struct {
+		name string
+		run  func() (got, want string)
+	}{
+		{name: "a nil text is null", run: func() (string, string) { return stringValue(nil).String(), types.StringNull().String() }},
+		{name: "a text is a value", run: func() (string, string) { return stringValue(ptr("x")).ValueString(), "x" }},
+		{name: "a null text has no pointer", run: func() (string, string) { return fmt.Sprint(stringPointer(types.StringNull()) == nil), "true" }},
+		{name: "an unknown text has no pointer", run: func() (string, string) { return fmt.Sprint(stringPointer(types.StringUnknown()) == nil), "true" }},
+		{name: "a text has a pointer", run: func() (string, string) { return *stringPointer(types.StringValue("x")), "x" }},
+		{name: "a nil number is null", run: func() (string, string) { return intValue(nil).String(), types.Int64Null().String() }},
+		{name: "a number is a value", run: func() (string, string) { return fmt.Sprint(intValue(ptr(3)).ValueInt64()), "3" }},
+		{name: "a null number has no pointer", run: func() (string, string) { return fmt.Sprint(intPointer(types.Int64Null()) == nil), "true" }},
+		{name: "an unknown number has no pointer", run: func() (string, string) { return fmt.Sprint(intPointer(types.Int64Unknown()) == nil), "true" }},
+		{name: "a number has a pointer", run: func() (string, string) { return fmt.Sprint(*intPointer(types.Int64Value(4))), "4" }},
 	}
 
-	if got := stringValue(ptr("x")); got.ValueString() != "x" {
-		t.Errorf("stringValue = %v, want x", got)
-	}
-
-	if stringPointer(types.StringNull()) != nil || stringPointer(types.StringUnknown()) != nil {
-		t.Error("stringPointer of null or unknown must be nil")
-	}
-
-	if got := stringPointer(types.StringValue("x")); got == nil || *got != "x" {
-		t.Errorf("stringPointer = %v, want x", got)
-	}
-
-	if got := intValue(nil); !got.IsNull() {
-		t.Errorf("intValue(nil) = %v, want null", got)
-	}
-
-	if got := intValue(ptr(3)); got.ValueInt64() != 3 {
-		t.Errorf("intValue = %v, want 3", got)
-	}
-
-	if intPointer(types.Int64Null()) != nil || intPointer(types.Int64Unknown()) != nil {
-		t.Error("intPointer of null or unknown must be nil")
-	}
-
-	if got := intPointer(types.Int64Value(4)); got == nil || *got != 4 {
-		t.Errorf("intPointer = %v, want 4", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got, want := tt.run(); got != want {
+				t.Errorf("got %q, want %q", got, want)
+			}
+		})
 	}
 }
 

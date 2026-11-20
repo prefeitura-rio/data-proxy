@@ -423,19 +423,32 @@ func TestTableValidateConfig(t *testing.T) {
 	}
 }
 
+// TestTableImportReadsByName checks that the import id becomes the name of the table.
 func TestTableImportReadsByName(t *testing.T) {
-	res := newTestTable(t, nil)
-	s := resourceSchema(t, res)
-	resp := resource.ImportStateResponse{State: nullState(s)}
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{name: "a qualified table", id: "sales.orders"},
+		{name: "a table in a project with a dash", id: "my-project.dataset.table"},
+	}
 
-	res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: "sales.orders"}, &resp)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := newTestTable(t, nil)
+			s := resourceSchema(t, res)
+			resp := resource.ImportStateResponse{State: nullState(s)}
 
-	var state tableModel
+			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: tt.id}, &resp)
 
-	resp.State.Get(context.Background(), &state)
+			var state tableModel
 
-	if state.Name.ValueString() != "sales.orders" {
-		t.Errorf("name = %q, want sales.orders", state.Name.ValueString())
+			resp.State.Get(context.Background(), &state)
+
+			if state.Name.ValueString() != tt.id {
+				t.Errorf("name = %q, want %q", state.Name.ValueString(), tt.id)
+			}
+		})
 	}
 }
 
