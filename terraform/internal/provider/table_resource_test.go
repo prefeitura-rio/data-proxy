@@ -75,6 +75,7 @@ func groupModel(pairs ...string) rlsModel {
 	return block
 }
 
+// rule returns a client rule with one condition for each pair of a column and a unit type.
 func rule(pairs ...string) client.RLSRule {
 	var conditions []client.RLSCondition
 	for i := 0; i < len(pairs); i += 2 {
