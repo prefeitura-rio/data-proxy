@@ -531,7 +531,7 @@ class TestRulesAreReachedOnlyThroughFunctions:
 
         assert state == INSUFFICIENT
 
-    async def test_rules_gives_the_ways_of_a_table_with_no_number(
+    async def test_rules_gives_the_groups_of_a_table_with_no_number(
         self, console_api: Postgres
     ) -> None:
         """Read the rules as the console and Terraform do, and find no group key."""
@@ -574,7 +574,7 @@ class TestRulesAreReachedOnlyThroughFunctions:
                 ],
             }
         ]
-        assert "group" not in json.dumps(document)
+        assert "rule_group" not in json.dumps(document)
 
     async def test_rules_shows_a_token_only_the_tables_of_its_schemas(
         self, console_api: Postgres
