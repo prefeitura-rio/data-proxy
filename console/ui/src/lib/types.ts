@@ -142,13 +142,12 @@ export const TableRow = v.object({
 
 export const TableName = v.pick(TableRow, ['name', 'schema']);
 
-export const RlsRow = v.object({
-	id: v.number(),
+const Condition = v.object({ column: v.string(), unit_type: v.string() });
+
+/** The rules of one table, as `console.rules()` gives them: conditions and ways, in order, with no number. */
+export const RulesRow = v.object({
 	table_name: v.string(),
-	column_name: v.string(),
-	unit_type: v.string(),
-	updated_at: v.string(),
-	updated_by: v.string()
+	ways: v.array(v.union([Condition, v.object({ all: v.array(Condition) })]))
 });
 
 export const Health = v.object({
@@ -199,7 +198,7 @@ export type LogLine = v.InferOutput<typeof LogLine>;
 export type ProjectRow = v.InferOutput<typeof ProjectRow>;
 export type SchemaRow = v.InferOutput<typeof SchemaRow>;
 export type TableRow = v.InferOutput<typeof TableRow>;
-export type RlsRow = v.InferOutput<typeof RlsRow>;
+export type RulesRow = v.InferOutput<typeof RulesRow>;
 export type Health = v.InferOutput<typeof Health>;
 export type Synced = v.InferOutput<typeof Synced>;
 export type HistoryRow = v.InferOutput<typeof HistoryRow>;

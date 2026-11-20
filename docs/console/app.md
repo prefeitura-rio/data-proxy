@@ -56,7 +56,7 @@ The Config page edits a row in a dialog:
 
 - A schema has a `claim` and `encrypted`.
 - A table has a strategy, `n`, `fallback`, a cache TTL (time to live) and sort columns.
-- A row rule has a column and a unit type.
+- The row rules of a table open in one dialog. A condition has a column and a unit type. A card of conditions needs all of them to match.
 
 The page doesn't edit `partitioning`. Change it with an import of the document.
 

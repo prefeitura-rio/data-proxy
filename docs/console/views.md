@@ -33,7 +33,7 @@ The console talks to PostgREST only. The `console` scenario in `k6/scenarios/con
 
 - Send `Authorization: Bearer <JWT>` with a `role` claim (one role of `rbac.toml`) and a `schemas` claim that lists the schemas of the user. Send `Accept-Profile: console` on reads and `Content-Profile: console` on writes, because PostgREST also serves the schemas of the synced data. The access tab sends the data schema as the profile.
 - Send `Prefer: return=representation` to get the written row back.
-- Reads are `GET /runs`, `GET /schemas` and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are read-only: `GET /queues` and `GET /schedules`. The functions are `POST /rpc/start_sync`, `POST /rpc/import_config` and `GET /rpc/table_files`. `GET /rpc/permissions` tells the console which controls to show.
+- Reads are `GET /runs`, `GET /schemas` and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are read-only: `GET /queues` and `GET /schedules`. The functions are `POST /rpc/start_sync`, `POST /rpc/import_config`, `POST /rpc/replace_rls` and `GET /rpc/table_files`. `GET /rpc/permissions` tells the console which controls to show.
 
 | Status | Meaning |
 | --- | --- |
