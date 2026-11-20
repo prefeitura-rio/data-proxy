@@ -1,9 +1,9 @@
 -- +goose Up
 -- noqa: disable=PRS,RF05,CP02,LT05
 -- Adds console.rls.rule_group, a number that only the database reads. A rule is a
--- condition {column, unit_type} or a way {"all": [condition, ...]} that holds its
--- conditions. The database numbers the ways by their position in the list, so the same
--- ways in the same order always give the same numbers, and the configuration signature
+-- condition {column, unit_type} or a group {"all": [condition, ...]} that holds its
+-- conditions. The database numbers the groups by their position in the list, so the same
+-- groups in the same order always give the same numbers, and the configuration signature
 -- stays the same when nothing changed. No function returns the number. The role of the
 -- tokens loses every right on console.rls, and reads and writes the rules through
 -- console.rules() and console.replace_rls(), which repeat the permission checks and the
@@ -38,10 +38,10 @@ REVOKE ALL ON console.rls FROM "${AUTH_USER_ROLE}";
 ALTER FUNCTION console.keep_claim()
 SECURITY DEFINER SET search_path = pg_catalog, pg_temp;
 
--- The ways of every table, in order, with no number: a condition, or {"all": [...]}.
+-- The groups of every table, in order, with no number: a condition, or {"all": [...]}.
 -- +goose StatementBegin
-CREATE OR REPLACE FUNCTION console.ways()
-RETURNS TABLE (table_name text, sort_order integer, way jsonb)
+CREATE OR REPLACE FUNCTION console.groups()
+RETURNS TABLE (table_name text, sort_order integer, grp jsonb)
 LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, console, pg_temp AS $$
     SELECT
@@ -58,29 +58,29 @@ SET search_path = pg_catalog, console, pg_temp AS $$
                         ORDER BY r.sort_order
                     )
                 )
-        END AS way
+        END AS grp
     FROM console.rls AS r
     GROUP BY r.table_name, coalesce(r.rule_group::text, 'alone-' || r.id::text), r.rule_group
 $$;
 -- +goose StatementEnd
 
-REVOKE ALL ON FUNCTION console.ways() FROM PUBLIC;
+REVOKE ALL ON FUNCTION console.groups() FROM PUBLIC;
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.sync_config() RETURNS jsonb
 LANGUAGE sql STABLE AS $$
-    WITH ways AS (
-        SELECT w.* FROM console.ways() AS w WHERE console.mine_table(w.table_name)
+    WITH grouped AS (
+        SELECT w.* FROM console.groups() AS w WHERE console.mine_table(w.table_name)
     ),
 
     rules AS (
         SELECT
             table_name,
             jsonb_agg(
-                way
+                grp
                 ORDER BY sort_order
             ) AS rls
-        FROM ways
+        FROM grouped
         GROUP BY table_name
     ),
 
@@ -139,33 +139,33 @@ $$;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-CREATE OR REPLACE FUNCTION console.write_rls(table_name text, ways jsonb)
+CREATE OR REPLACE FUNCTION console.write_rls(table_name text, groups jsonb)
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, console, pg_temp AS $$
 DECLARE
-    way jsonb;
+    grp jsonb;
     condition jsonb;
     place integer := 0;
     number integer := 0;
 BEGIN
-    IF jsonb_typeof(ways) <> 'array' THEN
+    IF jsonb_typeof(groups) <> 'array' THEN
         RAISE EXCEPTION 'The rules must be a JSON array' USING ERRCODE = 'invalid_parameter_value';
     END IF;
 
     DELETE FROM console.rls AS r WHERE r.table_name = write_rls.table_name;
 
-    FOR way IN SELECT jsonb_array_elements(ways)
+    FOR grp IN SELECT jsonb_array_elements(groups)
     LOOP
-        IF way ? 'all' THEN
-            IF jsonb_typeof(way -> 'all') <> 'array' OR jsonb_array_length(way -> 'all') < 2 THEN
-                RAISE EXCEPTION 'A way of all needs at least two conditions'
+        IF grp ? 'all' THEN
+            IF jsonb_typeof(grp -> 'all') <> 'array' OR jsonb_array_length(grp -> 'all') < 2 THEN
+                RAISE EXCEPTION 'A group of all needs at least two conditions'
                     USING ERRCODE = 'invalid_parameter_value';
             END IF;
 
             number := number + 1;
 
-            FOR condition IN SELECT jsonb_array_elements(way -> 'all')
+            FOR condition IN SELECT jsonb_array_elements(grp -> 'all')
             LOOP
                 place := place + 1;
 
@@ -182,7 +182,7 @@ BEGIN
             place := place + 1;
 
             INSERT INTO console.rls (table_name, column_name, unit_type, sort_order)
-            VALUES (write_rls.table_name, way ->> 'column', way ->> 'unit_type', place);
+            VALUES (write_rls.table_name, grp ->> 'column', grp ->> 'unit_type', place);
         END IF;
     END LOOP;
 END
@@ -258,7 +258,7 @@ $$;
 -- +goose StatementEnd
 
 
--- The history keeps what a user sets: the column and the unit type. The number of a way and the
+-- The history keeps what a user sets: the column and the unit type. The number of a group and the
 -- order are internal, so the history row has neither.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.record_change() RETURNS trigger
@@ -304,7 +304,7 @@ $$;
 -- The function reads past the row policies of console.rls, so it repeats them.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.rules()
-RETURNS TABLE (table_name text, ways jsonb)
+RETURNS TABLE (table_name text, groups jsonb)
 LANGUAGE plpgsql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, console, pg_temp AS $$
 BEGIN
@@ -314,19 +314,19 @@ BEGIN
     END IF;
 
     RETURN QUERY
-    SELECT w.table_name, jsonb_agg(w.way ORDER BY w.sort_order)
-    FROM console.ways() AS w
+    SELECT w.table_name, jsonb_agg(w.grp ORDER BY w.sort_order)
+    FROM console.groups() AS w
     WHERE console.mine_table(w.table_name)
     GROUP BY w.table_name;
 END
 $$;
 -- +goose StatementEnd
 
--- Replace the rules of one table with a list of conditions and ways. It runs as the owner,
+-- Replace the rules of one table with a list of conditions and groups. It runs as the owner,
 -- because the token role has no right on console.rls, so it repeats the permission checks and
 -- the schema claim. The table must belong to a schema of the token.
 -- +goose StatementBegin
-CREATE OR REPLACE FUNCTION console.replace_rls(table_name text, ways jsonb)
+CREATE OR REPLACE FUNCTION console.replace_rls(table_name text, groups jsonb)
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, console, pg_temp AS $$
@@ -341,7 +341,7 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 
-    PERFORM console.write_rls(replace_rls.table_name, ways);
+    PERFORM console.write_rls(replace_rls.table_name, groups);
 END
 $$;
 -- +goose StatementEnd
@@ -548,7 +548,7 @@ DROP FUNCTION console.rules();
 
 DROP FUNCTION console.write_rls(text, jsonb);
 
-DROP FUNCTION console.ways();
+DROP FUNCTION console.groups();
 
 DROP TRIGGER order_rls ON console.rls;
 

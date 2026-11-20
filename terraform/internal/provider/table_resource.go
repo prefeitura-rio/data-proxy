@@ -48,7 +48,7 @@ type rlsModel struct {
 	UnitType   types.String `tfsdk:"unit_type"`
 }
 
-// rlsAllModel maps one rls_all block: a way that holds the conditions that all must match.
+// rlsAllModel maps one rls_all block: a group that holds the conditions that all must match.
 type rlsAllModel struct {
 	RLS []rlsModel `tfsdk:"rls"`
 }
@@ -110,15 +110,15 @@ func applyTableRow(ctx context.Context, model *tableModel, row client.Table, rul
 			continue
 		}
 
-		way := rlsAllModel{}
+		group := rlsAllModel{}
 		for _, condition := range rule.All {
-			way.RLS = append(way.RLS, rlsModel{
+			group.RLS = append(group.RLS, rlsModel{
 				ColumnName: types.StringValue(condition.ColumnName),
 				UnitType:   types.StringValue(condition.UnitType),
 			})
 		}
 
-		model.RLSAll = append(model.RLSAll, way)
+		model.RLSAll = append(model.RLSAll, group)
 	}
 
 	return diagnostics
@@ -137,7 +137,7 @@ func sortValues(ctx context.Context, model tableModel) ([]string, diag.Diagnosti
 	return columns, diagnostics
 }
 
-// rlsRules returns the row policies of the model: the plain conditions in order, then the ways in order. The two kinds
+// rlsRules returns the row policies of the model: the plain conditions in order, then the groups in order. The two kinds
 // of block are two lists, so their order between each other is not kept. The filter that the sync builds from them
 // is the same in either order.
 func rlsRules(model tableModel) []client.RLSRule {
@@ -149,9 +149,9 @@ func rlsRules(model tableModel) []client.RLSRule {
 		})
 	}
 
-	for _, way := range model.RLSAll {
-		conditions := make([]client.RLSCondition, 0, len(way.RLS))
-		for _, block := range way.RLS {
+	for _, group := range model.RLSAll {
+		conditions := make([]client.RLSCondition, 0, len(group.RLS))
+		for _, block := range group.RLS {
 			conditions = append(conditions, client.RLSCondition{
 				ColumnName: block.ColumnName.ValueString(),
 				UnitType:   block.UnitType.ValueString(),
@@ -254,7 +254,7 @@ func (r *tableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				},
 			},
 			"rls_all": schema.ListNestedBlock{
-				Description: "A way: two or more `rls` blocks that all must match. A reader needs a grant for each of them, or the way gives no row. Ways are alternatives to each other and to the plain `rls` blocks.",
+				Description: "A group: two or more `rls` blocks that all must match. A reader needs a grant for each of them, or the way gives no row. Groups are alternatives to each other and to the plain `rls` blocks.",
 				Validators:  []validator.List{},
 				NestedObject: schema.NestedBlockObject{
 					Blocks: map[string]schema.Block{

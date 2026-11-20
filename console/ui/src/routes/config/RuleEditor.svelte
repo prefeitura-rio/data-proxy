@@ -21,26 +21,26 @@
 		onclose: () => void;
 	} = $props();
 
-	const { WAY } = rules;
+	const { GROUP } = rules;
 	const newId = () => crypto.randomUUID();
 	const column = 'input[name=column]';
 
-	let ways = $state<rules.Ways>({ any: [], cards: [] });
+	let groups = $state<rules.Groups>({ any: [], cards: [] });
 	let announce = $state('');
 	let box = $state<HTMLElement>();
 
 	$effect(() => {
 		if (table !== null) {
-			ways = rules.startWays(stored, newId);
+			groups = rules.startGroups(stored, newId);
 			announce = '';
 		}
 	});
 
-	const sentence = $derived(rules.describe(rules.asEditor(ways)));
-	const problems = $derived(rules.warnings(rules.asEditor(ways)));
+	const sentence = $derived(rules.describe(rules.asEditor(groups)));
+	const problems = $derived(rules.warnings(rules.asEditor(groups)));
 
-	function change(next: rules.Ways, message: string, focus = column, first = false) {
-		ways = next;
+	function change(next: rules.Groups, message: string, focus = column, first = false) {
+		groups = next;
 		announce = message;
 
 		void tick().then(() => {
@@ -51,15 +51,15 @@
 	}
 
 	function remove(entry: rules.Item) {
-		change(rules.without(ways, entry.id), `Removed the condition ${entry.column}.`);
+		change(rules.without(groups, entry.id), `Removed the condition ${entry.column}.`);
 	}
 
 	function addCard() {
 		const id = newId();
 
 		change(
-			rules.withCard(ways, id, newId(), newId()),
-			`Added ${WAY} ${ways.cards.length + 1}.`,
+			rules.withCard(groups, id, newId(), newId()),
+			`Added ${GROUP} ${groups.cards.length + 1}.`,
 			`[data-card="${id}"] ${column}`,
 			true
 		);
@@ -70,15 +70,15 @@
 	<div bind:this={box} class="flex flex-col gap-3">
 		<input type="hidden" name="table_name" value={table ?? ''} />
 
-		{#each rules.fieldsOf(ways) as { entry, way } (entry.id)}
+		{#each rules.fieldsOf(groups) as { entry, group } (entry.id)}
 			<input type="hidden" name="rule_column" value={entry.column} />
 			<input type="hidden" name="rule_unit_type" value={entry.unit_type} />
-			<input type="hidden" name="rule_way" value={way} />
+			<input type="hidden" name="rule_group" value={group} />
 		{/each}
 
 		<fieldset class="rounded-box border border-base-300 p-3" data-list="any">
 			<legend class="px-1 text-sm font-semibold">Any of these is enough</legend>
-			{#each ways.any as entry (entry.id)}
+			{#each groups.any as entry (entry.id)}
 				<RuleRow
 					{entry}
 					onremove={() => {
@@ -86,15 +86,15 @@
 					}}
 				>
 					{#snippet actions()}
-						{#each ways.cards as card, index (card.id)}
+						{#each groups.cards as card, index (card.id)}
 							<button
 								class="btn btn-ghost btn-xs"
 								type="button"
 								onclick={() => {
-									change(rules.intoCard(ways, entry.id, card.id), `Moved ${entry.column} to ${WAY} ${index + 1}.`);
+									change(rules.intoCard(groups, entry.id, card.id), `Moved ${entry.column} to ${GROUP} ${index + 1}.`);
 								}}
 							>
-								<ArrowDownToLine size={14} /> Must also match in {WAY}
+								<ArrowDownToLine size={14} /> Must also match in {GROUP}
 								{index + 1}
 							</button>
 						{/each}
@@ -103,8 +103,8 @@
 							type="button"
 							onclick={() => {
 								change(
-									rules.intoNewCard(ways, entry.id, newId(), newId()),
-									`Started a new ${WAY.toLowerCase()} with ${entry.column}.`
+									rules.intoNewCard(groups, entry.id, newId(), newId()),
+									`Started a new ${GROUP.toLowerCase()} with ${entry.column}.`
 								);
 							}}
 						>
@@ -119,17 +119,17 @@
 				class="btn mt-2 btn-ghost btn-xs"
 				type="button"
 				onclick={() => {
-					change(rules.withBlank(ways, newId(), null), 'Added a condition.', `[data-list=any] ${column}`);
+					change(rules.withBlank(groups, newId(), null), 'Added a condition.', `[data-list=any] ${column}`);
 				}}
 			>
 				<Plus size={14} /> Add a condition
 			</button>
 		</fieldset>
 
-		{#each ways.cards as card, index (card.id)}
+		{#each groups.cards as card, index (card.id)}
 			<p class="text-center text-xs tracking-wide text-base-content/60 uppercase">or</p>
 			<fieldset class="rounded-box border border-primary/40 p-3" data-card={card.id}>
-				<legend class="px-1 text-sm font-semibold">{WAY} {index + 1}: all of these must match</legend>
+				<legend class="px-1 text-sm font-semibold">{GROUP} {index + 1}: all of these must match</legend>
 				{#each card.items as entry, position (entry.id)}
 					{#if position > 0}<p class="py-1 text-xs text-base-content/60">and also</p>{/if}
 					<RuleRow
@@ -143,7 +143,7 @@
 								class="btn btn-ghost btn-xs"
 								type="button"
 								onclick={() => {
-									change(rules.intoAlternatives(ways, entry.id), `Moved ${entry.column} to the alternatives.`);
+									change(rules.intoAlternatives(groups, entry.id), `Moved ${entry.column} to the alternatives.`);
 								}}
 							>
 								<ArrowUpFromLine size={14} /> Make it an alternative
@@ -156,20 +156,20 @@
 					type="button"
 					onclick={() => {
 						change(
-							rules.withBlank(ways, newId(), card.id),
-							`Added a condition to ${WAY} ${index + 1}.`,
+							rules.withBlank(groups, newId(), card.id),
+							`Added a condition to ${GROUP} ${index + 1}.`,
 							`[data-card="${card.id}"] ${column}`
 						);
 					}}
 				>
-					<Plus size={14} /> Add a condition to {WAY}
+					<Plus size={14} /> Add a condition to {GROUP}
 					{index + 1}
 				</button>
 			</fieldset>
 		{/each}
 
 		<button class="btn self-start btn-sm" type="button" onclick={addCard}>
-			<Plus size={14} /> Add another {WAY.toLowerCase()}
+			<Plus size={14} /> Add another {GROUP.toLowerCase()}
 		</button>
 
 		{#if problems.length > 0}
@@ -179,7 +179,7 @@
 		{/if}
 
 		<p class="rounded-box bg-base-200 p-3 text-sm" data-testid="rule-sentence">{sentence}</p>
-		<RuleExplain editor={rules.asEditor(ways)} {schema} />
+		<RuleExplain editor={rules.asEditor(groups)} {schema} />
 		<p class="sr-only" aria-live="polite">{announce}</p>
 	</div>
 </FormDialog>

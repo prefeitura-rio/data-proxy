@@ -37,9 +37,9 @@ def is_list(duckdb_type: str) -> bool:
 
 
 def flatten_rules(rls: list[RlsRule]) -> list[tuple[UnitMapping, str]]:
-    """Return each condition with the number of its way, or the empty text for a condition on its own.
+    """Return each condition with the number of its group, or the empty text for a condition on its own.
 
-    The number is the position of the way among the ways, from 1. Only the template reads it.
+    The number is the position of the group among the groups, from 1. Only the template reads it.
     """
     flat: list[tuple[UnitMapping, str]] = []
     number = 0
@@ -64,7 +64,7 @@ def rls_mapping_entries(
     types = dict(columns)
     entries: list[dict[str, TemplateValue]] = []
 
-    for mapping, way in flatten_rules(rls):
+    for mapping, group in flatten_rules(rls):
         if mapping.column not in types:
             raise ValueError(
                 f"The rls column {mapping.column!r} is not a column of the source table"
@@ -82,7 +82,7 @@ def rls_mapping_entries(
                 "column": mapping.column,
                 "unit_type": mapping.unit_type,
                 "duckdb_type": duckdb_type.upper(),
-                "group": way,
+                "group": group,
             }
         )
 

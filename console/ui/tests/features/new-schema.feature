@@ -113,7 +113,7 @@ Feature: Scenarios that add, change and delete a schema of their own
     When I save the row rules
     And I reload the page
     And I open the row rules of "p.d.groups"
-    Then I see "Way 1: all of these must match" with the columns "region_id" and "unit_id"
+    Then I see "Group 1: all of these must match" with the columns "region_id" and "unit_id"
     And the editor says "A user sees a row when its area matches one of their area units, or when its region_id matches one of their region units and its unit_id matches one of their unit units."
     When I close the editor
     And I delete the table "p.d.groups"

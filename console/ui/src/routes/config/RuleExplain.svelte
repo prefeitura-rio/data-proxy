@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import * as v from 'valibot';
-	import { explain, WAY, type Editor, type Explained } from '#lib/rules.js';
+	import { explain, GROUP, type Editor, type Explained } from '#lib/rules.js';
 	import { PolicyRow } from '#lib/types.js';
 
 	let { editor, schema }: { editor: Editor; schema: string } = $props();
@@ -72,7 +72,7 @@
 					{#each answer.cards as card, index (index)}
 						<li>
 							<strong
-								>{WAY}
+								>{GROUP}
 								{index + 1}: {card.active ? 'active' : `drops out, no grant of ${card.missing.join(', ')}`}</strong
 							>
 							<ul class="pl-4">

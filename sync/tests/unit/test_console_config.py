@@ -214,7 +214,7 @@ class TestImportConfig:
         )
         assert await scalar(
             console_api,
-            "SELECT ways FROM console.rules() WHERE table_name = 'p.d.orders'",
+            "SELECT groups FROM console.rules() WHERE table_name = 'p.d.orders'",
         ) == [{"column": "email", "unit_type": "mail"}]
         assert [row for row in planned if row[3] != "unchanged"] == [
             ("rls", "sales", "p.d.orders.cnpj", "delete"),
@@ -254,7 +254,7 @@ class TestImportConfig:
         assert (
             await scalar(
                 console_api,
-                "SELECT count(*) FROM console.rules() AS r, jsonb_array_elements(r.ways)",
+                "SELECT count(*) FROM console.rules() AS r, jsonb_array_elements(r.groups)",
             )
             == 2
         )
@@ -301,7 +301,7 @@ class TestImportConfig:
 
 @pytest.mark.postgres
 class TestRuleWays:
-    """A rule is a condition, or a way that holds conditions that all must match. No number is visible."""
+    """A rule is a condition, or a group that holds conditions that all must match. No number is visible."""
 
     WAYS: ClassVar[list[JsonValue]] = [
         {
@@ -314,11 +314,11 @@ class TestRuleWays:
     ]
 
     async def replace(
-        self, pg: Postgres, ways: list[JsonValue], table: str = "p.d.orders"
+        self, pg: Postgres, groups: list[JsonValue], table: str = "p.d.orders"
     ) -> None:
         """Replace the rules of a table, as the console and Terraform do."""
         await pg.connection.execute(
-            b"SELECT console.replace_rls(%s, %s)", (table, Jsonb(ways))
+            b"SELECT console.replace_rls(%s, %s)", (table, Jsonb(groups))
         )
 
     async def test_writes_a_way_as_all_and_a_condition_as_it_is(
@@ -346,7 +346,7 @@ class TestRuleWays:
     async def test_importing_an_export_with_a_way_changes_no_value(
         self, console_api: Postgres
     ) -> None:
-        """Make the export and the import the two halves of one round trip, ways included."""
+        """Make the export and the import the two halves of one round trip, groups included."""
         await seed(console_api)
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
         await self.replace(console_api, self.WAYS)
@@ -361,7 +361,7 @@ class TestRuleWays:
     async def test_the_same_ways_give_the_same_document_every_time(
         self, console_api: Postgres
     ) -> None:
-        """Number the ways by position, so a second save changes nothing and no table rebuilds."""
+        """Number the groups by position, so a second save changes nothing and no table rebuilds."""
         await seed(console_api)
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
         await self.replace(console_api, self.WAYS)
@@ -394,11 +394,11 @@ class TestRuleWays:
 
         assert await scalar(
             console_api,
-            "SELECT ways FROM console.rules() WHERE table_name = 'p.d.orders'",
+            "SELECT groups FROM console.rules() WHERE table_name = 'p.d.orders'",
         ) == [{"column": "email", "unit_type": "mail"}]
 
     @pytest.mark.parametrize(
-        ("ways", "state"),
+        ("groups", "state"),
         [
             pytest.param(
                 [{"column": "", "unit_type": "x"}], CHECK_VIOLATION, id="empty-column"
@@ -411,15 +411,15 @@ class TestRuleWays:
             pytest.param(
                 [{"all": [{"column": "a", "unit_type": "x"}]}],
                 "22023",
-                id="a-way-of-one",
+                id="a-group-of-one",
             ),
-            pytest.param([{"all": "nope"}], "22023", id="a-way-that-is-not-a-list"),
+            pytest.param([{"all": "nope"}], "22023", id="a-group-that-is-not-a-list"),
         ],
     )
     async def test_replace_keeps_the_old_rules_when_one_new_rule_is_wrong(
         self,
         console_api: Postgres,
-        ways: list[dict[str, object]],
+        groups: list[dict[str, object]],
         state: str,
     ) -> None:
         """Roll the delete back, so a bad list never leaves a table with fewer rules."""
@@ -427,18 +427,21 @@ class TestRuleWays:
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
         before = await scalar(
             console_api,
-            "SELECT ways FROM console.rules() WHERE table_name = 'p.d.orders'",
+            "SELECT groups FROM console.rules() WHERE table_name = 'p.d.orders'",
         )
 
         found = await refusal(
-            console_api, "SELECT console.replace_rls(%s, %s)", "p.d.orders", Jsonb(ways)
+            console_api,
+            "SELECT console.replace_rls(%s, %s)",
+            "p.d.orders",
+            Jsonb(groups),
         )
 
         assert found == state
         assert (
             await scalar(
                 console_api,
-                "SELECT ways FROM console.rules() WHERE table_name = 'p.d.orders'",
+                "SELECT groups FROM console.rules() WHERE table_name = 'p.d.orders'",
             )
             == before
         )
@@ -475,7 +478,7 @@ class TestRuleWays:
     async def test_the_history_shows_a_way_with_no_number(
         self, console_api: Postgres
     ) -> None:
-        """Record a rule of a way by its table and its column, and keep the number out of the rows."""
+        """Record a rule of a group by its table and its column, and keep the number out of the rows."""
         await seed(console_api)
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
         await self.replace(console_api, self.WAYS)
@@ -506,7 +509,7 @@ class TestRulesAreReachedOnlyThroughFunctions:
     async def test_the_token_role_cannot_read_the_table_of_rules(
         self, console_api: Postgres
     ) -> None:
-        """A flat read would show the conditions of a way as alternatives."""
+        """A flat read would show the conditions of a group as alternatives."""
         await seed(console_api)
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
 
@@ -560,7 +563,7 @@ class TestRulesAreReachedOnlyThroughFunctions:
         assert document == [
             {
                 "table_name": "p.d.orders",
-                "ways": [
+                "groups": [
                     {"column": "area", "unit_type": "area"},
                     {
                         "all": [
@@ -648,7 +651,7 @@ class TestClaimChecksReadTheRulesPastTheRoleOfTheTokens:
 
         assert await scalar(
             console_api,
-            "SELECT ways FROM console.rules() WHERE table_name = 'p.d.staff'",
+            "SELECT groups FROM console.rules() WHERE table_name = 'p.d.staff'",
         ) == [{"column": "cpf", "unit_type": "cpf"}]
 
     async def test_a_rule_on_a_schema_with_no_claim_is_refused(

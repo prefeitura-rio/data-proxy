@@ -211,7 +211,7 @@ func newTableDataSource() datasource.DataSource {
 				}},
 			},
 			"rls_all": schema.ListNestedAttribute{
-				Description: "The ways in order. Each holds the conditions that all must match.",
+				Description: "The groups in order. Each holds the conditions that all must match.",
 				Computed:    true,
 				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 					"rls": schema.ListNestedAttribute{

@@ -38,7 +38,7 @@ class UnitMapping(BaseModel):
 
 
 class AllOf(BaseModel):
-    """A way that holds at least two conditions. A reader needs a grant for each of them, and every one must match."""
+    """A group that holds at least two conditions. A reader needs a grant for each of them, and every one must match."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict({"extra": "forbid"})
 

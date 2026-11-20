@@ -74,7 +74,7 @@ class TestListColumns:
             pytest.param(
                 [{"column": "a", "unit_type": "x"}],
                 [("a", "x", "")],
-                id="a-condition-has-no-way",
+                id="a-condition-has-no-group",
             ),
             pytest.param(
                 [
@@ -86,7 +86,7 @@ class TestListColumns:
                     }
                 ],
                 [("a", "x", "1"), ("b", "y", "1")],
-                id="the-conditions-of-a-way-share-a-number",
+                id="the-conditions-of-a-group-share-a-number",
             ),
             pytest.param(
                 [
@@ -111,7 +111,7 @@ class TestListColumns:
                     ("d", "w", "2"),
                     ("e", "v", "2"),
                 ],
-                id="ways-are-numbered-by-position-from-one",
+                id="groups-are-numbered-by-position-from-one",
             ),
         ],
     )
@@ -161,24 +161,24 @@ class TestListColumns:
     @pytest.mark.parametrize(
         "rule",
         [
-            pytest.param({"all": []}, id="a-way-with-no-condition"),
+            pytest.param({"all": []}, id="a-group-with-no-condition"),
             pytest.param(
-                {"all": [{"column": "a", "unit_type": "x"}]}, id="a-way-of-one"
+                {"all": [{"column": "a", "unit_type": "x"}]}, id="a-group-of-one"
             ),
-            pytest.param({"all": "a"}, id="a-way-that-is-not-a-list"),
+            pytest.param({"all": "a"}, id="a-group-that-is-not-a-list"),
             pytest.param(
                 {"column": "a", "unit_type": "x", "group": 1}, id="a-group-number"
             ),
             pytest.param(
                 {"all": [{"column": "a", "unit_type": "x", "all": []}]},
-                id="a-way-inside-a-way",
+                id="a-group-inside-a-group",
             ),
         ],
     )
     def test_refuses_a_rule_that_is_not_a_condition_or_a_way_of_two_or_more(
         self, rule: dict[str, object]
     ) -> None:
-        """Keep the shape small: a condition, or a way of at least two conditions, and no number."""
+        """Keep the shape small: a condition, or a group of at least two conditions, and no number."""
         with pytest.raises(ValueError, match=r"rls|all|group|Extra|at least"):
             FullTable.model_validate(
                 {"name": "p.d.people", "resolved_source": "bigquery", "rls": [rule]}
