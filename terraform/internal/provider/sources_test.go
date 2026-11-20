@@ -2,12 +2,17 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
+	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
+
+	"terraform-provider-data-proxy/internal/client"
 )
 
 func TestProjectDataSource(t *testing.T) {
@@ -247,4 +252,90 @@ func TestDataSourceWithoutAClientFails(t *testing.T) {
 	if got := summaries(diagnosticsOf(resp.Diagnostics)); len(got) != 1 || got[0] != "Unconfigured provider" {
 		t.Errorf("diagnostics = %v, want the error of a missing client", got)
 	}
+}
+
+func TestAccDataSources(t *testing.T) {
+	project := testAccName()
+	table := "p.d." + testAccName()
+
+	testAccCleanup(t, "projects", client.Eq("name", project))
+	testAccCleanup(t, "schemas", client.Eq("project", project))
+	testAccCleanup(t, "tables", client.Eq("name", table))
+
+	config := tableAccConfig(project, table, 30, [2]string{"unit_id", "unit"}) + fmt.Sprintf(`
+data "data_proxy_project" "this" {
+  provider = data-proxy
+  name     = data_proxy_project.this.name
+}
+
+data "data_proxy_schema" "by_parts" {
+  provider   = data-proxy
+  project    = data_proxy_project.this.name
+  short_name = "orders"
+
+  depends_on = [data_proxy_schema.this]
+}
+
+data "data_proxy_table" "this" {
+  provider = data-proxy
+  name     = data_proxy_table.this.name
+}
+
+data "data_proxy_export_config" "this" {
+  provider   = data-proxy
+  depends_on = [data_proxy_table.this]
+}
+
+data "data_proxy_config_history" "this" {
+  provider   = data-proxy
+  schema     = data_proxy_schema.this.name
+  limit      = 5
+  depends_on = [data_proxy_table.this]
+}
+
+data "data_proxy_schema_health" "provisioned" {
+  provider = data-proxy
+  name     = %q
+}
+`, testAccProvisionedSchema)
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{
+				Config: config,
+				Check: acc.ComposeAggregateTestCheckFunc(
+					acc.TestCheckResourceAttr("data.data_proxy_project.this", "id", project),
+					acc.TestCheckResourceAttr("data.data_proxy_schema.by_parts", "name", project+"_orders"),
+					acc.TestCheckResourceAttr("data.data_proxy_schema.by_parts", "claim", "preferred_username"),
+					acc.TestCheckResourceAttr("data.data_proxy_table.this", "cache_ttl", "30"),
+					acc.TestCheckResourceAttr("data.data_proxy_table.this", "rls.0.unit_type", "unit"),
+					acc.TestCheckResourceAttr("data.data_proxy_schema_health.provisioned", "schema_exists", "true"),
+					acc.TestCheckResourceAttrWith("data.data_proxy_config_history.this", "entries.#", func(value string) error {
+						if value == "0" {
+							return fmt.Errorf("the history of %s has no entry", project)
+						}
+
+						return nil
+					}),
+					acc.TestCheckResourceAttrWith("data.data_proxy_export_config.this", "document", func(value string) error {
+						var document struct {
+							Projects map[string]json.RawMessage `json:"projects"`
+						}
+
+						if err := json.Unmarshal([]byte(value), &document); err != nil {
+							return err
+						}
+
+						if _, ok := document.Projects[project]; !ok {
+							return fmt.Errorf("the export has no project %s", project)
+						}
+
+						return nil
+					}),
+				),
+			},
+		},
+	})
 }

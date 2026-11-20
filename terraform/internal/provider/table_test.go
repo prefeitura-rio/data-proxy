@@ -3,13 +3,16 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
 	"terraform-provider-data-proxy/internal/client"
 )
@@ -528,6 +531,243 @@ func TestRLSBlockRoundTripsBothForms(t *testing.T) {
 			if got := ruleOf(block); !reflect.DeepEqual(got, test.rule) {
 				t.Errorf("ruleOf(blockOf(%+v)) = %+v", test.rule, got)
 			}
+		})
+	}
+}
+
+// tableAccConfig returns a schema with a claim and a table in it, with the row policies that the caller gives.
+func tableAccConfig(project, table string, cacheTTL int, rules ...[2]string) string {
+	blocks := ""
+	for _, rule := range rules {
+		blocks += fmt.Sprintf(`
+  rls {
+    column_name = %q
+    unit_type   = %q
+  }
+`, rule[0], rule[1])
+	}
+
+	return schemaConfig(project, "orders", "preferred_username") + fmt.Sprintf(`
+resource "data_proxy_table" "this" {
+  provider  = data-proxy
+  name      = %q
+  schema    = data_proxy_schema.this.name
+  cache_ttl = %d
+  sort      = ["order_id"]
+%s}
+`, table, cacheTTL, blocks)
+}
+
+func TestAccTableResource(t *testing.T) {
+	project := testAccName()
+	table := "p.d." + testAccName()
+
+	testAccCleanup(t, "projects", client.Eq("name", project))
+	testAccCleanup(t, "schemas", client.Eq("project", project))
+	testAccCleanup(t, "tables", client.Eq("name", table))
+
+	unit, region := [2]string{"unit_id", "unit"}, [2]string{"region_id", "region"}
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{
+				Config: tableAccConfig(project, table, 60, unit, region),
+				Check: acc.ComposeAggregateTestCheckFunc(
+					acc.TestCheckResourceAttr("data_proxy_table.this", "strategy", "full"),
+					acc.TestCheckResourceAttr("data_proxy_table.this", "cache_ttl", "60"),
+					acc.TestCheckResourceAttr("data_proxy_table.this", "rls.#", "2"),
+					acc.TestCheckResourceAttr("data_proxy_table.this", "rls.0.column_name", "unit_id"),
+					acc.TestCheckResourceAttr("data_proxy_table.this", "rls.1.unit_type", "region"),
+				),
+			},
+			{
+				Config: tableAccConfig(project, table, 120, region, unit),
+				Check: acc.ComposeAggregateTestCheckFunc(
+					acc.TestCheckResourceAttr("data_proxy_table.this", "cache_ttl", "120"),
+					acc.TestCheckResourceAttr("data_proxy_table.this", "rls.0.column_name", "region_id"),
+					acc.TestCheckResourceAttr("data_proxy_table.this", "rls.1.column_name", "unit_id"),
+				),
+			},
+			{ResourceName: "data_proxy_table.this", ImportState: true, ImportStateVerify: true},
+			{
+				Config: tableAccConfig(project, table, 120),
+				Check:  acc.TestCheckResourceAttr("data_proxy_table.this", "rls.#", "0"),
+			},
+		},
+	})
+}
+
+func TestAccTableResourceKeepsAGroupOfConditionsInOneBlock(t *testing.T) {
+	project := testAccName()
+	table := "p.d." + testAccName()
+
+	testAccCleanup(t, "projects", client.Eq("name", project))
+	testAccCleanup(t, "schemas", client.Eq("project", project))
+	testAccCleanup(t, "tables", client.Eq("name", table))
+
+	config := schemaConfig(project, "orders", "preferred_username") + fmt.Sprintf(`
+resource "data_proxy_table" "this" {
+  provider = data-proxy
+  name     = %q
+  schema   = data_proxy_schema.this.name
+
+  rls {
+    condition {
+      column_name = "region_id"
+      unit_type   = "region"
+    }
+    condition {
+      column_name = "unit_id"
+      unit_type   = "unit"
+    }
+  }
+
+  rls {
+    column_name = "area"
+    unit_type   = "area"
+  }
+}
+`, table)
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{
+				Config: config,
+				Check: acc.ComposeAggregateTestCheckFunc(
+					acc.TestCheckResourceAttr("data_proxy_table.this", "rls.#", "2"),
+					acc.TestCheckResourceAttr("data_proxy_table.this", "rls.0.condition.#", "2"),
+					acc.TestCheckResourceAttr("data_proxy_table.this", "rls.0.condition.1.column_name", "unit_id"),
+					acc.TestCheckResourceAttr("data_proxy_table.this", "rls.1.column_name", "area"),
+				),
+			},
+			{ResourceName: "data_proxy_table.this", ImportState: true, ImportStateVerify: true},
+		},
+	})
+}
+
+func TestAccTableResourceRefusesARowPolicyWithoutAClaim(t *testing.T) {
+	project := testAccName()
+	table := "p.d." + testAccName()
+
+	testAccCleanup(t, "projects", client.Eq("name", project))
+	testAccCleanup(t, "schemas", client.Eq("project", project))
+	testAccCleanup(t, "tables", client.Eq("name", table))
+
+	config := projectConfig(project) + fmt.Sprintf(`
+resource "data_proxy_schema" "this" {
+  provider            = data-proxy
+  project             = data_proxy_project.this.name
+  short_name          = "orders"
+  deletion_protection = false
+
+  timeouts {
+    create = "0s"
+    delete = "0s"
+  }
+}
+
+resource "data_proxy_table" "this" {
+  provider = data-proxy
+  name     = %q
+  schema   = data_proxy_schema.this.name
+
+  rls {
+    column_name = "unit_id"
+    unit_type   = "unit"
+  }
+}
+`, table)
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{Config: config, ExpectError: regexp.MustCompile(`Couldn't add the row policies of the table`)},
+		},
+	})
+}
+
+func TestAccTableResourceRefusesNWithAFullStrategy(t *testing.T) {
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{
+				Config: `
+resource "data_proxy_table" "this" {
+  provider = data-proxy
+  name     = "p.d.t"
+  schema   = "s"
+  n        = 3
+}
+`,
+				ExpectError: regexp.MustCompile(`n needs the strategy`),
+			},
+		},
+	})
+}
+
+func TestAccTableResourceRefusesAnRLSBlockThatMixesBothForms(t *testing.T) {
+	tests := []struct {
+		name  string
+		block string
+		want  string
+	}{
+		{
+			name: "both forms",
+			block: `
+  rls {
+    column_name = "a"
+    unit_type   = "x"
+    condition {
+      column_name = "b"
+      unit_type   = "y"
+    }
+    condition {
+      column_name = "c"
+      unit_type   = "z"
+    }
+  }`,
+			want: `both a column and conditions`,
+		},
+		{
+			name: "one condition block",
+			block: `
+  rls {
+    condition {
+      column_name = "a"
+      unit_type   = "x"
+    }
+  }`,
+			want: `written flat`,
+		},
+		{name: "an empty block", block: `
+  rls {}`, want: `needs column_name and unit_type`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			acc.Test(t, acc.TestCase{
+				PreCheck:                 func() { testAccPreCheck(t) },
+				ProtoV6ProviderFactories: testAccProviderFactories,
+				Steps: []acc.TestStep{
+					{
+						Config: `
+resource "data_proxy_table" "this" {
+  provider = data-proxy
+  name     = "p.d.t"
+  schema   = "s"
+` + test.block + `
+}
+`,
+						ExpectError: regexp.MustCompile(test.want),
+					},
+				},
+			})
 		})
 	}
 }
