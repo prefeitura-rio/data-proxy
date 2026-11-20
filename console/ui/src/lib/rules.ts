@@ -282,7 +282,7 @@ export function explain(editor: Editor, grants: Grant[]): Explained {
 		values: valuesOf(grants, rule.unit_type)
 	});
 	const any = editor.any.map(find);
-	const cards = editor.all
+	const cards = editor.cards
 		.filter((card) => card.length > 0)
 		.map((card): CardResult => {
 			const conditions = card.map(find);

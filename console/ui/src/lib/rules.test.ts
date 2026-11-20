@@ -382,13 +382,13 @@ describe('explain', () => {
 	it.each([
 		[
 			'no rule',
-			{ any: [], all: [] },
+			{ any: [], cards: [] },
 			grants(['x', '1']),
 			{ everything: false, any: [], cards: [], rows: 'No rule, so the subject sees no row.' }
 		],
 		[
 			'an alternative with grants',
-			{ any: [rule('a', 'x')], all: [] },
+			{ any: [rule('a', 'x')], cards: [] },
 			grants(['x', '1'], ['x', '2'], ['y', '9']),
 			{
 				everything: false,
@@ -399,7 +399,7 @@ describe('explain', () => {
 		],
 		[
 			'an alternative with no grant',
-			{ any: [rule('a', 'x')], all: [] },
+			{ any: [rule('a', 'x')], cards: [] },
 			grants(['y', '9']),
 			{
 				everything: false,
@@ -410,7 +410,7 @@ describe('explain', () => {
 		],
 		[
 			'a card with every grant',
-			{ any: [], all: [[rule('a', 'x'), rule('b', 'y')]] },
+			{ any: [], cards: [[rule('a', 'x'), rule('b', 'y')]] },
 			grants(['x', '1'], ['y', '2']),
 			{
 				everything: false,
@@ -421,7 +421,7 @@ describe('explain', () => {
 		],
 		[
 			'a card with a missing grant drops out',
-			{ any: [], all: [[rule('a', 'x'), rule('b', 'y')]] },
+			{ any: [], cards: [[rule('a', 'x'), rule('b', 'y')]] },
 			grants(['x', '1']),
 			{
 				everything: false,
@@ -432,7 +432,7 @@ describe('explain', () => {
 		],
 		[
 			'a dropped card beside a kept alternative',
-			{ any: [rule('c', 'z')], all: [[rule('a', 'x'), rule('b', 'y')]] },
+			{ any: [rule('c', 'z')], cards: [[rule('a', 'x'), rule('b', 'y')]] },
 			grants(['x', '1'], ['z', '3']),
 			{
 				everything: false,
@@ -443,7 +443,7 @@ describe('explain', () => {
 		],
 		[
 			'two kept groups',
-			{ any: [rule('c', 'z')], all: [[rule('a', 'x'), rule('b', 'y')]] },
+			{ any: [rule('c', 'z')], cards: [[rule('a', 'x'), rule('b', 'y')]] },
 			grants(['x', '1'], ['y', '2'], ['z', '3']),
 			{
 				everything: false,
@@ -454,7 +454,7 @@ describe('explain', () => {
 		],
 		[
 			'the wildcard grant',
-			{ any: [rule('a', 'x')], all: [] },
+			{ any: [rule('a', 'x')], cards: [] },
 			grants(['*', '*']),
 			{
 				everything: true,
@@ -465,7 +465,7 @@ describe('explain', () => {
 		],
 		[
 			'a repeated grant value is shown once',
-			{ any: [rule('a', 'x')], all: [] },
+			{ any: [rule('a', 'x')], cards: [] },
 			grants(['x', '1'], ['x', '1']),
 			{
 				everything: false,
