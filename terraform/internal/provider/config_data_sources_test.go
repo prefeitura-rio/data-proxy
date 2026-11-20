@@ -111,7 +111,7 @@ func TestTableDataSource(t *testing.T) {
 
 	resp.State.Get(context.Background(), &state)
 
-	if state.Schema.ValueString() != "sales_orders" || state.N.ValueInt64() != 3 || len(state.RLS) != 2 || state.RLS[0].Conditions[0].ColumnName.ValueString() != "unit_id" {
+	if state.Schema.ValueString() != "sales_orders" || state.N.ValueInt64() != 3 || len(state.RLS) != 2 || state.RLS[0].ColumnName.ValueString() != "unit_id" {
 		t.Errorf("state = %+v, want the table with its two row policies", state)
 	}
 }

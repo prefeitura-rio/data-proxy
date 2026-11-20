@@ -214,10 +214,8 @@ func tableAccConfig(project, table string, cacheTTL int, rules ...[2]string) str
 	for _, rule := range rules {
 		blocks += fmt.Sprintf(`
   rls {
-    condition {
-      column_name = %q
-      unit_type   = %q
-    }
+    column_name = %q
+    unit_type   = %q
   }
 `, rule[0], rule[1])
 	}
@@ -253,16 +251,16 @@ func TestAccTableResource(t *testing.T) {
 					resource.TestCheckResourceAttr("data_proxy_table.this", "strategy", "full"),
 					resource.TestCheckResourceAttr("data_proxy_table.this", "cache_ttl", "60"),
 					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.#", "2"),
-					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.0.condition.0.column_name", "unit_id"),
-					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.1.condition.0.unit_type", "region"),
+					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.0.column_name", "unit_id"),
+					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.1.unit_type", "region"),
 				),
 			},
 			{
 				Config: tableAccConfig(project, table, 120, region, unit),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("data_proxy_table.this", "cache_ttl", "120"),
-					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.0.condition.0.column_name", "region_id"),
-					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.1.condition.0.column_name", "unit_id"),
+					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.0.column_name", "region_id"),
+					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.1.column_name", "unit_id"),
 				),
 			},
 			{ResourceName: "data_proxy_table.this", ImportState: true, ImportStateVerify: true},
@@ -300,10 +298,8 @@ resource "data_proxy_table" "this" {
   }
 
   rls {
-    condition {
-      column_name = "area"
-      unit_type   = "area"
-    }
+    column_name = "area"
+    unit_type   = "area"
   }
 }
 `, table)
@@ -318,7 +314,7 @@ resource "data_proxy_table" "this" {
 					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.#", "2"),
 					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.0.condition.#", "2"),
 					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.0.condition.1.column_name", "unit_id"),
-					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.1.condition.0.column_name", "area"),
+					resource.TestCheckResourceAttr("data_proxy_table.this", "rls.1.column_name", "area"),
 				),
 			},
 			{ResourceName: "data_proxy_table.this", ImportState: true, ImportStateVerify: true},
@@ -353,10 +349,8 @@ resource "data_proxy_table" "this" {
   schema   = data_proxy_schema.this.name
 
   rls {
-    condition {
-      column_name = "unit_id"
-      unit_type   = "unit"
-    }
+    column_name = "unit_id"
+    unit_type   = "unit"
   }
 }
 `, table)
@@ -388,6 +382,67 @@ resource "data_proxy_table" "this" {
 			},
 		},
 	})
+}
+
+func TestAccTableResourceRefusesAnRLSBlockThatMixesBothForms(t *testing.T) {
+	tests := []struct {
+		name  string
+		block string
+		want  string
+	}{
+		{
+			name: "both forms",
+			block: `
+  rls {
+    column_name = "a"
+    unit_type   = "x"
+    condition {
+      column_name = "b"
+      unit_type   = "y"
+    }
+    condition {
+      column_name = "c"
+      unit_type   = "z"
+    }
+  }`,
+			want: `both a column and conditions`,
+		},
+		{
+			name: "one condition block",
+			block: `
+  rls {
+    condition {
+      column_name = "a"
+      unit_type   = "x"
+    }
+  }`,
+			want: `written flat`,
+		},
+		{name: "an empty block", block: `
+  rls {}`, want: `needs column_name and unit_type`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resource.Test(t, resource.TestCase{
+				PreCheck:                 func() { testAccPreCheck(t) },
+				ProtoV6ProviderFactories: testAccProviderFactories,
+				Steps: []resource.TestStep{
+					{
+						Config: `
+resource "data_proxy_table" "this" {
+  provider = data-proxy
+  name     = "p.d.t"
+  schema   = "s"
+` + test.block + `
+}
+`,
+						ExpectError: regexp.MustCompile(test.want),
+					},
+				},
+			})
+		})
+	}
 }
 
 func TestAccAccessPolicyResource(t *testing.T) {
@@ -491,7 +546,7 @@ data "data_proxy_schema_health" "provisioned" {
 					resource.TestCheckResourceAttr("data.data_proxy_schema.by_parts", "name", project+"_orders"),
 					resource.TestCheckResourceAttr("data.data_proxy_schema.by_parts", "claim", "preferred_username"),
 					resource.TestCheckResourceAttr("data.data_proxy_table.this", "cache_ttl", "30"),
-					resource.TestCheckResourceAttr("data.data_proxy_table.this", "rls.0.condition.0.unit_type", "unit"),
+					resource.TestCheckResourceAttr("data.data_proxy_table.this", "rls.0.unit_type", "unit"),
 					resource.TestCheckResourceAttr("data.data_proxy_schema_health.provisioned", "schema_exists", "true"),
 					resource.TestCheckResourceAttrWith("data.data_proxy_config_history.this", "entries.#", func(value string) error {
 						if value == "0" {

@@ -57,22 +57,14 @@ func tableConfig(t *testing.T, rules ...rlsModel) tableModel {
 	}
 }
 
-// ruleModel returns an rls block with one condition.
+// ruleModel returns an rls block in the flat form, for one condition.
 func ruleModel(column, unit string) rlsModel {
-	return groupModel(column, unit)
+	return blockOf(rule(column, unit))
 }
 
-// groupModel returns an rls block with one condition for each pair of a column and a unit type.
+// groupModel returns an rls block with one condition block for each pair of a column and a unit type.
 func groupModel(pairs ...string) rlsModel {
-	block := rlsModel{}
-	for i := 0; i < len(pairs); i += 2 {
-		block.Conditions = append(block.Conditions, conditionModel{
-			ColumnName: types.StringValue(pairs[i]),
-			UnitType:   types.StringValue(pairs[i+1]),
-		})
-	}
-
-	return block
+	return blockOf(rule(pairs...))
 }
 
 // rule returns a client rule with one condition for each pair of a column and a unit type.
@@ -106,7 +98,7 @@ func TestRLSRulesKeepTheOrderOfTheBlocks(t *testing.T) {
 	}
 }
 
-func TestApplyTableRowMapsEachRuleToOneBlock(t *testing.T) {
+func TestApplyTableRowWritesOneConditionFlatAndTwoAsConditionBlocks(t *testing.T) {
 	var model tableModel
 
 	diagnostics := applyTableRow(t.Context(), &model, client.Table{Name: "sales.orders"}, []client.RLSRule{
@@ -117,16 +109,20 @@ func TestApplyTableRowMapsEachRuleToOneBlock(t *testing.T) {
 		t.Fatalf("applyTableRow() = %v", diagnostics)
 	}
 
-	if len(model.RLS) != 2 || len(model.RLS[0].Conditions) != 2 || len(model.RLS[1].Conditions) != 1 {
-		t.Fatalf("RLS = %+v, want one block of two conditions, then one block of one", model.RLS)
+	if len(model.RLS) != 2 || len(model.RLS[0].Conditions) != 2 || len(model.RLS[1].Conditions) != 0 {
+		t.Fatalf("RLS = %+v, want one block of two conditions, then one flat block", model.RLS)
+	}
+
+	if !model.RLS[0].ColumnName.IsNull() || !model.RLS[0].UnitType.IsNull() {
+		t.Errorf("a block of two conditions sets column_name = %v, want null", model.RLS[0].ColumnName)
 	}
 
 	if got := model.RLS[0].Conditions[1].ColumnName.ValueString(); got != "unit_id" {
 		t.Errorf("second condition = %q, want unit_id", got)
 	}
 
-	if got := model.RLS[1].Conditions[0].ColumnName.ValueString(); got != "area" {
-		t.Errorf("order of the rules = %q first, want region_id then area", got)
+	if got := model.RLS[1].ColumnName.ValueString(); got != "area" {
+		t.Errorf("flat block = %q, want area", got)
 	}
 }
 
@@ -279,7 +275,7 @@ func TestTableRead(t *testing.T) {
 
 				resp.State.Get(context.Background(), &read)
 
-				if len(read.RLS) != 2 || read.RLS[1].Conditions[0].ColumnName.ValueString() != "region_id" || read.CacheTTL.ValueInt64() != 60 {
+				if len(read.RLS) != 2 || read.RLS[1].ColumnName.ValueString() != "region_id" || read.CacheTTL.ValueInt64() != 60 {
 					t.Errorf("state = %+v, want two ordered row policies and the cache time", read)
 				}
 			}
@@ -460,6 +456,64 @@ func TestSameRules(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := sameRules(a, tt.right); got != tt.want {
 				t.Errorf("sameRules = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRLSProblem(t *testing.T) {
+	text := types.StringValue("a")
+	two := []conditionModel{{ColumnName: text, UnitType: text}, {ColumnName: text, UnitType: text}}
+
+	tests := []struct {
+		name  string
+		block rlsModel
+		want  bool
+	}{
+		{name: "a flat block", block: rlsModel{ColumnName: text, UnitType: text}},
+		{name: "two condition blocks", block: rlsModel{ColumnName: types.StringNull(), UnitType: types.StringNull(), Conditions: two}},
+		{name: "a flat block with unknown values", block: rlsModel{ColumnName: types.StringUnknown(), UnitType: types.StringUnknown()}},
+		{name: "both forms", block: rlsModel{ColumnName: text, UnitType: text, Conditions: two}, want: true},
+		{name: "a column and conditions", block: rlsModel{ColumnName: text, UnitType: types.StringNull(), Conditions: two}, want: true},
+		{name: "neither form", block: rlsModel{ColumnName: types.StringNull(), UnitType: types.StringNull()}, want: true},
+		{name: "a flat block with no unit type", block: rlsModel{ColumnName: text, UnitType: types.StringNull()}, want: true},
+		{name: "a flat block with no column", block: rlsModel{ColumnName: types.StringNull(), UnitType: text}, want: true},
+		{
+			name:  "one condition block",
+			block: rlsModel{ColumnName: types.StringNull(), UnitType: types.StringNull(), Conditions: two[:1]},
+			want:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := rlsProblem(test.block) != ""; got != test.want {
+				t.Errorf("rlsProblem() refuses = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestRLSBlockRoundTripsBothForms(t *testing.T) {
+	tests := []struct {
+		name string
+		rule client.RLSRule
+	}{
+		{name: "one condition", rule: rule("area", "area")},
+		{name: "two conditions", rule: rule("region_id", "region", "unit_id", "unit")},
+		{name: "three conditions", rule: rule("a", "x", "b", "y", "c", "z")},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			block := blockOf(test.rule)
+
+			if problem := rlsProblem(block); problem != "" {
+				t.Fatalf("blockOf() gives an invalid block: %s", problem)
+			}
+
+			if got := ruleOf(block); !reflect.DeepEqual(got, test.rule) {
+				t.Errorf("ruleOf(blockOf(%+v)) = %+v", test.rule, got)
 			}
 		})
 	}
