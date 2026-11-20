@@ -184,13 +184,53 @@ func TestProjectDelete(t *testing.T) {
 	}
 }
 
+// TestProjectImportReadsByName checks that the import id becomes the name of the project.
+func TestProjectImportReadsByName(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{name: "a plain name", id: "sales"},
+		{name: "a name with a dash", id: "id-carioca"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := newTestProject(t, nil)
+			s := resourceSchema(t, res)
+			resp := resource.ImportStateResponse{State: nullState(s)}
+
+			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: tt.id}, &resp)
+
+			var state projectModel
+
+			resp.State.Get(context.Background(), &state)
+
+			if state.Name.ValueString() != tt.id {
+				t.Errorf("name = %q, want %q", state.Name.ValueString(), tt.id)
+			}
+		})
+	}
+}
+
+// TestProjectUpdateNeverRuns checks that an update gives one error, because a project has nothing that can change.
 func TestProjectUpdateNeverRuns(t *testing.T) {
-	res := newTestProject(t, nil)
-	resp := resource.UpdateResponse{}
+	tests := []struct {
+		name string
+	}{
+		{name: "an empty request"},
+	}
 
-	res.Update(context.Background(), resource.UpdateRequest{}, &resp)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := newTestProject(t, nil)
+			resp := resource.UpdateResponse{}
 
-	if got := summaries(diagnosticsOf(resp.Diagnostics)); len(got) != 1 || got[0] != "A project can't change" {
-		t.Errorf("diagnostics = %v, want the error of an update", got)
+			res.Update(context.Background(), resource.UpdateRequest{}, &resp)
+
+			if got := summaries(diagnosticsOf(resp.Diagnostics)); len(got) != 1 || got[0] != "A project can't change" {
+				t.Errorf("diagnostics = %v, want the error of an update", got)
+			}
+		})
 	}
 }

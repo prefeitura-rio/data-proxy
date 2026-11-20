@@ -240,32 +240,61 @@ func TestRequests(t *testing.T) {
 	}
 }
 
+// TestDecodesTheResponse checks that a write fills the rows that the caller gives from the body of the answer.
 func TestDecodesTheResponse(t *testing.T) {
-	c, _ := newServer(t, http.StatusCreated, `[{"id":1,"name":"a"}]`)
-
-	var rows []row
-
-	if err := c.Insert(context.Background(), ConsoleProfile, "projects", row{Name: "a"}, &rows); err != nil {
-		t.Fatalf("Insert: %v", err)
+	tests := []struct {
+		name     string
+		status   int
+		response string
+		want     []row
+	}{
+		{name: "one row", status: http.StatusCreated, response: `[{"id":1,"name":"a"}]`, want: []row{{ID: 1, Name: "a"}}},
+		{name: "two rows", status: http.StatusCreated, response: `[{"id":1,"name":"a"},{"id":2,"name":"b"}]`, want: []row{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}}},
+		{name: "no row", status: http.StatusCreated, response: `[]`, want: []row{}},
 	}
 
-	want := []row{{ID: 1, Name: "a"}}
-	if len(rows) != 1 || rows[0] != want[0] {
-		t.Errorf("rows = %v, want %v", rows, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newServer(t, tt.status, tt.response)
+
+			var rows []row
+
+			if err := c.Insert(context.Background(), ConsoleProfile, "projects", row{Name: "a"}, &rows); err != nil {
+				t.Fatalf("Insert: %v", err)
+			}
+
+			if !reflect.DeepEqual(rows, tt.want) {
+				t.Errorf("rows = %v, want %v", rows, tt.want)
+			}
+		})
 	}
 }
 
+// TestAcceptsAnEmptyResponse checks that a delete with no content leaves the rows of the caller unset.
 func TestAcceptsAnEmptyResponse(t *testing.T) {
-	c, _ := newServer(t, http.StatusNoContent, ``)
-
-	var rows []row
-
-	if err := c.Delete(context.Background(), ConsoleProfile, "projects", []Filter{Eq("id", "1")}, &rows); err != nil {
-		t.Fatalf("Delete: %v", err)
+	tests := []struct {
+		name     string
+		status   int
+		response string
+	}{
+		{name: "a 204 with no body", status: http.StatusNoContent},
+		{name: "a 200 with no body", status: http.StatusOK},
 	}
 
-	if rows != nil {
-		t.Errorf("rows = %v, want nil", rows)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := newServer(t, tt.status, tt.response)
+
+			var rows []row
+
+			if err := c.Delete(context.Background(), ConsoleProfile, "projects", []Filter{Eq("id", "1")}, &rows); err != nil {
+				t.Fatalf("Delete: %v", err)
+			}
+
+			if rows != nil {
+				t.Errorf("rows = %v, want nil", rows)
+			}
+		})
 	}
 }
 

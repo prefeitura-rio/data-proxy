@@ -177,33 +177,52 @@ func TestSchemaRead(t *testing.T) {
 	}
 }
 
+// TestSchemaUpdate checks an update that the server accepts, and one that it refuses.
 func TestSchemaUpdate(t *testing.T) {
-	res := newTestSchema(t, []step{{
-		method: "PATCH", uri: "/schemas?name=eq.sales_orders", profile: "console", response: "[" + schemaRowJSON + "]",
-		body: `{"source":"bigquery","settings":{"a":2,"b":1},"claim":"preferred_username","encrypted":false}`,
-	}})
-	s := resourceSchema(t, res)
-	plan := schemaState(true, "")
-	resp := resource.UpdateResponse{State: stateOf(t, s, plan)}
-
-	res.Update(context.Background(), resource.UpdateRequest{Plan: planOf(t, s, plan), State: stateOf(t, s, plan)}, &resp)
-
-	if got := diagnosticsOf(resp.Diagnostics); len(got) != 0 {
-		t.Fatalf("diagnostics = %+v, want none", got)
+	tests := []struct {
+		name        string
+		step        step
+		wantSummary string
+		wantDetail  string
+	}{
+		{
+			name: "the server accepts the write",
+			step: step{
+				method: "PATCH", uri: "/schemas?name=eq.sales_orders", profile: "console", response: "[" + schemaRowJSON + "]",
+				body: `{"source":"bigquery","settings":{"a":2,"b":1},"claim":"preferred_username","encrypted":false}`,
+			},
+		},
+		{
+			name:        "the server refuses the write",
+			step:        step{status: 400, response: `{"code":"23514","message":"The name of schema sales_orders can't change"}`},
+			wantSummary: "Couldn't update the schema",
+			wantDetail:  "can't change",
+		},
 	}
-}
 
-func TestSchemaUpdateReportsARefusedWrite(t *testing.T) {
-	res := newTestSchema(t, []step{{status: 400, response: `{"code":"23514","message":"The name of schema sales_orders can't change"}`}})
-	s := resourceSchema(t, res)
-	plan := schemaState(true, "")
-	resp := resource.UpdateResponse{State: stateOf(t, s, plan)}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := newTestSchema(t, []step{tt.step})
+			s := resourceSchema(t, res)
+			plan := schemaState(true, "")
+			resp := resource.UpdateResponse{State: stateOf(t, s, plan)}
 
-	res.Update(context.Background(), resource.UpdateRequest{Plan: planOf(t, s, plan), State: stateOf(t, s, plan)}, &resp)
+			res.Update(context.Background(), resource.UpdateRequest{Plan: planOf(t, s, plan), State: stateOf(t, s, plan)}, &resp)
 
-	got := diagnosticsOf(resp.Diagnostics)
-	if len(got) != 1 || got[0].summary != "Couldn't update the schema" || !strings.Contains(got[0].detail, "can't change") {
-		t.Fatalf("diagnostics = %+v, want the refused update", got)
+			got := diagnosticsOf(resp.Diagnostics)
+
+			if tt.wantSummary == "" {
+				if len(got) != 0 {
+					t.Fatalf("diagnostics = %+v, want none", got)
+				}
+
+				return
+			}
+
+			if len(got) != 1 || got[0].summary != tt.wantSummary || !strings.Contains(got[0].detail, tt.wantDetail) {
+				t.Fatalf("diagnostics = %+v, want %q with %q", got, tt.wantSummary, tt.wantDetail)
+			}
+		})
 	}
 }
 
@@ -248,18 +267,31 @@ func TestSchemaDelete(t *testing.T) {
 	}
 }
 
+// TestSchemaImportKeepsDeletionProtection checks that an imported schema has its name and deletion protection.
 func TestSchemaImportKeepsDeletionProtection(t *testing.T) {
-	res := newTestSchema(t, nil)
-	s := resourceSchema(t, res)
-	resp := resource.ImportStateResponse{State: nullState(s)}
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{name: "a physical name", id: "sales_orders"},
+		{name: "a name with a project prefix", id: "proj_orders"},
+	}
 
-	res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: "sales_orders"}, &resp)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := newTestSchema(t, nil)
+			s := resourceSchema(t, res)
+			resp := resource.ImportStateResponse{State: nullState(s)}
 
-	var state schemaModel
+			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: tt.id}, &resp)
 
-	resp.State.Get(context.Background(), &state)
+			var state schemaModel
 
-	if state.Name.ValueString() != "sales_orders" || !state.DeletionProtection.ValueBool() {
-		t.Errorf("state = %+v, want the name and deletion protection", state)
+			resp.State.Get(context.Background(), &state)
+
+			if state.Name.ValueString() != tt.id || !state.DeletionProtection.ValueBool() {
+				t.Errorf("state = %+v, want the name %q and deletion protection", state, tt.id)
+			}
+		})
 	}
 }
