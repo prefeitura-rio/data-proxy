@@ -138,13 +138,13 @@ func TestConfigOperations(t *testing.T) {
 			run:   func(ctx context.Context, c *Client) (any, error) { return nil, c.DeleteTable(ctx, "sales.orders") },
 		},
 		{
-			name: "list the row policies with the ways that hold their conditions",
+			name: "list the row policies with the groups that hold their conditions",
 			steps: []step{{
 				method: "POST", uri: "/rpc/rules", contentProfile: "console",
-				response: `[{"table_name":"sales.orders","ways":[` +
+				response: `[{"table_name":"sales.orders","groups":[` +
 					`{"column":"area","unit_type":"area"},` +
 					`{"all":[{"column":"region_id","unit_type":"region"},{"column":"unit_id","unit_type":"unit"}]}]},` +
-					`{"table_name":"other.table","ways":[{"column":"x","unit_type":"y"}]}]`,
+					`{"table_name":"other.table","groups":[{"column":"x","unit_type":"y"}]}]`,
 			}},
 			run: func(ctx context.Context, c *Client) (any, error) { return c.ListRLS(ctx, "sales.orders") },
 			want: []RLSRule{
@@ -168,7 +168,7 @@ func TestConfigOperations(t *testing.T) {
 			name: "replace the row policies in one call, with no number",
 			steps: []step{{
 				method: "POST", uri: "/rpc/replace_rls", contentProfile: "console",
-				body: `{"table_name":"sales.orders","ways":[` +
+				body: `{"table_name":"sales.orders","groups":[` +
 					`{"column":"area","unit_type":"area"},` +
 					`{"all":[{"column":"region_id","unit_type":"region"},{"column":"unit_id","unit_type":"unit"}]}]}`,
 				response: `null`,
@@ -187,7 +187,7 @@ func TestConfigOperations(t *testing.T) {
 			name: "replace the row policies with none sends an empty list",
 			steps: []step{{
 				method: "POST", uri: "/rpc/replace_rls", contentProfile: "console",
-				body: `{"table_name":"sales.orders","ways":[]}`, response: `null`,
+				body: `{"table_name":"sales.orders","groups":[]}`, response: `null`,
 			}},
 			run: func(ctx context.Context, c *Client) (any, error) { return nil, c.ReplaceRLS(ctx, "sales.orders", nil) },
 		},

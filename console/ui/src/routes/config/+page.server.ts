@@ -201,7 +201,7 @@ export const actions: Actions = {
 		return done(
 			await api(locals.session).rpc('replace_rls', v.unknown(), {
 				table_name: text(form, 'table_name'),
-				ways: rules.rows
+				groups: rules.rows
 			})
 		);
 	},

@@ -20,7 +20,7 @@
 
 	const byTable = $derived(
 		tables.map((table) => {
-			const own = rules.find((rule) => rule.table_name === table.name)?.ways ?? [];
+			const own = rules.find((rule) => rule.table_name === table.name)?.groups ?? [];
 
 			return { name: table.name, own, sentence: describe(toEditor(own)) };
 		})
@@ -56,7 +56,7 @@
 
 <RuleEditor
 	table={editing}
-	stored={rules.find((rule) => rule.table_name === editing)?.ways ?? []}
+	stored={rules.find((rule) => rule.table_name === editing)?.groups ?? []}
 	submission={save}
 	onclose={() => (editing = null)}
 />

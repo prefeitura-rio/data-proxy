@@ -87,18 +87,18 @@ type RLSCondition struct {
 	UnitType   string `json:"unit_type"`
 }
 
-// RLSRule is a row policy of a table. It is a condition, or a way that holds conditions that all must match. A way
-// has two or more conditions in All. No number of a group exists: the database numbers the ways by their position.
+// RLSRule is a row policy of a table. It is a condition, or a group that holds conditions that all must match. A group
+// has two or more conditions in All. No number of a group exists: the database numbers the groups by their position.
 type RLSRule struct {
 	ColumnName string         `json:"column,omitempty"`
 	UnitType   string         `json:"unit_type,omitempty"`
 	All        []RLSCondition `json:"all,omitempty"`
 }
 
-// rulesRow is a row of console.rules(): a table and its ways in order.
+// rulesRow is a row of console.rules(): a table and its groups in order.
 type rulesRow struct {
 	TableName string    `json:"table_name"`
-	Ways      []RLSRule `json:"ways"`
+	Groups    []RLSRule `json:"groups"`
 }
 
 // Health is a row of the view console.health.
@@ -249,7 +249,7 @@ func (c *Client) DeleteTable(ctx context.Context, name string) error {
 }
 
 // ListRLS returns the row policies of the table in order, read through console.rules(). The token role has no right
-// on the table of rules, because a flat read would show the conditions of a way as alternatives.
+// on the table of rules, because a flat read would show the conditions of a group as alternatives.
 func (c *Client) ListRLS(ctx context.Context, table string) ([]RLSRule, error) {
 	var rows []rulesRow
 
@@ -259,7 +259,7 @@ func (c *Client) ListRLS(ctx context.Context, table string) ([]RLSRule, error) {
 
 	for _, row := range rows {
 		if row.TableName == table {
-			return row.Ways, nil
+			return row.Groups, nil
 		}
 	}
 
@@ -267,13 +267,13 @@ func (c *Client) ListRLS(ctx context.Context, table string) ([]RLSRule, error) {
 }
 
 // ReplaceRLS replaces the row policies of the table with the given ones, in order, in one call. The database numbers
-// the ways, so a caller passes relations and never a number.
+// the groups, so a caller passes relations and never a number.
 func (c *Client) ReplaceRLS(ctx context.Context, table string, rules []RLSRule) error {
 	if rules == nil {
 		rules = []RLSRule{}
 	}
 
-	args := map[string]any{"table_name": table, "ways": rules}
+	args := map[string]any{"table_name": table, "groups": rules}
 
 	if err := c.RPC(ctx, ConsoleProfile, "replace_rls", args, nil); err != nil {
 		return fmt.Errorf("replace the row policies of %s: %w", table, err)

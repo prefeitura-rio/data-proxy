@@ -7,22 +7,22 @@ import {
 	intoCard,
 	intoNewCard,
 	parseRules,
-	startWays,
+	startGroups,
 	toEditor,
 	toRows,
 	warnings,
-	WAY,
+	GROUP,
 	withBlank,
 	withCard,
 	without,
 	type Editor,
 	type Rule,
 	type Stored,
-	type Ways
+	type Groups
 } from './rules';
 
 const rule = (column: string, unit_type: string) => ({ column, unit_type });
-const way = (...rules: ReturnType<typeof rule>[]) => ({ all: rules });
+const group = (...rules: ReturnType<typeof rule>[]) => ({ all: rules });
 
 describe('toEditor', () => {
 	it.each([
@@ -32,11 +32,15 @@ describe('toEditor', () => {
 			[rule('a', 'x'), rule('b', 'y')],
 			{ any: [rule('a', 'x'), rule('b', 'y')], all: [] }
 		],
-		['a way is a card', [way(rule('a', 'x'), rule('b', 'y'))], { any: [], all: [[rule('a', 'x'), rule('b', 'y')]] }],
-		['a way of one condition is an alternative', [way(rule('a', 'x'))], { any: [rule('a', 'x')], all: [] }],
 		[
-			'two ways make two cards, in the order that they come',
-			[way(rule('c', 'z'), rule('d', 'w')), way(rule('a', 'x'), rule('b', 'y'))],
+			'a group is a card',
+			[group(rule('a', 'x'), rule('b', 'y'))],
+			{ any: [], all: [[rule('a', 'x'), rule('b', 'y')]] }
+		],
+		['a group of one condition is an alternative', [group(rule('a', 'x'))], { any: [rule('a', 'x')], all: [] }],
+		[
+			'two groups make two cards, in the order that they come',
+			[group(rule('c', 'z'), rule('d', 'w')), group(rule('a', 'x'), rule('b', 'y'))],
 			{
 				any: [],
 				all: [
@@ -47,11 +51,11 @@ describe('toEditor', () => {
 		],
 		[
 			'cards and alternatives together',
-			[way(rule('a', 'x'), rule('b', 'y')), rule('c', 'z')],
+			[group(rule('a', 'x'), rule('b', 'y')), rule('c', 'z')],
 			{ any: [rule('c', 'z')], all: [[rule('a', 'x'), rule('b', 'y')]] }
 		]
-	])('reads %s', (_name, ways, expected) => {
-		expect(toEditor(ways)).toEqual(expected);
+	])('reads %s', (_name, groups, expected) => {
+		expect(toEditor(groups)).toEqual(expected);
 	});
 });
 
@@ -64,9 +68,9 @@ describe('toRows', () => {
 			[rule('a', 'x'), rule('b', 'y')]
 		],
 		[
-			'a card of two conditions is a way',
+			'a card of two conditions is a group',
 			{ any: [], all: [[rule('a', 'x'), rule('b', 'y')]] },
-			[way(rule('a', 'x'), rule('b', 'y'))]
+			[group(rule('a', 'x'), rule('b', 'y'))]
 		],
 		['a card of one condition is a plain condition', { any: [], all: [[rule('a', 'x')]] }, [rule('a', 'x')]],
 		['an empty card is dropped', { any: [rule('c', 'z')], all: [[]] }, [rule('c', 'z')]],
@@ -79,7 +83,7 @@ describe('toRows', () => {
 					[rule('d', 'w'), rule('e', 'v')]
 				]
 			},
-			[rule('c', 'z'), way(rule('a', 'x'), rule('b', 'y')), way(rule('d', 'w'), rule('e', 'v'))]
+			[rule('c', 'z'), group(rule('a', 'x'), rule('b', 'y')), group(rule('d', 'w'), rule('e', 'v'))]
 		]
 	])('writes %s', (_name, editor, expected) => {
 		expect(toRows(editor)).toEqual(expected);
@@ -145,9 +149,9 @@ describe('describe', () => {
 
 describe('warnings', () => {
 	const mixes = (n: number, types: string) =>
-		`${WAY} ${n} mixes the unit types ${types}. A user needs a grant of each type, or sees no row from it.`;
-	const single = (n: number) => `${WAY} ${n} has one condition, so it works like a condition on its own.`;
-	const twice = (n: number) => `${WAY} ${n} holds the same condition twice.`;
+		`${GROUP} ${n} mixes the unit types ${types}. A user needs a grant of each type, or sees no row from it.`;
+	const single = (n: number) => `${GROUP} ${n} has one condition, so it works like a condition on its own.`;
+	const twice = (n: number) => `${GROUP} ${n} holds the same condition twice.`;
 
 	it.each([
 		['no card', { any: [rule('a', 'x')], all: [] }, []],
@@ -187,16 +191,16 @@ describe('parseRules', () => {
 
 		return data;
 	};
-	const one = (column: string, unit: string, way: string): [string, string][] => [
+	const one = (column: string, unit: string, group: string): [string, string][] => [
 		['rule_column', column],
 		['rule_unit_type', unit],
-		['rule_way', way]
+		['rule_group', group]
 	];
 
 	it.each([
 		['no rule', form(), { ok: true, rows: [] }],
 		[
-			'alternatives (way 0)',
+			'alternatives (group 0)',
 			form(...one('a', 'x', '0'), ...one('b', 'y', '0')),
 			{
 				ok: true,
@@ -207,7 +211,7 @@ describe('parseRules', () => {
 			}
 		],
 		[
-			'a card (way 1 twice)',
+			'a card (group 1 twice)',
 			form(...one('a', 'x', '1'), ...one('b', 'y', '1')),
 			{
 				ok: true,
@@ -236,7 +240,7 @@ describe('parseRules', () => {
 		expect(parseRules(data)).toEqual(expected);
 	});
 
-	it('turns the form positions into ways, and the result holds no number', () => {
+	it('turns the form positions into groups, and the result holds no number', () => {
 		const data = form(
 			...one('a', 'x', '7'),
 			...one('b', 'y', '7'),
@@ -250,14 +254,14 @@ describe('parseRules', () => {
 			ok: true,
 			rows: [rule('c', 'z'), { all: [rule('a', 'x'), rule('b', 'y')] }, { all: [rule('d', 'w'), rule('e', 'v')] }]
 		});
-		expect(JSON.stringify(parsed)).not.toMatch(/7|3|group|way/);
+		expect(JSON.stringify(parsed)).not.toMatch(/7|3|group/);
 	});
 
 	it.each([
 		['an empty column', form(...one('', 'x', '0')), 'Fill the column and the unit type of every condition.'],
 		['an empty unit type', form(...one('a', '', '0')), 'Fill the column and the unit type of every condition.'],
-		['a way that is not a number', form(...one('a', 'x', 'one')), 'A condition has a wrong way.'],
-		['a negative way', form(...one('a', 'x', '-1')), 'A condition has a wrong way.'],
+		['a group that is not a number', form(...one('a', 'x', 'one')), 'A condition has a wrong group.'],
+		['a negative group', form(...one('a', 'x', '-1')), 'A condition has a wrong group.'],
 		[
 			'the same rule twice',
 			form(...one('a', 'x', '0'), ...one('a', 'x', '1')),
@@ -279,40 +283,40 @@ describe('the state of the editor', () => {
 
 		return () => `id${(next += 1)}`;
 	};
-	const rows = [rule('c', 'z'), way(rule('a', 'x'), rule('b', 'y'))];
-	const shape = (ways: Ways) => ({
-		any: ways.any.map((entry) => entry.column),
-		cards: ways.cards.map((card) => card.items.map((entry) => entry.column))
+	const rows = [rule('c', 'z'), group(rule('a', 'x'), rule('b', 'y'))];
+	const shape = (groups: Groups) => ({
+		any: groups.any.map((entry) => entry.column),
+		cards: groups.cards.map((card) => card.items.map((entry) => entry.column))
 	});
-	const start = () => startWays(rows, counter());
+	const start = () => startGroups(rows, counter());
 
 	it('starts from the stored rows', () => {
 		expect(shape(start())).toEqual({ any: ['c'], cards: [['a', 'b']] });
 	});
 
 	it('gives each condition and each card an id of its own', () => {
-		const ways = start();
+		const groups = start();
 		const ids = [
-			...ways.any.map((e) => e.id),
-			...ways.cards.map((c) => c.id),
-			...ways.cards.flatMap((c) => c.items.map((e) => e.id))
+			...groups.any.map((e) => e.id),
+			...groups.cards.map((c) => c.id),
+			...groups.cards.flatMap((c) => c.items.map((e) => e.id))
 		];
 
 		expect(new Set(ids).size).toBe(ids.length);
-		expect(ways.cards[0]?.items.every((entry) => entry.card === ways.cards[0]?.id)).toBe(true);
+		expect(groups.cards[0]?.items.every((entry) => entry.card === groups.cards[0]?.id)).toBe(true);
 	});
 
 	it('gives the editor shape and the fields in the order of the form', () => {
-		const ways = start();
+		const groups = start();
 
-		const editor = asEditor(ways);
+		const editor = asEditor(groups);
 		const plain = (rules: Rule[]) => rules.map(({ column, unit_type }) => ({ column, unit_type }));
 
 		expect({ any: plain(editor.any), all: editor.all.map(plain) }).toEqual({
 			any: [rule('c', 'z')],
 			all: [[rule('a', 'x'), rule('b', 'y')]]
 		});
-		expect(fieldsOf(ways).map(({ entry, way }) => [entry.column, way])).toEqual([
+		expect(fieldsOf(groups).map(({ entry, group }) => [entry.column, group])).toEqual([
 			['c', 0],
 			['a', 1],
 			['b', 1]
@@ -327,15 +331,15 @@ describe('the state of the editor', () => {
 	});
 
 	it('drops a card that has no condition left', () => {
-		const ways = without(without(start(), 'id3'), 'id4');
+		const groups = without(without(start(), 'id3'), 'id4');
 
-		expect(shape(ways)).toEqual({ any: ['c'], cards: [] });
+		expect(shape(groups)).toEqual({ any: ['c'], cards: [] });
 	});
 
 	it('adds a blank condition to the alternatives and to a card', () => {
-		const ways = withBlank(withBlank(start(), 'n1', null), 'n2', 'id2');
+		const groups = withBlank(withBlank(start(), 'n1', null), 'n2', 'id2');
 
-		expect(shape(ways)).toEqual({ any: ['c', ''], cards: [['a', 'b', '']] });
+		expect(shape(groups)).toEqual({ any: ['c', ''], cards: [['a', 'b', '']] });
 	});
 
 	it('adds a card with two blank conditions', () => {
@@ -354,12 +358,12 @@ describe('the state of the editor', () => {
 	});
 
 	it('keeps the state when the condition or the card does not exist', () => {
-		const ways = start();
+		const groups = start();
 
-		expect(intoCard(ways, 'nope', 'id2')).toBe(ways);
-		expect(intoCard(ways, 'id1', 'nope')).toBe(ways);
-		expect(intoAlternatives(ways, 'id1')).toBe(ways);
-		expect(intoNewCard(ways, 'nope', 'k', 'n')).toBe(ways);
+		expect(intoCard(groups, 'nope', 'id2')).toBe(groups);
+		expect(intoCard(groups, 'id1', 'nope')).toBe(groups);
+		expect(intoAlternatives(groups, 'id1')).toBe(groups);
+		expect(intoNewCard(groups, 'nope', 'k', 'n')).toBe(groups);
 	});
 
 	it('moves a condition into a new card with a blank one beside it', () => {
@@ -372,10 +376,10 @@ describe('the state of the editor', () => {
 		});
 	});
 
-	it('makes the same ways after a move and a move back', () => {
-		const ways = intoAlternatives(intoCard(start(), 'id1', 'id2'), 'id1');
-		const text = (stored: Stored[]) => stored.map((way) => JSON.stringify(way)).sort();
+	it('makes the same groups after a move and a move back', () => {
+		const groups = intoAlternatives(intoCard(start(), 'id1', 'id2'), 'id1');
+		const text = (stored: Stored[]) => stored.map((group) => JSON.stringify(group)).sort();
 
-		expect(text(toRows(asEditor(ways)))).toEqual(text(toRows(asEditor(start()))));
+		expect(text(toRows(asEditor(groups)))).toEqual(text(toRows(asEditor(start()))));
 	});
 });

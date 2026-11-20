@@ -18,7 +18,7 @@ import (
 const (
 	tableRowJSON = `{"name":"sales.orders","schema":"sales_orders","strategy":"partitioned","n":3,"fallback":false,` +
 		`"cache_ttl":60,"partitioning":null,"sort":["order_id"],"updated_at":"2026-01-01T00:00:00Z","updated_by":"terraform"}`
-	rlsRowsJSON = `[{"table_name":"sales.orders","ways":[{"column":"unit_id","unit_type":"unit"},` +
+	rlsRowsJSON = `[{"table_name":"sales.orders","groups":[{"column":"unit_id","unit_type":"unit"},` +
 		`{"column":"region_id","unit_type":"region"}]}]`
 )
 
@@ -104,7 +104,7 @@ func TestApplyTableRowSplitsTheRulesIntoBlocks(t *testing.T) {
 	}
 
 	if len(model.RLSAll) != 1 || len(model.RLSAll[0].RLS) != 2 {
-		t.Fatalf("RLSAll = %+v, want one way with two conditions", model.RLSAll)
+		t.Fatalf("RLSAll = %+v, want one group with two conditions", model.RLSAll)
 	}
 
 	if got := model.RLSAll[0].RLS[1].ColumnName.ValueString(); got != "unit_id" {
@@ -120,7 +120,7 @@ func TestRLSRuleJSONHasNoNumber(t *testing.T) {
 	}{
 		{name: "a condition", rule: client.RLSRule{ColumnName: "a", UnitType: "x"}, want: `{"column":"a","unit_type":"x"}`},
 		{
-			name: "a way",
+			name: "a group",
 			rule: client.RLSRule{All: []client.RLSCondition{{ColumnName: "a", UnitType: "x"}, {ColumnName: "b", UnitType: "y"}}},
 			want: `{"all":[{"column":"a","unit_type":"x"},{"column":"b","unit_type":"y"}]}`,
 		},
@@ -156,7 +156,7 @@ func TestTableCreate(t *testing.T) {
 	}
 	rulesStep := step{
 		method: "POST", uri: "/rpc/replace_rls", profile: "console", response: "null",
-		body: `{"table_name":"sales.orders","ways":[{"column":"unit_id","unit_type":"unit"},{"column":"region_id","unit_type":"region"}]}`,
+		body: `{"table_name":"sales.orders","groups":[{"column":"unit_id","unit_type":"unit"},{"column":"region_id","unit_type":"region"}]}`,
 	}
 
 	tests := []struct {

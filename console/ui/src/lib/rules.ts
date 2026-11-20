@@ -1,38 +1,38 @@
 import * as v from 'valibot';
 
 /** The word that names a card of conditions in the editor and in its messages. */
-export const WAY = 'Way';
+export const GROUP = 'Group';
 
 export type Rule = { column: string; unit_type: string };
 export type Editor = { any: Rule[]; all: Rule[][] };
-/** A way as the database stores it: one condition, or `all` of two or more. No number exists. */
+/** A group as the database stores it: one condition, or `all` of two or more. No number exists. */
 export type Stored = Rule | { all: Rule[] };
 
 const key = (rule: Rule) => `${rule.column}\u0000${rule.unit_type}`;
 
-const isWay = (way: Stored): way is { all: Rule[] } => 'all' in way;
+const isGroup = (group: Stored): group is { all: Rule[] } => 'all' in group;
 
-/** Split the ways of a table into the alternatives and the cards. A way of one condition is an alternative. */
-export function toEditor(ways: Stored[]): Editor {
+/** Split the groups of a table into the alternatives and the cards. A group of one condition is an alternative. */
+export function toEditor(groups: Stored[]): Editor {
 	const any: Rule[] = [];
 	const all: Rule[][] = [];
 
-	for (const way of ways) {
-		if (!isWay(way)) {
-			any.push({ column: way.column, unit_type: way.unit_type });
-		} else if (way.all.length === 1) {
-			any.push(...way.all);
+	for (const group of groups) {
+		if (!isGroup(group)) {
+			any.push({ column: group.column, unit_type: group.unit_type });
+		} else if (group.all.length === 1) {
+			any.push(...group.all);
 		} else {
-			all.push(way.all.map((rule) => ({ column: rule.column, unit_type: rule.unit_type })));
+			all.push(group.all.map((rule) => ({ column: rule.column, unit_type: rule.unit_type })));
 		}
 	}
 
 	return { any, all };
 }
 
-/** Write the ways to store. A card of one condition is a plain condition, and an empty card is dropped. */
+/** Write the groups to store. A card of one condition is a plain condition, and an empty card is dropped. */
 export function toRows(editor: Editor): Stored[] {
-	const ways: Stored[] = editor.any.map((rule) => ({ column: rule.column, unit_type: rule.unit_type }));
+	const groups: Stored[] = editor.any.map((rule) => ({ column: rule.column, unit_type: rule.unit_type }));
 
 	for (const card of editor.all) {
 		const [only, ...rest] = card;
@@ -41,14 +41,14 @@ export function toRows(editor: Editor): Stored[] {
 			continue;
 		}
 
-		ways.push(
+		groups.push(
 			rest.length === 0
 				? { column: only.column, unit_type: only.unit_type }
 				: { all: card.map((rule) => ({ column: rule.column, unit_type: rule.unit_type })) }
 		);
 	}
 
-	return ways;
+	return groups;
 }
 
 const condition = (rule: Rule) => `its ${rule.column} matches one of their ${rule.unit_type} units`;
@@ -58,16 +58,16 @@ const joined = (items: string[]) =>
 
 /** Write what the rules mean, in plain words, for the person who edits them. */
 export function describe(editor: Editor): string {
-	const ways = [
+	const groups = [
 		...editor.any.map((rule) => condition(rule)),
 		...editor.all.filter((card) => card.length > 0).map((card) => joined(card.map(condition)))
 	];
 
-	if (ways.length === 0) {
+	if (groups.length === 0) {
 		return 'No rule: only a reader of every row sees a row.';
 	}
 
-	return `A user sees a row when ${ways.join(', or when ')}.`;
+	return `A user sees a row when ${groups.join(', or when ')}.`;
 }
 
 /** Flag a card that probably does not do what its author means. */
@@ -75,7 +75,7 @@ export function warnings(editor: Editor): string[] {
 	const found: string[] = [];
 
 	editor.all.forEach((card, index) => {
-		const name = `${WAY} ${index + 1}`;
+		const name = `${GROUP} ${index + 1}`;
 		const types = [...new Set(card.map((rule) => rule.unit_type))];
 
 		if (card.length === 1) {
@@ -99,21 +99,21 @@ export function warnings(editor: Editor): string[] {
 const Entry = v.object({
 	column: v.pipe(v.string(), v.trim(), v.minLength(1)),
 	unit_type: v.pipe(v.string(), v.trim(), v.minLength(1)),
-	way: v.pipe(v.string(), v.regex(/^\d+$/))
+	group: v.pipe(v.string(), v.regex(/^\d+$/))
 });
 
 export type Parsed = { ok: true; rows: Stored[] } | { ok: false; message: string };
 
 /**
  * Read the rules of the editor from the form. Each condition sends three fields in the same order: `rule_column`,
- * `rule_unit_type` and `rule_way`. A way of 0 is an alternative. Conditions with the same way number make one card.
+ * `rule_unit_type` and `rule_group`. A group of 0 is an alternative. Conditions with the same way number make one card.
  */
 export function parseRules(form: FormData): Parsed {
 	const columns = form.getAll('rule_column');
 	const types = form.getAll('rule_unit_type');
-	const ways = form.getAll('rule_way');
+	const groups = form.getAll('rule_group');
 
-	if (columns.length !== types.length || columns.length !== ways.length) {
+	if (columns.length !== types.length || columns.length !== groups.length) {
 		return { ok: false, message: 'The rules are incomplete. Reload the page and try again.' };
 	}
 
@@ -122,14 +122,16 @@ export function parseRules(form: FormData): Parsed {
 	const seen = new Set<string>();
 
 	for (let index = 0; index < columns.length; index += 1) {
-		const entry = v.safeParse(Entry, { column: columns[index], unit_type: types[index], way: ways[index] });
+		const entry = v.safeParse(Entry, { column: columns[index], unit_type: types[index], group: groups[index] });
 
 		if (!entry.success) {
-			const wayProblem = entry.issues.some((issue) => issue.path?.some((part) => part.key === 'way'));
+			const groupProblem = entry.issues.some((issue) => issue.path?.some((part) => part.key === 'group'));
 
 			return {
 				ok: false,
-				message: wayProblem ? 'A condition has a wrong way.' : 'Fill the column and the unit type of every condition.'
+				message: groupProblem
+					? 'A condition has a wrong group.'
+					: 'Fill the column and the unit type of every condition.'
 			};
 		}
 
@@ -141,13 +143,13 @@ export function parseRules(form: FormData): Parsed {
 
 		seen.add(key(rule));
 
-		if (entry.output.way === '0') {
+		if (entry.output.group === '0') {
 			editor.any.push(rule);
 		} else {
-			const card = cards.get(entry.output.way) ?? [];
+			const card = cards.get(entry.output.group) ?? [];
 
 			card.push(rule);
-			cards.set(entry.output.way, card);
+			cards.set(entry.output.group, card);
 		}
 	}
 
@@ -158,12 +160,12 @@ export function parseRules(form: FormData): Parsed {
 
 export type Item = Rule & { id: string; card: string | null };
 export type Card = { id: string; items: Item[] };
-export type Ways = { any: Item[]; cards: Card[] };
+export type Groups = { any: Item[]; cards: Card[] };
 
 const blank = (id: string, card: string | null): Item => ({ id, card, column: '', unit_type: '' });
 
 /** Build the state of the editor for the rules of one table. `ids` makes the ids, so a test can fix them. */
-export function startWays(rows: Stored[], ids: () => string): Ways {
+export function startGroups(rows: Stored[], ids: () => string): Groups {
 	const editor = toEditor(rows);
 
 	return {
@@ -177,53 +179,53 @@ export function startWays(rows: Stored[], ids: () => string): Ways {
 }
 
 /** The editor shape of the state, for the sentence and the warnings. */
-export const asEditor = (ways: Ways): Editor => ({ any: ways.any, all: ways.cards.map((card) => card.items) });
+export const asEditor = (groups: Groups): Editor => ({ any: groups.any, all: groups.cards.map((card) => card.items) });
 
 /** The conditions in the order that the form sends them, with the number of their card, or 0 for an alternative. */
-export const fieldsOf = (ways: Ways): { entry: Item; way: number }[] => [
-	...ways.any.map((entry) => ({ entry, way: 0 })),
-	...ways.cards.flatMap((card, index) => card.items.map((entry) => ({ entry, way: index + 1 })))
+export const fieldsOf = (groups: Groups): { entry: Item; group: number }[] => [
+	...groups.any.map((entry) => ({ entry, group: 0 })),
+	...groups.cards.flatMap((card, index) => card.items.map((entry) => ({ entry, group: index + 1 })))
 ];
 
 /** Remove a condition. A card that has no condition left goes away. */
-export function without(ways: Ways, id: string): Ways {
+export function without(groups: Groups, id: string): Groups {
 	return {
-		any: ways.any.filter((entry) => entry.id !== id),
-		cards: ways.cards
+		any: groups.any.filter((entry) => entry.id !== id),
+		cards: groups.cards
 			.map((card) => ({ ...card, items: card.items.filter((entry) => entry.id !== id) }))
 			.filter((card) => card.items.length > 0)
 	};
 }
 
 /** Add an empty condition to the alternatives, or to a card. */
-export function withBlank(ways: Ways, id: string, card: string | null): Ways {
+export function withBlank(groups: Groups, id: string, card: string | null): Groups {
 	if (card === null) {
-		return { ...ways, any: [...ways.any, blank(id, null)] };
+		return { ...groups, any: [...groups.any, blank(id, null)] };
 	}
 
 	return {
-		...ways,
-		cards: ways.cards.map((found) =>
+		...groups,
+		cards: groups.cards.map((found) =>
 			found.id === card ? { ...found, items: [...found.items, blank(id, card)] } : found
 		)
 	};
 }
 
 /** Add a card with two empty conditions, because a card of one condition is only an alternative. */
-export const withCard = (ways: Ways, card: string, first: string, second: string): Ways => ({
-	...ways,
-	cards: [...ways.cards, { id: card, items: [blank(first, card), blank(second, card)] }]
+export const withCard = (groups: Groups, card: string, first: string, second: string): Groups => ({
+	...groups,
+	cards: [...groups.cards, { id: card, items: [blank(first, card), blank(second, card)] }]
 });
 
 /** Move a condition into a card that exists. */
-export function intoCard(ways: Ways, id: string, card: string): Ways {
-	const entry = [...ways.any, ...ways.cards.flatMap((found) => found.items)].find((found) => found.id === id);
+export function intoCard(groups: Groups, id: string, card: string): Groups {
+	const entry = [...groups.any, ...groups.cards.flatMap((found) => found.items)].find((found) => found.id === id);
 
-	if (entry === undefined || !ways.cards.some((found) => found.id === card)) {
-		return ways;
+	if (entry === undefined || !groups.cards.some((found) => found.id === card)) {
+		return groups;
 	}
 
-	const rest = without(ways, id);
+	const rest = without(groups, id);
 
 	return {
 		...rest,
@@ -234,27 +236,27 @@ export function intoCard(ways: Ways, id: string, card: string): Ways {
 }
 
 /** Move a condition out of its card, into the alternatives. */
-export function intoAlternatives(ways: Ways, id: string): Ways {
-	const entry = ways.cards.flatMap((found) => found.items).find((found) => found.id === id);
+export function intoAlternatives(groups: Groups, id: string): Groups {
+	const entry = groups.cards.flatMap((found) => found.items).find((found) => found.id === id);
 
 	if (entry === undefined) {
-		return ways;
+		return groups;
 	}
 
-	const rest = without(ways, id);
+	const rest = without(groups, id);
 
 	return { ...rest, any: [...rest.any, { ...entry, card: null }] };
 }
 
 /** Move a condition into a new card, with an empty condition beside it. */
-export function intoNewCard(ways: Ways, id: string, card: string, second: string): Ways {
-	const entry = [...ways.any, ...ways.cards.flatMap((found) => found.items)].find((found) => found.id === id);
+export function intoNewCard(groups: Groups, id: string, card: string, second: string): Groups {
+	const entry = [...groups.any, ...groups.cards.flatMap((found) => found.items)].find((found) => found.id === id);
 
 	if (entry === undefined) {
-		return ways;
+		return groups;
 	}
 
-	const rest = without(ways, id);
+	const rest = without(groups, id);
 
 	return { ...rest, cards: [...rest.cards, { id: card, items: [{ ...entry, card }, blank(second, card)] }] };
 }

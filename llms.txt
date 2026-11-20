@@ -656,7 +656,7 @@ These fields describe one table of a schema in `sync.json`. The table says which
 | `n`         | No               | Keep the newest `n` time partitions.                                                                       |
 | `fallback`  | Partitioned only | Allow the configured source to serve uncovered partitions when it has fallback metadata. Default: `false`. |
 | `cache_ttl` | No               | Proxy cache lifetime in seconds.                                                                           |
-| `rls`       | No               | Conditions, or ways `all` of conditions. A table with no rules returns no row, except to a wildcard claim or a `*` grant. See Security. |
+| `rls`       | No               | Conditions, or groups `all` of conditions. A table with no rules returns no row, except to a wildcard claim or a `*` grant. See Security. |
 | `ducklake`  | No               | Table-level DuckLake settings, including `sort` and `partitioning`.                                        |
 | `ducklake`  | No               | Table-level DuckLake settings, including custom partition transforms.                                      |
 
@@ -2116,9 +2116,9 @@ A subject with the grant `unit_type = '*'` and `unit_id = '*'` in the `access_po
 
 The column of an `rls` rule can hold a list of text, such as `area_responsavel` with the type `ARRAY<STRING>` in BigQuery. A row is visible when at least one value of the list equals a unit of the grant. A row with an empty list or a NULL list is visible only to a reader of every row. A list of another type stops the sync with an error.
 
-#### Ways that need several conditions
+#### Groups that need several conditions
 
-Rules are alternatives by default. A reader sees a row when any one rule matches a grant. A way holds conditions that all must match:
+Rules are alternatives by default. A reader sees a row when any one rule matches a grant. A group holds conditions that all must match:
 
 ```json
 "rls": [
@@ -2132,9 +2132,9 @@ Rules are alternatives by default. A reader sees a row when any one rule matches
 
 A reader sees a row when its `region_id` and its `unit_id` match grants, or when its `area` matches a grant.
 
-A way needs a grant for each of its conditions. A reader who lacks one grant gets no row from that way. A missing grant never widens the filter.
+A group needs a grant for each of its conditions. A reader who lacks one grant gets no row from that group. A missing grant never widens the filter.
 
-A way holds two conditions or more. Nobody writes a number for a way, and no API shows one.
+A group holds two conditions or more. Nobody writes a number for a group, and no API shows one.
 
 #### A table with no rules
 
@@ -2587,7 +2587,7 @@ The sync configuration is data in three tables of the `console` schema. The migr
 | `projects` | One row per project: `name`. A project has schemas. |
 | `schemas` | One row per synced schema: `project`, `short_name`, `name`, `source`, `settings`, `claim`, `encrypted`. |
 | `tables` | One row per source table: `name`, its `schema`, `strategy`, `n`, `fallback`, `cache_ttl`, `partitioning`, `sort`. |
-| `rls` | The rules of a table: a condition, or a way `all` of two or more. Use `rules()` and `replace_rls()`. |
+| `rls` | The rules of a table: a condition, or a group `all` of two or more. Use `rules()` and `replace_rls()`. |
 
 Every row records `updated_at` and `updated_by`. The database sets both. The name comes from the `preferred_username` claim of the token, then from `sub`.
 
