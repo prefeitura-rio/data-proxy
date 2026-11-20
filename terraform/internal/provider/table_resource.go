@@ -48,9 +48,70 @@ type conditionModel struct {
 	UnitType   types.String `tfsdk:"unit_type"`
 }
 
-// rlsModel maps one rls block: a rule that holds the conditions that all must match.
+// rlsModel maps one rls block: a rule whose conditions all must match. A rule of one condition sets column_name and
+// unit_type. A rule of two or more conditions sets condition blocks.
 type rlsModel struct {
+	ColumnName types.String     `tfsdk:"column_name"`
+	UnitType   types.String     `tfsdk:"unit_type"`
 	Conditions []conditionModel `tfsdk:"condition"`
+}
+
+// blockOf writes a rule as one rls block: flat for one condition, condition blocks for two or more.
+func blockOf(rule client.RLSRule) rlsModel {
+	if len(rule.Conditions) == 1 {
+		return rlsModel{
+			ColumnName: types.StringValue(rule.Conditions[0].ColumnName),
+			UnitType:   types.StringValue(rule.Conditions[0].UnitType),
+		}
+	}
+
+	block := rlsModel{ColumnName: types.StringNull(), UnitType: types.StringNull()}
+	for _, condition := range rule.Conditions {
+		block.Conditions = append(block.Conditions, conditionModel{
+			ColumnName: types.StringValue(condition.ColumnName),
+			UnitType:   types.StringValue(condition.UnitType),
+		})
+	}
+
+	return block
+}
+
+// ruleOf reads one rls block as a rule, in either form.
+func ruleOf(block rlsModel) client.RLSRule {
+	if len(block.Conditions) == 0 {
+		return client.RLSRule{Conditions: []client.RLSCondition{{
+			ColumnName: block.ColumnName.ValueString(),
+			UnitType:   block.UnitType.ValueString(),
+		}}}
+	}
+
+	conditions := make([]client.RLSCondition, 0, len(block.Conditions))
+	for _, condition := range block.Conditions {
+		conditions = append(conditions, client.RLSCondition{
+			ColumnName: condition.ColumnName.ValueString(),
+			UnitType:   condition.UnitType.ValueString(),
+		})
+	}
+
+	return client.RLSRule{Conditions: conditions}
+}
+
+// rlsProblem returns why an rls block is wrong, or the empty text. It skips a value that is not known yet.
+func rlsProblem(block rlsModel) string {
+	flat := !block.ColumnName.IsNull() || !block.UnitType.IsNull()
+
+	switch {
+	case flat && len(block.Conditions) > 0:
+		return "An rls block has both a column and conditions. Write one condition as column_name and unit_type, or write two or more condition blocks."
+	case flat && (block.ColumnName.IsNull() || block.UnitType.IsNull()):
+		return "A flat rls block needs both column_name and unit_type."
+	case !flat && len(block.Conditions) == 0:
+		return "An rls block needs column_name and unit_type, or two or more condition blocks."
+	case !flat && len(block.Conditions) == 1:
+		return "An rls block with one condition is written flat: use column_name and unit_type, with no condition block."
+	}
+
+	return ""
 }
 
 // tableModel maps the data_proxy_table resource and data source.
@@ -99,15 +160,7 @@ func applyTableRow(ctx context.Context, model *tableModel, row client.Table, rul
 	model.RLS = nil
 
 	for _, rule := range rules {
-		block := rlsModel{}
-		for _, condition := range rule.Conditions {
-			block.Conditions = append(block.Conditions, conditionModel{
-				ColumnName: types.StringValue(condition.ColumnName),
-				UnitType:   types.StringValue(condition.UnitType),
-			})
-		}
-
-		model.RLS = append(model.RLS, block)
+		model.RLS = append(model.RLS, blockOf(rule))
 	}
 
 	return diagnostics
@@ -130,15 +183,7 @@ func sortValues(ctx context.Context, model tableModel) ([]string, diag.Diagnosti
 func rlsRules(model tableModel) []client.RLSRule {
 	rules := make([]client.RLSRule, 0, len(model.RLS))
 	for _, block := range model.RLS {
-		conditions := make([]client.RLSCondition, 0, len(block.Conditions))
-		for _, condition := range block.Conditions {
-			conditions = append(conditions, client.RLSCondition{
-				ColumnName: condition.ColumnName.ValueString(),
-				UnitType:   condition.UnitType.ValueString(),
-			})
-		}
-
-		rules = append(rules, client.RLSRule{Conditions: conditions})
+		rules = append(rules, ruleOf(block))
 	}
 
 	return rules
@@ -217,12 +262,23 @@ func (r *tableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 		},
 		Blocks: map[string]schema.Block{
 			"rls": schema.ListNestedBlock{
-				Description: "A row policy: one or more `condition` blocks that all must match. A reader needs a grant for each of them, or the policy gives no row. Policies are alternatives to each other. The schema needs a `claim`.",
+				Description: "A row policy. Write one condition as `column_name` and `unit_type`. Write two or more conditions that all must match as `condition` blocks. A reader needs a grant for each condition, or the policy gives no row. Policies are alternatives to each other. The schema needs a `claim`.",
 				NestedObject: schema.NestedBlockObject{
+					Attributes: map[string]schema.Attribute{
+						"column_name": schema.StringAttribute{
+							Description: "The column that holds the unit, for a policy of one condition.",
+							Optional:    true,
+							Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+						},
+						"unit_type": schema.StringAttribute{
+							Description: "The type of the unit, for a policy of one condition.",
+							Optional:    true,
+							Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+						},
+					},
 					Blocks: map[string]schema.Block{
 						"condition": schema.ListNestedBlock{
 							Description: "A condition of the policy: the column that holds the unit, and the type of the unit.",
-							Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
 							NestedObject: schema.NestedBlockObject{
 								Attributes: map[string]schema.Attribute{
 									"column_name": schema.StringAttribute{
@@ -245,13 +301,23 @@ func (r *tableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 	}
 }
 
-// ValidateConfig refuses n and fallback for a table that is not partitioned.
+// ValidateConfig refuses n and fallback for a table that is not partitioned, and an rls block that mixes its two forms.
 func (r *tableResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
 	var config tableModel
 
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 
-	if resp.Diagnostics.HasError() || config.Strategy.IsUnknown() {
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	for index, block := range config.RLS {
+		if problem := rlsProblem(block); problem != "" {
+			resp.Diagnostics.AddAttributeError(path.Root("rls").AtListIndex(index), "Invalid rls block", problem)
+		}
+	}
+
+	if config.Strategy.IsUnknown() {
 		return
 	}
 
