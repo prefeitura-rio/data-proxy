@@ -94,7 +94,7 @@ func TestSchemaDataSourceReportsAMissingSchema(t *testing.T) {
 func TestTableDataSource(t *testing.T) {
 	c := newStepClient(t, []step{
 		{method: "GET", uri: "/tables?name=eq.sales.orders", response: "[" + tableRowJSON + "]"},
-		{method: "GET", uri: "/rls?table_name=eq.sales.orders&order=id.asc", response: rlsRowsJSON},
+		{method: "POST", uri: "/rpc/rules", response: rlsRowsJSON},
 	})
 
 	resp, got := readDataSource(t, newTableDataSource(), c, tableModel{

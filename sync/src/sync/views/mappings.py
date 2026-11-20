@@ -10,7 +10,7 @@ from sync.constants import (
     MAX_IDENTIFIER_BYTES,
 )
 from sync.executor import Executor
-from sync.models import PartitionedTable, TableConfig, UnitMapping
+from sync.models import AllOf, PartitionedTable, RlsRule, TableConfig, UnitMapping
 from sync.schema import schema as app_schema
 from sync.settings import settings
 from sync.sources.registry import sources
@@ -36,8 +36,26 @@ def is_list(duckdb_type: str) -> bool:
     return duckdb_type.endswith("[]")
 
 
+def flatten_rules(rls: list[RlsRule]) -> list[tuple[UnitMapping, str]]:
+    """Return each condition with the number of its way, or the empty text for a condition on its own.
+
+    The number is the position of the way among the ways, from 1. Only the template reads it.
+    """
+    flat: list[tuple[UnitMapping, str]] = []
+    number = 0
+
+    for rule in rls:
+        if isinstance(rule, AllOf):
+            number += 1
+            flat.extend((condition, str(number)) for condition in rule.all)
+        else:
+            flat.append((rule, ""))
+
+    return flat
+
+
 def rls_mapping_entries(
-    rls: list[UnitMapping], columns: list[tuple[str, str]]
+    rls: list[RlsRule], columns: list[tuple[str, str]]
 ) -> list[dict[str, TemplateValue]]:
     """Return the rls mappings with the DuckDB type of each column, which the macro uses to choose the predicate.
 
@@ -46,7 +64,7 @@ def rls_mapping_entries(
     types = dict(columns)
     entries: list[dict[str, TemplateValue]] = []
 
-    for mapping in rls:
+    for mapping, way in flatten_rules(rls):
         if mapping.column not in types:
             raise ValueError(
                 f"The rls column {mapping.column!r} is not a column of the source table"
@@ -64,7 +82,7 @@ def rls_mapping_entries(
                 "column": mapping.column,
                 "unit_type": mapping.unit_type,
                 "duckdb_type": duckdb_type.upper(),
-                "group": "" if mapping.group is None else str(mapping.group),
+                "group": way,
             }
         )
 
@@ -329,7 +347,7 @@ def table_function_mapping(
     """Return mappings for the function behind one table view."""
     table_name = table.table_name
     claim_name = claim if claim is not None and len(claim) > 0 else "sub"
-    rls: list[UnitMapping] = [] if table.rls is None else table.rls
+    rls: list[RlsRule] = [] if table.rls is None else table.rls
 
     source = sources.configure(table.resolved_source, table.resolved_source_settings)
 
@@ -385,7 +403,7 @@ def table_changes_function_mapping(
 ) -> dict[str, TemplateValue]:
     """Return mappings for one DuckLake table change-feed function."""
     claim_name = claim if claim is not None and len(claim) > 0 else "sub"
-    rls: list[UnitMapping] = [] if table.rls is None else table.rls
+    rls: list[RlsRule] = [] if table.rls is None else table.rls
     return {
         "schema": Identifier(schema),
         "schema_literal": Literal(schema),

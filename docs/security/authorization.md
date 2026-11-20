@@ -68,21 +68,25 @@ A subject with the grant `unit_type = '*'` and `unit_id = '*'` in the `access_po
 
 The column of an `rls` rule can hold a list of text, such as `area_responsavel` with the type `ARRAY<STRING>` in BigQuery. A row is visible when at least one value of the list equals a unit of the grant. A row with an empty list or a NULL list is visible only to a reader of every row. A list of another type stops the sync with an error.
 
-### Groups of rules
+### Ways that need several conditions
 
-Rules are alternatives by default. A reader sees a row when any one rule matches a grant. Give rules the same `group` to make them all necessary:
+Rules are alternatives by default. A reader sees a row when any one rule matches a grant. A way holds conditions that all must match:
 
 ```json
 "rls": [
-  {"column": "region_id", "unit_type": "region", "group": 1},
-  {"column": "unit_id", "unit_type": "unit", "group": 1},
+  {"all": [
+    {"column": "region_id", "unit_type": "region"},
+    {"column": "unit_id", "unit_type": "unit"}
+  ]},
   {"column": "area", "unit_type": "area"}
 ]
 ```
 
 A reader sees a row when its `region_id` and its `unit_id` match grants, or when its `area` matches a grant.
 
-A group needs a grant for each of its rules. A reader who lacks one grant gets no row from that group. A missing grant never widens the filter.
+A way needs a grant for each of its conditions. A reader who lacks one grant gets no row from that way. A missing grant never widens the filter.
+
+A way holds two conditions or more. Nobody writes a number for a way, and no API shows one.
 
 ### A table with no rules
 

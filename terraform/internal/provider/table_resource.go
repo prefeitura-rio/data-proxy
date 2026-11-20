@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"reflect"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/int64validator"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
@@ -45,23 +46,28 @@ type tableResource struct {
 type rlsModel struct {
 	ColumnName types.String `tfsdk:"column_name"`
 	UnitType   types.String `tfsdk:"unit_type"`
-	Group      types.Int64  `tfsdk:"group"`
+}
+
+// rlsAllModel maps one rls_all block: a way that holds the conditions that all must match.
+type rlsAllModel struct {
+	RLS []rlsModel `tfsdk:"rls"`
 }
 
 // tableModel maps the data_proxy_table resource and data source.
 type tableModel struct {
-	ID           types.String `tfsdk:"id"`
-	Name         types.String `tfsdk:"name"`
-	Schema       types.String `tfsdk:"schema"`
-	Strategy     types.String `tfsdk:"strategy"`
-	N            types.Int64  `tfsdk:"n"`
-	Fallback     types.Bool   `tfsdk:"fallback"`
-	CacheTTL     types.Int64  `tfsdk:"cache_ttl"`
-	Partitioning types.String `tfsdk:"partitioning"`
-	Sort         types.List   `tfsdk:"sort"`
-	RLS          []rlsModel   `tfsdk:"rls"`
-	UpdatedAt    types.String `tfsdk:"updated_at"`
-	UpdatedBy    types.String `tfsdk:"updated_by"`
+	ID           types.String  `tfsdk:"id"`
+	Name         types.String  `tfsdk:"name"`
+	Schema       types.String  `tfsdk:"schema"`
+	Strategy     types.String  `tfsdk:"strategy"`
+	N            types.Int64   `tfsdk:"n"`
+	Fallback     types.Bool    `tfsdk:"fallback"`
+	CacheTTL     types.Int64   `tfsdk:"cache_ttl"`
+	Partitioning types.String  `tfsdk:"partitioning"`
+	Sort         types.List    `tfsdk:"sort"`
+	RLS          []rlsModel    `tfsdk:"rls"`
+	RLSAll       []rlsAllModel `tfsdk:"rls_all"`
+	UpdatedAt    types.String  `tfsdk:"updated_at"`
+	UpdatedBy    types.String  `tfsdk:"updated_by"`
 }
 
 // newTableResource returns the data_proxy_table resource.
@@ -92,12 +98,27 @@ func applyTableRow(ctx context.Context, model *tableModel, row client.Table, rul
 	}
 
 	model.RLS = nil
+	model.RLSAll = nil
+
 	for _, rule := range rules {
-		model.RLS = append(model.RLS, rlsModel{
-			ColumnName: types.StringValue(rule.ColumnName),
-			UnitType:   types.StringValue(rule.UnitType),
-			Group:      intValue(rule.Group),
-		})
+		if len(rule.All) == 0 {
+			model.RLS = append(model.RLS, rlsModel{
+				ColumnName: types.StringValue(rule.ColumnName),
+				UnitType:   types.StringValue(rule.UnitType),
+			})
+
+			continue
+		}
+
+		way := rlsAllModel{}
+		for _, condition := range rule.All {
+			way.RLS = append(way.RLS, rlsModel{
+				ColumnName: types.StringValue(condition.ColumnName),
+				UnitType:   types.StringValue(condition.UnitType),
+			})
+		}
+
+		model.RLSAll = append(model.RLSAll, way)
 	}
 
 	return diagnostics
@@ -116,15 +137,28 @@ func sortValues(ctx context.Context, model tableModel) ([]string, diag.Diagnosti
 	return columns, diagnostics
 }
 
-// rlsRules returns the row policies of the model in order.
+// rlsRules returns the row policies of the model: the plain conditions in order, then the ways in order. The two kinds
+// of block are two lists, so their order between each other is not kept. The filter that the sync builds from them
+// is the same in either order.
 func rlsRules(model tableModel) []client.RLSRule {
-	rules := make([]client.RLSRule, 0, len(model.RLS))
+	rules := make([]client.RLSRule, 0, len(model.RLS)+len(model.RLSAll))
 	for _, block := range model.RLS {
 		rules = append(rules, client.RLSRule{
 			ColumnName: block.ColumnName.ValueString(),
 			UnitType:   block.UnitType.ValueString(),
-			Group:      intPointer(block.Group),
 		})
+	}
+
+	for _, way := range model.RLSAll {
+		conditions := make([]client.RLSCondition, 0, len(way.RLS))
+		for _, block := range way.RLS {
+			conditions = append(conditions, client.RLSCondition{
+				ColumnName: block.ColumnName.ValueString(),
+				UnitType:   block.UnitType.ValueString(),
+			})
+		}
+
+		rules = append(rules, client.RLSRule{All: conditions})
 	}
 
 	return rules
@@ -216,10 +250,31 @@ func (r *tableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 							Required:    true,
 							Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
 						},
-						"group": schema.Int64Attribute{
-							Description: "Rules with the same group all must match. A rule with no group is an alternative to the others. A group needs a grant for each of its rules, or it gives no row.",
-							Optional:    true,
-							Validators:  []validator.Int64{int64validator.AtLeast(1)},
+					},
+				},
+			},
+			"rls_all": schema.ListNestedBlock{
+				Description: "A way: two or more `rls` blocks that all must match. A reader needs a grant for each of them, or the way gives no row. Ways are alternatives to each other and to the plain `rls` blocks.",
+				Validators:  []validator.List{},
+				NestedObject: schema.NestedBlockObject{
+					Blocks: map[string]schema.Block{
+						"rls": schema.ListNestedBlock{
+							Description: "A condition of the way.",
+							Validators:  []validator.List{listvalidator.SizeAtLeast(2)},
+							NestedObject: schema.NestedBlockObject{
+								Attributes: map[string]schema.Attribute{
+									"column_name": schema.StringAttribute{
+										Description: "The column that holds the unit.",
+										Required:    true,
+										Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+									},
+									"unit_type": schema.StringAttribute{
+										Description: "The type of the unit.",
+										Required:    true,
+										Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+									},
+								},
+							},
 						},
 					},
 				},
@@ -382,17 +437,7 @@ func (r *tableResource) Update(ctx context.Context, req resource.UpdateRequest, 
 
 // sameRules reports whether two lists hold the same row policies in the same order.
 func sameRules(left, right []client.RLSRule) bool {
-	if len(left) != len(right) {
-		return false
-	}
-
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-
-	return true
+	return reflect.DeepEqual(left, right)
 }
 
 // Delete removes the table. The database removes its row policies with it.

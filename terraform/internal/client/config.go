@@ -81,18 +81,24 @@ type TableUpdate struct {
 	Sort         []string        `json:"sort"`
 }
 
-// RLSRule is a row policy of a table: the column that holds the unit and the type of the unit. Rules with the same
-// Group must all match. A rule with no group is an alternative.
-type RLSRule struct {
-	ColumnName string `json:"column_name"`
+// RLSCondition is one condition: the column that holds the unit and the type of the unit.
+type RLSCondition struct {
+	ColumnName string `json:"column"`
 	UnitType   string `json:"unit_type"`
-	Group      *int   `json:"rule_group,omitempty"`
 }
 
-// rlsRow is a row of console.rls: a rule and the table that it belongs to.
-type rlsRow struct {
-	TableName string `json:"table_name"`
-	RLSRule
+// RLSRule is a row policy of a table. It is a condition, or a way that holds conditions that all must match. A way
+// has two or more conditions in All. No number of a group exists: the database numbers the ways by their position.
+type RLSRule struct {
+	ColumnName string         `json:"column,omitempty"`
+	UnitType   string         `json:"unit_type,omitempty"`
+	All        []RLSCondition `json:"all,omitempty"`
+}
+
+// rulesRow is a row of console.rules(): a table and its ways in order.
+type rulesRow struct {
+	TableName string    `json:"table_name"`
+	Ways      []RLSRule `json:"ways"`
 }
 
 // Health is a row of the view console.health.
@@ -242,41 +248,35 @@ func (c *Client) DeleteTable(ctx context.Context, name string) error {
 	return c.Delete(ctx, ConsoleProfile, "tables", []Filter{Eq("name", name)}, nil)
 }
 
-// ListRLS returns the row policies of the table in the order in which they were added.
+// ListRLS returns the row policies of the table in order, read through console.rules(). The token role has no right
+// on the table of rules, because a flat read would show the conditions of a way as alternatives.
 func (c *Client) ListRLS(ctx context.Context, table string) ([]RLSRule, error) {
-	var rows []rlsRow
+	var rows []rulesRow
 
-	filters := []Filter{Eq("table_name", table), OrderBy("id", false)}
-	if err := c.Get(ctx, ConsoleProfile, "rls", filters, &rows); err != nil {
+	if err := c.RPC(ctx, ConsoleProfile, "rules", nil, &rows); err != nil {
 		return nil, err
 	}
 
-	rules := make([]RLSRule, 0, len(rows))
 	for _, row := range rows {
-		rules = append(rules, row.RLSRule)
+		if row.TableName == table {
+			return row.Ways, nil
+		}
 	}
 
-	return rules, nil
+	return []RLSRule{}, nil
 }
 
-// ReplaceRLS deletes the row policies of the table and adds the given ones in order. It makes two calls, so it is
-// not atomic: a failure after the delete leaves the table without policies until the next apply.
+// ReplaceRLS replaces the row policies of the table with the given ones, in order, in one call. The database numbers
+// the ways, so a caller passes relations and never a number.
 func (c *Client) ReplaceRLS(ctx context.Context, table string, rules []RLSRule) error {
-	if err := c.Delete(ctx, ConsoleProfile, "rls", []Filter{Eq("table_name", table)}, nil); err != nil {
-		return fmt.Errorf("delete the row policies of %s: %w", table, err)
+	if rules == nil {
+		rules = []RLSRule{}
 	}
 
-	if len(rules) == 0 {
-		return nil
-	}
+	args := map[string]any{"table_name": table, "ways": rules}
 
-	rows := make([]rlsRow, 0, len(rules))
-	for _, rule := range rules {
-		rows = append(rows, rlsRow{TableName: table, RLSRule: rule})
-	}
-
-	if err := c.Insert(ctx, ConsoleProfile, "rls", rows, nil); err != nil {
-		return fmt.Errorf("add the row policies of %s: %w", table, err)
+	if err := c.RPC(ctx, ConsoleProfile, "replace_rls", args, nil); err != nil {
+		return fmt.Errorf("replace the row policies of %s: %w", table, err)
 	}
 
 	return nil

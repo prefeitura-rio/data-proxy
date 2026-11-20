@@ -31,10 +31,21 @@ class Strategy(StrEnum):
 class UnitMapping(BaseModel):
     """One row column that identifies membership in a unit of the given type."""
 
+    model_config: ClassVar[ConfigDict] = ConfigDict({"extra": "forbid"})
+
     column: NonEmptyString
     unit_type: NonEmptyString
-    group: int | None = Field(default=None, ge=1)
-    """Rules with the same group all must match. A rule with no group is an alternative."""
+
+
+class AllOf(BaseModel):
+    """A way that holds at least two conditions. A reader needs a grant for each of them, and every one must match."""
+
+    model_config: ClassVar[ConfigDict] = ConfigDict({"extra": "forbid"})
+
+    all: list[UnitMapping] = Field(min_length=2)
+
+
+type RlsRule = UnitMapping | AllOf
 
 
 class DuckLakePartitionTransform(StrEnum):
@@ -100,7 +111,7 @@ class Table(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict({"extra": "forbid"})
 
     name: NonEmptyString
-    rls: list[UnitMapping] | None = None
+    rls: list[RlsRule] | None = None
     cache_ttl: int | None = None
     """Lifetime of a proxy cache entry for this table, in seconds."""
     ducklake: DuckLakeTableConfig = Field(default_factory=DuckLakeTableConfig)
@@ -124,7 +135,7 @@ class Table(BaseModel):
         return {
             "name": self.name,
             "source": source,
-            "rls": [r.model_dump(exclude_none=True) for r in self.rls]
+            "rls": [r.model_dump() for r in self.rls]
             if self.rls is not None and len(self.rls) > 0
             else None,
             "ducklake": self.ducklake.model_dump(),

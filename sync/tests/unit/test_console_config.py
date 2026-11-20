@@ -211,10 +211,10 @@ class TestImportConfig:
             )
             == 120
         )
-        cursor = await console_api.connection.execute(
-            b"SELECT column_name, unit_type FROM console.rls WHERE table_name = 'p.d.orders'"
-        )
-        assert await cursor.fetchall() == [("email", "mail")]
+        assert await scalar(
+            console_api,
+            "SELECT ways FROM console.rules() WHERE table_name = 'p.d.orders'",
+        ) == [{"column": "email", "unit_type": "mail"}]
         assert [row for row in planned if row[3] != "unchanged"] == [
             ("rls", "sales", "p.d.orders.cnpj", "delete"),
             ("rls", "sales", "p.d.orders.cpf", "delete"),
@@ -250,7 +250,13 @@ class TestImportConfig:
 
         assert await scalar(console_api, "SELECT count(*) FROM console.schemas") == 2
         assert await scalar(console_api, "SELECT count(*) FROM console.tables") == 3
-        assert await scalar(console_api, "SELECT count(*) FROM console.rls") == 2
+        assert (
+            await scalar(
+                console_api,
+                "SELECT count(*) FROM console.rules() AS r, jsonb_array_elements(r.ways)",
+            )
+            == 2
+        )
 
     async def test_refuses_a_schema_outside_the_claim_of_the_token(
         self, console_api: Postgres
@@ -293,48 +299,56 @@ class TestImportConfig:
 
 
 @pytest.mark.postgres
-class TestRuleGroups:
-    """A rule can carry a group. Rules in one group must all match, and a rule with no group is an alternative."""
+class TestRuleWays:
+    """A rule is a condition, or a way that holds conditions that all must match. No number is visible."""
 
-    GROUPED: ClassVar[list[JsonValue]] = [
-        {"column": "region_id", "unit_type": "region", "group": 1},
-        {"column": "unit_id", "unit_type": "unit", "group": 1},
+    WAYS: ClassVar[list[JsonValue]] = [
+        {
+            "all": [
+                {"column": "region_id", "unit_type": "region"},
+                {"column": "unit_id", "unit_type": "unit"},
+            ]
+        },
         {"column": "area", "unit_type": "area"},
     ]
 
-    async def test_writes_the_group_only_when_a_rule_has_one(
-        self, console_api: Postgres
+    async def replace(
+        self, pg: Postgres, ways: list[JsonValue], table: str = "p.d.orders"
     ) -> None:
-        """Keep the document of a table with no group the same as before."""
-        await seed(console_api)
-        await as_token(console_api, "dp_admin", ["*"], database_role=True)
-        await console_api.connection.execute(
-            b"SELECT console.replace_rls(%s, %s)",
-            ("p.d.orders", Jsonb(self.GROUPED)),
+        """Replace the rules of a table, as the console and Terraform do."""
+        await pg.connection.execute(
+            b"SELECT console.replace_rls(%s, %s)", (table, Jsonb(ways))
         )
 
-        assert await export(console_api) == exported(rules=self.GROUPED)
-
-    async def test_an_export_without_a_group_has_no_group_key(
+    async def test_writes_a_way_as_all_and_a_condition_as_it_is(
         self, console_api: Postgres
     ) -> None:
-        """Let an old document and a new document be the same when no rule has a group."""
+        """Keep the shape that the user sent, and leave out every number."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        await self.replace(console_api, self.WAYS)
+
+        assert await export(console_api) == exported(rules=self.WAYS)
+
+    async def test_an_export_without_a_way_is_the_old_export(
+        self, console_api: Postgres
+    ) -> None:
+        """Let a table with plain rules have the same document as before."""
         await seed(console_api)
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
 
-        assert await export(console_api) == exported()
-        assert "group" not in json.dumps(await export(console_api))
+        document = await export(console_api)
 
-    async def test_importing_an_export_with_groups_changes_no_value(
+        assert document == exported()
+        assert '"all"' not in json.dumps(document)
+
+    async def test_importing_an_export_with_a_way_changes_no_value(
         self, console_api: Postgres
     ) -> None:
-        """Make the export and the import the two halves of one round trip, groups included."""
+        """Make the export and the import the two halves of one round trip, ways included."""
         await seed(console_api)
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
-        await console_api.connection.execute(
-            b"SELECT console.replace_rls(%s, %s)",
-            ("p.d.orders", Jsonb(self.GROUPED)),
-        )
+        await self.replace(console_api, self.WAYS)
         before = await export(console_api)
 
         await console_api.connection.execute(
@@ -343,48 +357,68 @@ class TestRuleGroups:
 
         assert await export(console_api) == before
 
+    async def test_the_same_ways_give_the_same_document_every_time(
+        self, console_api: Postgres
+    ) -> None:
+        """Number the ways by position, so a second save changes nothing and no table rebuilds."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        await self.replace(console_api, self.WAYS)
+        first = await export(console_api)
+        await self.replace(console_api, self.WAYS)
+        await self.replace(console_api, self.WAYS)
+
+        assert await export(console_api) == first
+
+    async def test_the_order_of_the_ways_is_part_of_the_document(
+        self, console_api: Postgres
+    ) -> None:
+        """Keep the order, so a change of the order is a change that the sync sees."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        await self.replace(console_api, self.WAYS)
+        straight = await export(console_api)
+        await self.replace(console_api, list(reversed(self.WAYS)))
+
+        assert await export(console_api) != straight
+
     async def test_replace_swaps_all_the_rules_of_one_table_at_once(
         self, console_api: Postgres
     ) -> None:
-        """Delete the old rules and insert the new ones in one call."""
+        """Delete the old rules and write the new ones in one call."""
         await seed(console_api)
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
 
-        await console_api.connection.execute(
-            b"SELECT console.replace_rls(%s, %s)",
-            ("p.d.orders", Jsonb([{"column": "email", "unit_type": "mail"}])),
-        )
+        await self.replace(console_api, [{"column": "email", "unit_type": "mail"}])
 
-        cursor = await console_api.connection.execute(
-            b"SELECT column_name, unit_type, rule_group FROM console.rls WHERE table_name = 'p.d.orders'"
-        )
-        assert await cursor.fetchall() == [("email", "mail", None)]
+        assert await scalar(
+            console_api,
+            "SELECT ways FROM console.rules() WHERE table_name = 'p.d.orders'",
+        ) == [{"column": "email", "unit_type": "mail"}]
 
     @pytest.mark.parametrize(
-        ("rules", "state"),
+        ("ways", "state"),
         [
-            pytest.param(
-                [{"column": "a", "unit_type": "x", "group": 0}],
-                CHECK_VIOLATION,
-                id="group-below-one",
-            ),
             pytest.param(
                 [{"column": "", "unit_type": "x"}], CHECK_VIOLATION, id="empty-column"
             ),
             pytest.param(
-                [
-                    {"column": "a", "unit_type": "x"},
-                    {"column": "a", "unit_type": "x"},
-                ],
+                [{"column": "a", "unit_type": "x"}, {"column": "a", "unit_type": "x"}],
                 "23505",
                 id="the-same-rule-twice",
             ),
+            pytest.param(
+                [{"all": [{"column": "a", "unit_type": "x"}]}],
+                "22023",
+                id="a-way-of-one",
+            ),
+            pytest.param([{"all": "nope"}], "22023", id="a-way-that-is-not-a-list"),
         ],
     )
     async def test_replace_keeps_the_old_rules_when_one_new_rule_is_wrong(
         self,
         console_api: Postgres,
-        rules: list[dict[str, object]],
+        ways: list[dict[str, object]],
         state: str,
     ) -> None:
         """Roll the delete back, so a bad list never leaves a table with fewer rules."""
@@ -392,19 +426,21 @@ class TestRuleGroups:
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
         before = await scalar(
             console_api,
-            "SELECT count(*) FROM console.rls WHERE table_name = 'p.d.orders'",
+            "SELECT ways FROM console.rules() WHERE table_name = 'p.d.orders'",
         )
 
         found = await refusal(
-            console_api,
-            "SELECT console.replace_rls(%s, %s)",
-            "p.d.orders",
-            Jsonb(rules),
+            console_api, "SELECT console.replace_rls(%s, %s)", "p.d.orders", Jsonb(ways)
         )
-        await console_api.connection.execute(b"ROLLBACK")
 
         assert found == state
-        assert before == 2
+        assert (
+            await scalar(
+                console_api,
+                "SELECT ways FROM console.rules() WHERE table_name = 'p.d.orders'",
+            )
+            == before
+        )
 
     async def test_replace_needs_the_create_and_delete_permissions(
         self, console_api: Postgres
@@ -414,10 +450,7 @@ class TestRuleGroups:
         await as_token(console_api, "dp_policy", ["sales"], database_role=True)
 
         state = await refusal(
-            console_api,
-            "SELECT console.replace_rls(%s, %s)",
-            "p.d.orders",
-            Jsonb([]),
+            console_api, "SELECT console.replace_rls(%s, %s)", "p.d.orders", Jsonb([])
         )
 
         assert state == INSUFFICIENT
@@ -425,7 +458,7 @@ class TestRuleGroups:
     async def test_replace_refuses_a_table_outside_the_claim_of_the_token(
         self, console_api: Postgres
     ) -> None:
-        """Let the row policies of console.rls stop a write to another schema."""
+        """Repeat the row policy of the table, because the function writes past it."""
         await seed(console_api)
         await as_token(console_api, "dp_console", ["hr"], database_role=True)
 
@@ -436,25 +469,132 @@ class TestRuleGroups:
             Jsonb([{"column": "a", "unit_type": "x"}]),
         )
 
-        assert state in {INSUFFICIENT, CHECK_VIOLATION}
+        assert state == INSUFFICIENT
 
-    async def test_the_history_names_a_grouped_rule_by_its_table_and_its_column(
+    async def test_the_history_shows_a_way_with_no_number(
         self, console_api: Postgres
     ) -> None:
-        """Record a group in the change history like any other rule."""
+        """Record a rule of a way by its table and its column, and keep the number out of the rows."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        await self.replace(console_api, self.WAYS)
+
+        rows = await scalar(
+            console_api,
+            "SELECT array_agg(new_row::text) FROM console.config_history WHERE object = 'rls' AND action = 'insert'",
+        )
+        keys = await scalar(
+            console_api,
+            "SELECT array_agg(key) FROM console.config_history WHERE object = 'rls'",
+        )
+
+        assert isinstance(rows, list)
+        assert isinstance(keys, list)
+        assert len(rows) > 0
+        assert all(
+            isinstance(row, str) and "rule_group" not in row and "sort_order" not in row
+            for row in rows
+        )
+        assert "p.d.orders.region_id" in keys
+
+
+@pytest.mark.postgres
+class TestRulesAreReachedOnlyThroughFunctions:
+    """The group number is internal. The token role reads and writes the rules through functions, never through the table."""
+
+    async def test_the_token_role_cannot_read_the_table_of_rules(
+        self, console_api: Postgres
+    ) -> None:
+        """A flat read would show the conditions of a way as alternatives."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+
+        state = await refusal(console_api, "SELECT * FROM console.rls")
+
+        assert state == INSUFFICIENT
+
+    async def test_the_token_role_cannot_write_the_table_of_rules(
+        self, console_api: Postgres
+    ) -> None:
+        """Only replace_rls writes the rules, so a caller never passes a number."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+
+        state = await refusal(
+            console_api,
+            "INSERT INTO console.rls (table_name, column_name, unit_type) VALUES ('p.d.orders', 'a', 'x')",
+        )
+
+        assert state == INSUFFICIENT
+
+    async def test_rules_gives_the_ways_of_a_table_with_no_number(
+        self, console_api: Postgres
+    ) -> None:
+        """Read the rules as the console and Terraform do, and find no group key."""
         await seed(console_api)
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
         await console_api.connection.execute(
             b"SELECT console.replace_rls(%s, %s)",
-            ("p.d.orders", Jsonb(self.GROUPED)),
+            (
+                "p.d.orders",
+                Jsonb(
+                    [
+                        {"column": "area", "unit_type": "area"},
+                        {
+                            "all": [
+                                {"column": "region_id", "unit_type": "region"},
+                                {"column": "unit_id", "unit_type": "unit"},
+                            ]
+                        },
+                    ]
+                ),
+            ),
         )
 
-        keys = await scalar(
+        document = await scalar(
             console_api,
-            "SELECT array_agg(key ORDER BY key) FROM console.config_history WHERE object = 'rls' AND action = 'insert' AND new_row ->> 'rule_group' IS NOT NULL",
+            "SELECT jsonb_agg(to_jsonb(r) ORDER BY table_name) FROM console.rules() AS r WHERE table_name = 'p.d.orders'",
         )
 
-        assert keys == ["p.d.orders.region_id", "p.d.orders.unit_id"]
+        assert document == [
+            {
+                "table_name": "p.d.orders",
+                "ways": [
+                    {"column": "area", "unit_type": "area"},
+                    {
+                        "all": [
+                            {"column": "region_id", "unit_type": "region"},
+                            {"column": "unit_id", "unit_type": "unit"},
+                        ]
+                    },
+                ],
+            }
+        ]
+        assert "group" not in json.dumps(document)
+
+    async def test_rules_shows_a_token_only_the_tables_of_its_schemas(
+        self, console_api: Postgres
+    ) -> None:
+        """Repeat the row policy of the table, because the function reads past it."""
+        await seed(console_api)
+        await as_token(console_api, "dp_console", ["hr"], database_role=True)
+
+        tables = await scalar(
+            console_api, "SELECT array_agg(table_name) FROM console.rules()"
+        )
+
+        assert tables in (None, [])
+
+    async def test_rules_needs_the_permission_to_read_the_configuration(
+        self, console_api: Postgres
+    ) -> None:
+        """A token that may not read the configuration gets nothing."""
+        await seed(console_api)
+        await as_token(console_api, "dp_api", ["sales"], database_role=True)
+
+        state = await refusal(console_api, "SELECT * FROM console.rules()")
+
+        assert state == INSUFFICIENT
 
 
 @pytest.mark.postgres

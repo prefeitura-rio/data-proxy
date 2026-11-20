@@ -55,7 +55,7 @@ These fields describe one table of a schema in `sync.json`. The table says which
 | `n`         | No               | Keep the newest `n` time partitions.                                                                       |
 | `fallback`  | Partitioned only | Allow the configured source to serve uncovered partitions when it has fallback metadata. Default: `false`. |
 | `cache_ttl` | No               | Proxy cache lifetime in seconds.                                                                           |
-| `rls`       | No               | Unit column, unit type and optional `group`. A table with no rules returns no row, except to a wildcard claim or a `*` grant. See [Security](security/index.md). |
+| `rls`       | No               | Conditions, or ways `all` of conditions. A table with no rules returns no row, except to a wildcard claim or a `*` grant. See [Security](security/index.md). |
 | `ducklake`  | No               | Table-level DuckLake settings, including `sort` and `partitioning`.                                        |
 | `ducklake`  | No               | Table-level DuckLake settings, including custom partition transforms.                                      |
 

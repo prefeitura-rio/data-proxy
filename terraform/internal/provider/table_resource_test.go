@@ -18,8 +18,8 @@ import (
 const (
 	tableRowJSON = `{"name":"sales.orders","schema":"sales_orders","strategy":"partitioned","n":3,"fallback":false,` +
 		`"cache_ttl":60,"partitioning":null,"sort":["order_id"],"updated_at":"2026-01-01T00:00:00Z","updated_by":"terraform"}`
-	rlsRowsJSON = `[{"table_name":"sales.orders","column_name":"unit_id","unit_type":"unit"},` +
-		`{"table_name":"sales.orders","column_name":"region_id","unit_type":"region"}]`
+	rlsRowsJSON = `[{"table_name":"sales.orders","ways":[{"column":"unit_id","unit_type":"unit"},` +
+		`{"column":"region_id","unit_type":"region"}]}]`
 )
 
 // newTestTable returns the resource with a client that the steps drive, and no wait between reads.
@@ -59,61 +59,71 @@ func tableConfig(t *testing.T, rules ...rlsModel) tableModel {
 
 // ruleModel returns a row policy block.
 func ruleModel(column, unit string) rlsModel {
-	return rlsModel{ColumnName: types.StringValue(column), UnitType: types.StringValue(unit), Group: types.Int64Null()}
+	return rlsModel{ColumnName: types.StringValue(column), UnitType: types.StringValue(unit)}
 }
 
-// groupedRule builds a row policy that belongs to a group.
-func groupedRule(column, unit string, group int64) rlsModel {
-	return rlsModel{ColumnName: types.StringValue(column), UnitType: types.StringValue(unit), Group: types.Int64Value(group)}
+// allModel builds an rls_all block that holds the given conditions.
+func allModel(conditions ...rlsModel) rlsAllModel {
+	return rlsAllModel{RLS: conditions}
 }
 
-func TestRLSRulesKeepTheGroup(t *testing.T) {
-	model := tableModel{RLS: []rlsModel{
-		groupedRule("region_id", "region", 1),
-		groupedRule("unit_id", "unit", 1),
-		ruleModel("area", "area"),
-	}}
+func TestRLSRulesAreConditionsThenWays(t *testing.T) {
+	model := tableModel{
+		RLS: []rlsModel{ruleModel("area", "area")},
+		RLSAll: []rlsAllModel{
+			allModel(ruleModel("region_id", "region"), ruleModel("unit_id", "unit")),
+			allModel(ruleModel("a", "x"), ruleModel("b", "y")),
+		},
+	}
 
 	got := rlsRules(model)
 
 	want := []client.RLSRule{
-		{ColumnName: "region_id", UnitType: "region", Group: ptr(1)},
-		{ColumnName: "unit_id", UnitType: "unit", Group: ptr(1)},
 		{ColumnName: "area", UnitType: "area"},
+		{All: []client.RLSCondition{{ColumnName: "region_id", UnitType: "region"}, {ColumnName: "unit_id", UnitType: "unit"}}},
+		{All: []client.RLSCondition{{ColumnName: "a", UnitType: "x"}, {ColumnName: "b", UnitType: "y"}}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("rlsRules() = %+v, want %+v", got, want)
 	}
 }
 
-func TestApplyTableRowReadsTheGroup(t *testing.T) {
+func TestApplyTableRowSplitsTheRulesIntoBlocks(t *testing.T) {
 	var model tableModel
 
 	diagnostics := applyTableRow(t.Context(), &model, client.Table{Name: "sales.orders"}, []client.RLSRule{
-		{ColumnName: "region_id", UnitType: "region", Group: ptr(2)},
 		{ColumnName: "area", UnitType: "area"},
+		{All: []client.RLSCondition{{ColumnName: "region_id", UnitType: "region"}, {ColumnName: "unit_id", UnitType: "unit"}}},
 	})
 	if diagnostics.HasError() {
 		t.Fatalf("applyTableRow() = %v", diagnostics)
 	}
 
-	if got := model.RLS[0].Group; got.IsNull() || got.ValueInt64() != 2 {
-		t.Errorf("first rule group = %v, want 2", got)
+	if len(model.RLS) != 1 || model.RLS[0].ColumnName.ValueString() != "area" {
+		t.Errorf("RLS = %+v, want one rule on area", model.RLS)
 	}
 
-	if got := model.RLS[1].Group; !got.IsNull() {
-		t.Errorf("second rule group = %v, want null", got)
+	if len(model.RLSAll) != 1 || len(model.RLSAll[0].RLS) != 2 {
+		t.Fatalf("RLSAll = %+v, want one way with two conditions", model.RLSAll)
+	}
+
+	if got := model.RLSAll[0].RLS[1].ColumnName.ValueString(); got != "unit_id" {
+		t.Errorf("second condition = %q, want unit_id", got)
 	}
 }
 
-func TestRLSRuleJSONOmitsAnEmptyGroup(t *testing.T) {
+func TestRLSRuleJSONHasNoNumber(t *testing.T) {
 	tests := []struct {
 		name string
 		rule client.RLSRule
 		want string
 	}{
-		{name: "no group", rule: client.RLSRule{ColumnName: "a", UnitType: "x"}, want: `{"column_name":"a","unit_type":"x"}`},
-		{name: "a group", rule: client.RLSRule{ColumnName: "a", UnitType: "x", Group: ptr(3)}, want: `{"column_name":"a","unit_type":"x","rule_group":3}`},
+		{name: "a condition", rule: client.RLSRule{ColumnName: "a", UnitType: "x"}, want: `{"column":"a","unit_type":"x"}`},
+		{
+			name: "a way",
+			rule: client.RLSRule{All: []client.RLSCondition{{ColumnName: "a", UnitType: "x"}, {ColumnName: "b", UnitType: "y"}}},
+			want: `{"all":[{"column":"a","unit_type":"x"},{"column":"b","unit_type":"y"}]}`,
+		},
 	}
 
 	for _, test := range tests {
@@ -125,6 +135,10 @@ func TestRLSRuleJSONOmitsAnEmptyGroup(t *testing.T) {
 
 			if string(got) != test.want {
 				t.Fatalf("json = %s, want %s", got, test.want)
+			}
+
+			if strings.Contains(string(got), "group") {
+				t.Fatalf("json = %s, want no group", got)
 			}
 		})
 	}
@@ -141,10 +155,9 @@ func TestTableCreate(t *testing.T) {
 		body: `{"name":"sales.orders","schema":"sales_orders","strategy":"partitioned","n":3,"fallback":false,"cache_ttl":60,"sort":["order_id"]}`,
 	}
 	rulesStep := step{
-		method: "POST", uri: "/rls", profile: "console", status: 201,
-		body: `[{"table_name":"sales.orders","column_name":"unit_id","unit_type":"unit"},{"table_name":"sales.orders","column_name":"region_id","unit_type":"region"}]`,
+		method: "POST", uri: "/rpc/replace_rls", profile: "console", response: "null",
+		body: `{"table_name":"sales.orders","ways":[{"column":"unit_id","unit_type":"unit"},{"column":"region_id","unit_type":"region"}]}`,
 	}
-	deleteRules := step{method: "DELETE", uri: "/rls?table_name=eq.sales.orders", response: "[]"}
 
 	tests := []struct {
 		name        string
@@ -154,11 +167,11 @@ func TestTableCreate(t *testing.T) {
 		wantRules   int
 	}{
 		{name: "adds a table without row policies", steps: []step{createStep}},
-		{name: "adds the table, then its row policies in order", rules: twoRules(), steps: []step{createStep, deleteRules, rulesStep}, wantRules: 2},
+		{name: "adds the table, then its row policies in order", rules: twoRules(), steps: []step{createStep, rulesStep}, wantRules: 2},
 		{
 			name:        "keeps the table when the row policies fail",
 			rules:       twoRules(),
-			steps:       []step{createStep, deleteRules, {status: 400, response: `{"code":"23514","message":"the schema has no claim"}`}},
+			steps:       []step{createStep, {status: 400, response: `{"code":"23514","message":"the schema has no claim"}`}},
 			wantSummary: "Couldn't add the row policies of the table",
 			wantRules:   2,
 		},
@@ -212,7 +225,7 @@ func TestTableRead(t *testing.T) {
 			name: "reads the row and its row policies",
 			steps: []step{
 				{method: "GET", uri: "/tables?name=eq.sales.orders", response: "[" + tableRowJSON + "]"},
-				{method: "GET", uri: "/rls?table_name=eq.sales.orders&order=id.asc", response: rlsRowsJSON},
+				{method: "POST", uri: "/rpc/rules", response: rlsRowsJSON},
 			},
 		},
 		{name: "drops a table that no longer exists", steps: []step{{response: "[]"}}, wantRemoved: true},
@@ -265,7 +278,7 @@ func TestTableUpdate(t *testing.T) {
 		method: "PATCH", uri: "/tables?name=eq.sales.orders", profile: "console", response: "[" + tableRowJSON + "]",
 		body: `{"strategy":"partitioned","n":3,"fallback":false,"cache_ttl":60,"partitioning":null,"sort":["order_id"]}`,
 	}
-	deleteRules := step{method: "DELETE", uri: "/rls?table_name=eq.sales.orders", response: "[]"}
+	replaceRules := step{method: "POST", uri: "/rpc/replace_rls", response: "null"}
 
 	tests := []struct {
 		name        string
@@ -278,10 +291,10 @@ func TestTableUpdate(t *testing.T) {
 		{
 			name:      "replaces the row policies in the new order",
 			plan:      []rlsModel{ruleModel("region_id", "region"), ruleModel("unit_id", "unit")},
-			steps:     []step{patch, deleteRules, {method: "POST", uri: "/rls", status: 201}},
+			steps:     []step{patch, replaceRules},
 			wantRules: 2,
 		},
-		{name: "removes every row policy", plan: nil, steps: []step{patch, deleteRules}, wantRules: 0},
+		{name: "removes every row policy", plan: nil, steps: []step{patch, replaceRules}, wantRules: 0},
 		{
 			name:        "keeps the old row policies in the state when the replace fails",
 			plan:        []rlsModel{ruleModel("unit_id", "unit")},

@@ -67,7 +67,7 @@ class TestClaimChecksUnderConcurrency:
 
 
 GOOSE = shutil.which("goose")
-CONSOLE_WRITES = {"projects", "rls", "schemas", "tables"}
+CONSOLE_WRITES = {"projects", "schemas", "tables"}
 
 
 async def relations_with(pg: Postgres, privilege: str, *, any_column: bool) -> set[str]:
@@ -100,6 +100,7 @@ class TestGrantsOfTheMigrations:
             SELECT count(*) FROM pg_class AS c
             INNER JOIN pg_namespace AS n ON c.relnamespace = n.oid
             WHERE n.nspname = 'console' AND c.relkind IN ('r', 'p', 'v')
+                AND c.relname <> 'rls'
                 AND NOT has_table_privilege('dp_api', c.oid, 'SELECT')
             """
         )
@@ -109,6 +110,12 @@ class TestGrantsOfTheMigrations:
                 rbac, "SELECT has_schema_privilege('dp_api', 'console', 'USAGE')"
             )
             is True
+        )
+        assert (
+            await scalar(
+                rbac, "SELECT has_table_privilege('dp_api', 'console.rls', 'SELECT')"
+            )
+            is False
         )
         assert await relations_with(rbac, "INSERT", any_column=True) == CONSOLE_WRITES
         assert await relations_with(rbac, "DELETE", any_column=False) == CONSOLE_WRITES
