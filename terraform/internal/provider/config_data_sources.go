@@ -203,19 +203,11 @@ func newTableDataSource() datasource.DataSource {
 			"partitioning": computedString("The partition transforms as a JSON array."),
 			"sort":         schema.ListAttribute{Description: "The columns that DuckLake sorts the table by.", ElementType: types.StringType, Computed: true},
 			"rls": schema.ListNestedAttribute{
-				Description: "The row policies in order.",
+				Description: "The row policies in order. Each holds the conditions that all must match.",
 				Computed:    true,
 				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-					"column_name": computedString("The column that holds the unit."),
-					"unit_type":   computedString("The type of the unit."),
-				}},
-			},
-			"rls_all": schema.ListNestedAttribute{
-				Description: "The groups in order. Each holds the conditions that all must match.",
-				Computed:    true,
-				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-					"rls": schema.ListNestedAttribute{
-						Description: "The conditions of the way.",
+					"condition": schema.ListNestedAttribute{
+						Description: "The conditions of the policy.",
 						Computed:    true,
 						NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
 							"column_name": computedString("The column that holds the unit."),

@@ -37,15 +37,26 @@ class UnitMapping(BaseModel):
     unit_type: NonEmptyString
 
 
-class AllOf(BaseModel):
-    """A group that holds at least two conditions. A reader needs a grant for each of them, and every one must match."""
+class RlsRule(BaseModel):
+    """A row rule: one condition or more, and every one must match. Two or more conditions make a group."""
 
     model_config: ClassVar[ConfigDict] = ConfigDict({"extra": "forbid"})
 
-    all: list[UnitMapping] = Field(min_length=2)
+    conditions: list[UnitMapping] = Field(min_length=1)
 
+    @model_validator(mode="before")
+    @classmethod
+    def read_a_lone_condition(cls, data: object) -> object:
+        """Read a flat `{column, unit_type}` as a rule of that one condition."""
+        if isinstance(data, dict) and "conditions" not in data:
+            return {"conditions": [data]}
+        return data
 
-type RlsRule = UnitMapping | AllOf
+    def signature_fields(self) -> JsonValue:
+        """Return the rule as the signature always held it: flat for one condition, so no table rebuilds."""
+        if len(self.conditions) == 1:
+            return self.conditions[0].model_dump()
+        return self.model_dump()
 
 
 class DuckLakePartitionTransform(StrEnum):
@@ -135,7 +146,7 @@ class Table(BaseModel):
         return {
             "name": self.name,
             "source": source,
-            "rls": [r.model_dump() for r in self.rls]
+            "rls": [r.signature_fields() for r in self.rls]
             if self.rls is not None and len(self.rls) > 0
             else None,
             "ducklake": self.ducklake.model_dump(),

@@ -215,7 +215,7 @@ class TestImportConfig:
         assert await scalar(
             console_api,
             "SELECT groups FROM console.rules() WHERE table_name = 'p.d.orders'",
-        ) == [{"column": "email", "unit_type": "mail"}]
+        ) == [{"conditions": [{"column": "email", "unit_type": "mail"}]}]
         assert [row for row in planned if row[3] != "unchanged"] == [
             ("rls", "sales", "p.d.orders.cnpj", "delete"),
             ("rls", "sales", "p.d.orders.cpf", "delete"),
@@ -300,17 +300,17 @@ class TestImportConfig:
 
 
 @pytest.mark.postgres
-class TestRuleWays:
+class TestRuleGroups:
     """A rule is a condition, or a group that holds conditions that all must match. No number is visible."""
 
     WAYS: ClassVar[list[JsonValue]] = [
         {
-            "all": [
+            "conditions": [
                 {"column": "region_id", "unit_type": "region"},
                 {"column": "unit_id", "unit_type": "unit"},
             ]
         },
-        {"column": "area", "unit_type": "area"},
+        {"conditions": [{"column": "area", "unit_type": "area"}]},
     ]
 
     async def replace(
@@ -321,7 +321,7 @@ class TestRuleWays:
             b"SELECT console.replace_rls(%s, %s)", (table, Jsonb(groups))
         )
 
-    async def test_writes_a_way_as_all_and_a_condition_as_it_is(
+    async def test_writes_every_rule_as_a_list_of_conditions(
         self, console_api: Postgres
     ) -> None:
         """Keep the shape that the user sent, and leave out every number."""
@@ -331,7 +331,20 @@ class TestRuleWays:
 
         assert await export(console_api) == exported(rules=self.WAYS)
 
-    async def test_an_export_without_a_way_is_the_old_export(
+    async def test_a_flat_condition_is_stored_as_a_rule_of_one_condition(
+        self, console_api: Postgres
+    ) -> None:
+        """Let the live configuration files keep the flat shape: it reads as one condition."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+        await self.replace(console_api, [{"column": "area", "unit_type": "area"}])
+
+        assert await scalar(
+            console_api,
+            "SELECT groups FROM console.rules() WHERE table_name = 'p.d.orders'",
+        ) == [{"conditions": [{"column": "area", "unit_type": "area"}]}]
+
+    async def test_an_export_with_rules_of_one_condition_holds_no_group(
         self, console_api: Postgres
     ) -> None:
         """Let a table with plain rules have the same document as before."""
@@ -342,6 +355,7 @@ class TestRuleWays:
 
         assert document == exported()
         assert '"all"' not in json.dumps(document)
+        assert "rule_group" not in json.dumps(document)
 
     async def test_importing_an_export_with_a_way_changes_no_value(
         self, console_api: Postgres
@@ -395,25 +409,29 @@ class TestRuleWays:
         assert await scalar(
             console_api,
             "SELECT groups FROM console.rules() WHERE table_name = 'p.d.orders'",
-        ) == [{"column": "email", "unit_type": "mail"}]
+        ) == [{"conditions": [{"column": "email", "unit_type": "mail"}]}]
 
     @pytest.mark.parametrize(
         ("groups", "state"),
         [
             pytest.param(
-                [{"column": "", "unit_type": "x"}], CHECK_VIOLATION, id="empty-column"
+                [{"conditions": [{"column": "", "unit_type": "x"}]}],
+                CHECK_VIOLATION,
+                id="empty-column",
             ),
             pytest.param(
-                [{"column": "a", "unit_type": "x"}, {"column": "a", "unit_type": "x"}],
+                [
+                    {"conditions": [{"column": "a", "unit_type": "x"}]},
+                    {"conditions": [{"column": "a", "unit_type": "x"}]},
+                ],
                 "23505",
                 id="the-same-rule-twice",
             ),
+            pytest.param([{"conditions": []}], "22023", id="a-rule-with-no-condition"),
+            pytest.param([{"unit_type": "x"}], "22023", id="a-rule-with-no-conditions"),
             pytest.param(
-                [{"all": [{"column": "a", "unit_type": "x"}]}],
-                "22023",
-                id="a-group-of-one",
+                [{"conditions": "nope"}], "22023", id="a-rule-that-is-not-a-list"
             ),
-            pytest.param([{"all": "nope"}], "22023", id="a-group-that-is-not-a-list"),
         ],
     )
     async def test_replace_keeps_the_old_rules_when_one_new_rule_is_wrong(
@@ -543,9 +561,9 @@ class TestRulesAreReachedOnlyThroughFunctions:
                 "p.d.orders",
                 Jsonb(
                     [
-                        {"column": "area", "unit_type": "area"},
+                        {"conditions": [{"column": "area", "unit_type": "area"}]},
                         {
-                            "all": [
+                            "conditions": [
                                 {"column": "region_id", "unit_type": "region"},
                                 {"column": "unit_id", "unit_type": "unit"},
                             ]
@@ -564,9 +582,9 @@ class TestRulesAreReachedOnlyThroughFunctions:
             {
                 "table_name": "p.d.orders",
                 "groups": [
-                    {"column": "area", "unit_type": "area"},
+                    {"conditions": [{"column": "area", "unit_type": "area"}]},
                     {
-                        "all": [
+                        "conditions": [
                             {"column": "region_id", "unit_type": "region"},
                             {"column": "unit_id", "unit_type": "unit"},
                         ]
@@ -652,7 +670,7 @@ class TestClaimChecksReadTheRulesPastTheRoleOfTheTokens:
         assert await scalar(
             console_api,
             "SELECT groups FROM console.rules() WHERE table_name = 'p.d.staff'",
-        ) == [{"column": "cpf", "unit_type": "cpf"}]
+        ) == [{"conditions": [{"column": "cpf", "unit_type": "cpf"}]}]
 
     async def test_a_rule_on_a_schema_with_no_claim_is_refused(
         self, console_api: Postgres

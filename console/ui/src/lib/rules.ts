@@ -4,51 +4,41 @@ import * as v from 'valibot';
 export const GROUP = 'Group';
 
 export type Rule = { column: string; unit_type: string };
-export type Editor = { any: Rule[]; all: Rule[][] };
-/** A group as the database stores it: one condition, or `all` of two or more. No number exists. */
-export type Stored = Rule | { all: Rule[] };
+export type Editor = { any: Rule[]; cards: Rule[][] };
+/** A rule as the database stores it: the conditions that all must match. A group holds two or more. No number exists. */
+export type Stored = { conditions: Rule[] };
 
 const key = (rule: Rule) => `${rule.column}\u0000${rule.unit_type}`;
 
-const isGroup = (group: Stored): group is { all: Rule[] } => 'all' in group;
+const copy = (rule: Rule): Rule => ({ column: rule.column, unit_type: rule.unit_type });
 
-/** Split the groups of a table into the alternatives and the cards. A group of one condition is an alternative. */
-export function toEditor(groups: Stored[]): Editor {
+/** Split the rules of a table into the alternatives and the cards. A rule of one condition is an alternative. */
+export function toEditor(rules: Stored[]): Editor {
 	const any: Rule[] = [];
-	const all: Rule[][] = [];
+	const cards: Rule[][] = [];
 
-	for (const group of groups) {
-		if (!isGroup(group)) {
-			any.push({ column: group.column, unit_type: group.unit_type });
-		} else if (group.all.length === 1) {
-			any.push(...group.all);
+	for (const rule of rules) {
+		if (rule.conditions.length === 1) {
+			any.push(...rule.conditions.map(copy));
 		} else {
-			all.push(group.all.map((rule) => ({ column: rule.column, unit_type: rule.unit_type })));
+			cards.push(rule.conditions.map(copy));
 		}
 	}
 
-	return { any, all };
+	return { any, cards };
 }
 
-/** Write the groups to store. A card of one condition is a plain condition, and an empty card is dropped. */
+/** Write the rules to store. A card of one condition is a rule of one condition, and an empty card is dropped. */
 export function toRows(editor: Editor): Stored[] {
-	const groups: Stored[] = editor.any.map((rule) => ({ column: rule.column, unit_type: rule.unit_type }));
+	const rules: Stored[] = editor.any.map((rule) => ({ conditions: [copy(rule)] }));
 
-	for (const card of editor.all) {
-		const [only, ...rest] = card;
-
-		if (only === undefined) {
-			continue;
+	for (const card of editor.cards) {
+		if (card.length > 0) {
+			rules.push({ conditions: card.map(copy) });
 		}
-
-		groups.push(
-			rest.length === 0
-				? { column: only.column, unit_type: only.unit_type }
-				: { all: card.map((rule) => ({ column: rule.column, unit_type: rule.unit_type })) }
-		);
 	}
 
-	return groups;
+	return rules;
 }
 
 const condition = (rule: Rule) => `its ${rule.column} matches one of their ${rule.unit_type} units`;
@@ -60,7 +50,7 @@ const joined = (items: string[]) =>
 export function describe(editor: Editor): string {
 	const groups = [
 		...editor.any.map((rule) => condition(rule)),
-		...editor.all.filter((card) => card.length > 0).map((card) => joined(card.map(condition)))
+		...editor.cards.filter((card) => card.length > 0).map((card) => joined(card.map(condition)))
 	];
 
 	if (groups.length === 0) {
@@ -74,7 +64,7 @@ export function describe(editor: Editor): string {
 export function warnings(editor: Editor): string[] {
 	const found: string[] = [];
 
-	editor.all.forEach((card, index) => {
+	editor.cards.forEach((card, index) => {
 		const name = `${GROUP} ${index + 1}`;
 		const types = [...new Set(card.map((rule) => rule.unit_type))];
 
@@ -117,7 +107,7 @@ export function parseRules(form: FormData): Parsed {
 		return { ok: false, message: 'The rules are incomplete. Reload the page and try again.' };
 	}
 
-	const editor: Editor = { any: [], all: [] };
+	const editor: Editor = { any: [], cards: [] };
 	const cards = new Map<string, Rule[]>();
 	const seen = new Set<string>();
 
@@ -153,7 +143,7 @@ export function parseRules(form: FormData): Parsed {
 		}
 	}
 
-	editor.all = [...cards.values()];
+	editor.cards = [...cards.values()];
 
 	return { ok: true, rows: toRows(editor) };
 }
@@ -170,7 +160,7 @@ export function startGroups(rows: Stored[], ids: () => string): Groups {
 
 	return {
 		any: editor.any.map((rule) => ({ ...rule, id: ids(), card: null })),
-		cards: editor.all.map((rules) => {
+		cards: editor.cards.map((rules) => {
 			const id = ids();
 
 			return { id, items: rules.map((rule) => ({ ...rule, id: ids(), card: id })) };
@@ -179,7 +169,10 @@ export function startGroups(rows: Stored[], ids: () => string): Groups {
 }
 
 /** The editor shape of the state, for the sentence and the warnings. */
-export const asEditor = (groups: Groups): Editor => ({ any: groups.any, all: groups.cards.map((card) => card.items) });
+export const asEditor = (groups: Groups): Editor => ({
+	any: groups.any,
+	cards: groups.cards.map((card) => card.items)
+});
 
 /** The conditions in the order that the form sends them, with the number of their card, or 0 for an alternative. */
 export const fieldsOf = (groups: Groups): { entry: Item; group: number }[] => [

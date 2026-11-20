@@ -1,8 +1,8 @@
 -- +goose Up
 -- noqa: disable=PRS,RF05,CP02,LT05
 -- Adds console.rls.rule_group, a number that only the database reads. A rule is a
--- condition {column, unit_type} or a group {"all": [condition, ...]} that holds its
--- conditions. The database numbers the groups by their position in the list, so the same
+-- {"conditions": [{column, unit_type}, ...]} that holds one condition or more, and all of
+-- them must match. A rule of two conditions or more is a group. The database numbers the groups by their position in the list, so the same
 -- groups in the same order always give the same numbers, and the configuration signature
 -- stays the same when nothing changed. No function returns the number. The role of the
 -- tokens loses every right on console.rls, and reads and writes the rules through
@@ -38,7 +38,7 @@ REVOKE ALL ON console.rls FROM "${AUTH_USER_ROLE}";
 ALTER FUNCTION console.keep_claim()
 SECURITY DEFINER SET search_path = pg_catalog, pg_temp;
 
--- The groups of every table, in order, with no number: a condition, or {"all": [...]}.
+-- The rules of every table, in order, with no number: each one is {"conditions": [...]}.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.groups()
 RETURNS TABLE (table_name text, sort_order integer, grp jsonb)
@@ -47,18 +47,13 @@ SET search_path = pg_catalog, console, pg_temp AS $$
     SELECT
         r.table_name,
         min(r.sort_order) AS sort_order,
-        CASE
-            WHEN r.rule_group IS NULL THEN
-                jsonb_build_object('column', min(r.column_name), 'unit_type', min(r.unit_type))
-            ELSE
-                jsonb_build_object(
-                    'all',
-                    jsonb_agg(
-                        jsonb_build_object('column', r.column_name, 'unit_type', r.unit_type)
-                        ORDER BY r.sort_order
-                    )
-                )
-        END AS grp
+        jsonb_build_object(
+            'conditions',
+            jsonb_agg(
+                jsonb_build_object('column', r.column_name, 'unit_type', r.unit_type)
+                ORDER BY r.sort_order
+            )
+        ) AS grp
     FROM console.rls AS r
     GROUP BY r.table_name, coalesce(r.rule_group::text, 'alone-' || r.id::text), r.rule_group
 $$;
@@ -157,33 +152,37 @@ BEGIN
 
     FOR grp IN SELECT jsonb_array_elements(groups)
     LOOP
-        IF grp ? 'all' THEN
-            IF jsonb_typeof(grp -> 'all') <> 'array' OR jsonb_array_length(grp -> 'all') < 2 THEN
-                RAISE EXCEPTION 'A group of all needs at least two conditions'
-                    USING ERRCODE = 'invalid_parameter_value';
-            END IF;
+        IF NOT grp ? 'conditions' AND grp ? 'column' THEN
+            grp := jsonb_build_object('conditions', jsonb_build_array(grp));
+        END IF;
 
+        IF coalesce(jsonb_typeof(grp -> 'conditions'), '') <> 'array' THEN
+            RAISE EXCEPTION 'A rule needs a list of one condition or more'
+                USING ERRCODE = 'invalid_parameter_value';
+        END IF;
+
+        IF jsonb_array_length(grp -> 'conditions') < 1 THEN
+            RAISE EXCEPTION 'A rule needs a list of one condition or more'
+                USING ERRCODE = 'invalid_parameter_value';
+        END IF;
+
+        IF jsonb_array_length(grp -> 'conditions') > 1 THEN
             number := number + 1;
+        END IF;
 
-            FOR condition IN SELECT jsonb_array_elements(grp -> 'all')
-            LOOP
-                place := place + 1;
-
-                INSERT INTO console.rls (table_name, column_name, unit_type, rule_group, sort_order)
-                VALUES (
-                    write_rls.table_name,
-                    condition ->> 'column',
-                    condition ->> 'unit_type',
-                    number,
-                    place
-                );
-            END LOOP;
-        ELSE
+        FOR condition IN SELECT jsonb_array_elements(grp -> 'conditions')
+        LOOP
             place := place + 1;
 
-            INSERT INTO console.rls (table_name, column_name, unit_type, sort_order)
-            VALUES (write_rls.table_name, grp ->> 'column', grp ->> 'unit_type', place);
-        END IF;
+            INSERT INTO console.rls (table_name, column_name, unit_type, rule_group, sort_order)
+            VALUES (
+                write_rls.table_name,
+                condition ->> 'column',
+                condition ->> 'unit_type',
+                CASE WHEN jsonb_array_length(grp -> 'conditions') > 1 THEN number END,
+                place
+            );
+        END LOOP;
     END LOOP;
 END
 $$;

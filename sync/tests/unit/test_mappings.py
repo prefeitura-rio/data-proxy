@@ -3,7 +3,7 @@ from collections.abc import Mapping, Sequence
 import pytest
 
 import sync.views.mappings as utils
-from sync.models import FullTable, UnitMapping
+from sync.models import FullTable, RlsRule, UnitMapping
 
 
 class TestListColumns:
@@ -40,7 +40,7 @@ class TestListColumns:
         table = FullTable(
             name="p.d.people",
             resolved_source="bigquery",
-            rls=[UnitMapping(column="area", unit_type="area")],
+            rls=[RlsRule(conditions=[UnitMapping(column="area", unit_type="area")])],
         )
 
         mapping = utils.table_function_mapping(
@@ -56,12 +56,12 @@ class TestListColumns:
             }
         ]
 
-    def test_a_table_without_a_way_keeps_its_config_signature(self) -> None:
+    def test_a_table_without_a_group_keeps_its_config_signature(self) -> None:
         """Leave the signature as it was, so no table rebuilds its data because of this release."""
         plain = FullTable(
             name="p.d.people",
             resolved_source="bigquery",
-            rls=[UnitMapping(column="area", unit_type="area")],
+            rls=[RlsRule(conditions=[UnitMapping(column="area", unit_type="area")])],
         )
 
         assert plain.config_signature_fields()["rls"] == [
@@ -72,14 +72,19 @@ class TestListColumns:
         ("rls", "expected"),
         [
             pytest.param(
+                [{"conditions": [{"column": "a", "unit_type": "x"}]}],
+                [("a", "x", "")],
+                id="a-rule-of-one-condition-has-no-group",
+            ),
+            pytest.param(
                 [{"column": "a", "unit_type": "x"}],
                 [("a", "x", "")],
-                id="a-condition-has-no-group",
+                id="a-flat-condition-reads-as-a-rule-of-one",
             ),
             pytest.param(
                 [
                     {
-                        "all": [
+                        "conditions": [
                             {"column": "a", "unit_type": "x"},
                             {"column": "b", "unit_type": "y"},
                         ]
@@ -91,14 +96,14 @@ class TestListColumns:
             pytest.param(
                 [
                     {
-                        "all": [
+                        "conditions": [
                             {"column": "a", "unit_type": "x"},
                             {"column": "b", "unit_type": "y"},
                         ]
                     },
-                    {"column": "c", "unit_type": "z"},
+                    {"conditions": [{"column": "c", "unit_type": "z"}]},
                     {
-                        "all": [
+                        "conditions": [
                             {"column": "d", "unit_type": "w"},
                             {"column": "e", "unit_type": "v"},
                         ]
@@ -115,7 +120,7 @@ class TestListColumns:
             ),
         ],
     )
-    def test_numbers_the_ways_by_position_only_to_render_the_sql(
+    def test_numbers_the_groups_by_position_only_to_render_the_sql(
         self, rls: list[dict[str, object]], expected: list[tuple[str, str, str]]
     ) -> None:
         """The number is internal. It goes to the template and nowhere else."""
@@ -135,17 +140,17 @@ class TestListColumns:
             if isinstance(entry, dict)
         ] == expected
 
-    def test_the_same_ways_give_the_same_signature_and_another_order_does_not(
+    def test_the_same_groups_give_the_same_signature_and_another_order_does_not(
         self,
     ) -> None:
         """Hash the nested shape, so a save of the same ways rebuilds nothing."""
         one = {
-            "all": [
+            "conditions": [
                 {"column": "a", "unit_type": "x"},
                 {"column": "b", "unit_type": "y"},
             ]
         }
-        two = {"column": "c", "unit_type": "z"}
+        two = {"conditions": [{"column": "c", "unit_type": "z"}]}
 
         def signature(rls: Sequence[Mapping[str, object]]) -> object:
             table = FullTable.model_validate(
@@ -161,25 +166,24 @@ class TestListColumns:
     @pytest.mark.parametrize(
         "rule",
         [
-            pytest.param({"all": []}, id="a-group-with-no-condition"),
-            pytest.param(
-                {"all": [{"column": "a", "unit_type": "x"}]}, id="a-group-of-one"
-            ),
-            pytest.param({"all": "a"}, id="a-group-that-is-not-a-list"),
+            pytest.param({"conditions": []}, id="a-group-with-no-condition"),
+            pytest.param({"conditions": "a"}, id="a-group-that-is-not-a-list"),
             pytest.param(
                 {"column": "a", "unit_type": "x", "group": 1}, id="a-group-number"
             ),
             pytest.param(
-                {"all": [{"column": "a", "unit_type": "x", "all": []}]},
+                {"conditions": [{"column": "a", "unit_type": "x", "conditions": []}]},
                 id="a-group-inside-a-group",
             ),
         ],
     )
-    def test_refuses_a_rule_that_is_not_a_condition_or_a_way_of_two_or_more(
+    def test_refuses_a_rule_without_a_list_of_conditions(
         self, rule: dict[str, object]
     ) -> None:
-        """Keep the shape small: a condition, or a group of at least two conditions, and no number."""
-        with pytest.raises(ValueError, match=r"rls|all|group|Extra|at least"):
+        """Keep the shape small: a list of one condition or more, and no number."""
+        with pytest.raises(
+            ValueError, match=r"rls|conditions|group|Extra|at least|list"
+        ):
             FullTable.model_validate(
                 {"name": "p.d.people", "resolved_source": "bigquery", "rls": [rule]}
             )

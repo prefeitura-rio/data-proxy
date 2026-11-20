@@ -70,23 +70,23 @@ The column of an `rls` rule can hold a list of text, such as `area_responsavel` 
 
 ### Groups that need several conditions
 
-Rules are alternatives by default. A reader sees a row when any one rule matches a grant. A group holds conditions that all must match:
+A rule holds a list of conditions. A reader sees a row when all conditions of one rule match grants. Rules are alternatives, so any one rule is enough. A rule of two conditions or more is a group:
 
 ```json
 "rls": [
-  {"all": [
+  {"conditions": [
     {"column": "region_id", "unit_type": "region"},
     {"column": "unit_id", "unit_type": "unit"}
   ]},
-  {"column": "area", "unit_type": "area"}
+  {"conditions": [{"column": "area", "unit_type": "area"}]}
 ]
 ```
 
 A reader sees a row when its `region_id` and its `unit_id` match grants, or when its `area` matches a grant.
 
-A group needs a grant for each of its conditions. A reader who lacks one grant gets no row from that group. A missing grant never widens the filter.
+A rule needs a grant for each of its conditions. A reader who lacks one grant gets no row from that rule. A missing grant never widens the filter.
 
-A group holds two conditions or more. Nobody writes a number for a group, and no API shows one.
+The short form `{"column": "area", "unit_type": "area"}` means a rule of one condition. The database stores and returns the full form. Nobody writes a number for a group, and no API shows one.
 
 ### A table with no rules
 

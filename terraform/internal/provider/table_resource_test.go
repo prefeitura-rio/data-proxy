@@ -18,8 +18,8 @@ import (
 const (
 	tableRowJSON = `{"name":"sales.orders","schema":"sales_orders","strategy":"partitioned","n":3,"fallback":false,` +
 		`"cache_ttl":60,"partitioning":null,"sort":["order_id"],"updated_at":"2026-01-01T00:00:00Z","updated_by":"terraform"}`
-	rlsRowsJSON = `[{"table_name":"sales.orders","groups":[{"column":"unit_id","unit_type":"unit"},` +
-		`{"column":"region_id","unit_type":"region"}]}]`
+	rlsRowsJSON = `[{"table_name":"sales.orders","groups":[{"conditions":[{"column":"unit_id","unit_type":"unit"}]},` +
+		`{"conditions":[{"column":"region_id","unit_type":"region"}]}]}]`
 )
 
 // newTestTable returns the resource with a client that the steps drive, and no wait between reads.
@@ -57,58 +57,75 @@ func tableConfig(t *testing.T, rules ...rlsModel) tableModel {
 	}
 }
 
-// ruleModel returns a row policy block.
+// ruleModel returns an rls block with one condition.
 func ruleModel(column, unit string) rlsModel {
-	return rlsModel{ColumnName: types.StringValue(column), UnitType: types.StringValue(unit)}
+	return groupModel(column, unit)
 }
 
-// allModel builds an rls_all block that holds the given conditions.
-func allModel(conditions ...rlsModel) rlsAllModel {
-	return rlsAllModel{RLS: conditions}
+// groupModel returns an rls block with one condition for each pair of a column and a unit type.
+func groupModel(pairs ...string) rlsModel {
+	block := rlsModel{}
+	for i := 0; i < len(pairs); i += 2 {
+		block.Conditions = append(block.Conditions, conditionModel{
+			ColumnName: types.StringValue(pairs[i]),
+			UnitType:   types.StringValue(pairs[i+1]),
+		})
+	}
+
+	return block
 }
 
-func TestRLSRulesAreConditionsThenWays(t *testing.T) {
+func rule(pairs ...string) client.RLSRule {
+	var conditions []client.RLSCondition
+	for i := 0; i < len(pairs); i += 2 {
+		conditions = append(conditions, client.RLSCondition{ColumnName: pairs[i], UnitType: pairs[i+1]})
+	}
+
+	return client.RLSRule{Conditions: conditions}
+}
+
+func TestRLSRulesKeepTheOrderOfTheBlocks(t *testing.T) {
 	model := tableModel{
-		RLS: []rlsModel{ruleModel("area", "area")},
-		RLSAll: []rlsAllModel{
-			allModel(ruleModel("region_id", "region"), ruleModel("unit_id", "unit")),
-			allModel(ruleModel("a", "x"), ruleModel("b", "y")),
+		RLS: []rlsModel{
+			groupModel("region_id", "region", "unit_id", "unit"),
+			ruleModel("area", "area"),
+			groupModel("a", "x", "b", "y"),
 		},
 	}
 
 	got := rlsRules(model)
 
 	want := []client.RLSRule{
-		{ColumnName: "area", UnitType: "area"},
-		{All: []client.RLSCondition{{ColumnName: "region_id", UnitType: "region"}, {ColumnName: "unit_id", UnitType: "unit"}}},
-		{All: []client.RLSCondition{{ColumnName: "a", UnitType: "x"}, {ColumnName: "b", UnitType: "y"}}},
+		rule("region_id", "region", "unit_id", "unit"),
+		rule("area", "area"),
+		rule("a", "x", "b", "y"),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("rlsRules() = %+v, want %+v", got, want)
 	}
 }
 
-func TestApplyTableRowSplitsTheRulesIntoBlocks(t *testing.T) {
+func TestApplyTableRowMapsEachRuleToOneBlock(t *testing.T) {
 	var model tableModel
 
 	diagnostics := applyTableRow(t.Context(), &model, client.Table{Name: "sales.orders"}, []client.RLSRule{
-		{ColumnName: "area", UnitType: "area"},
-		{All: []client.RLSCondition{{ColumnName: "region_id", UnitType: "region"}, {ColumnName: "unit_id", UnitType: "unit"}}},
+		rule("region_id", "region", "unit_id", "unit"),
+		rule("area", "area"),
 	})
 	if diagnostics.HasError() {
 		t.Fatalf("applyTableRow() = %v", diagnostics)
 	}
 
-	if len(model.RLS) != 1 || model.RLS[0].ColumnName.ValueString() != "area" {
-		t.Errorf("RLS = %+v, want one rule on area", model.RLS)
+	if len(model.RLS) != 2 || len(model.RLS[0].Conditions) != 2 || len(model.RLS[1].Conditions) != 1 {
+		t.Fatalf("RLS = %+v, want one block of two conditions, then one block of one", model.RLS)
 	}
 
-	if len(model.RLSAll) != 1 || len(model.RLSAll[0].RLS) != 2 {
-		t.Fatalf("RLSAll = %+v, want one group with two conditions", model.RLSAll)
-	}
-
-	if got := model.RLSAll[0].RLS[1].ColumnName.ValueString(); got != "unit_id" {
+	if got := model.RLS[0].Conditions[1].ColumnName.ValueString(); got != "unit_id" {
 		t.Errorf("second condition = %q, want unit_id", got)
+	}
+
+	if got := model.RLS[1].Conditions[0].ColumnName.ValueString(); got != "area" {
+		t.Errorf("order of the rules = %q first, want region_id then area", got)
 	}
 }
 
@@ -118,11 +135,11 @@ func TestRLSRuleJSONHasNoNumber(t *testing.T) {
 		rule client.RLSRule
 		want string
 	}{
-		{name: "a condition", rule: client.RLSRule{ColumnName: "a", UnitType: "x"}, want: `{"column":"a","unit_type":"x"}`},
+		{name: "a condition", rule: rule("a", "x"), want: `{"conditions":[{"column":"a","unit_type":"x"}]}`},
 		{
 			name: "a group",
-			rule: client.RLSRule{All: []client.RLSCondition{{ColumnName: "a", UnitType: "x"}, {ColumnName: "b", UnitType: "y"}}},
-			want: `{"all":[{"column":"a","unit_type":"x"},{"column":"b","unit_type":"y"}]}`,
+			rule: rule("a", "x", "b", "y"),
+			want: `{"conditions":[{"column":"a","unit_type":"x"},{"column":"b","unit_type":"y"}]}`,
 		},
 	}
 
@@ -134,11 +151,7 @@ func TestRLSRuleJSONHasNoNumber(t *testing.T) {
 			}
 
 			if string(got) != test.want {
-				t.Fatalf("json = %s, want %s", got, test.want)
-			}
-
-			if strings.Contains(string(got), "group") {
-				t.Fatalf("json = %s, want no group", got)
+				t.Errorf("json = %s, want %s", got, test.want)
 			}
 		})
 	}
@@ -156,7 +169,7 @@ func TestTableCreate(t *testing.T) {
 	}
 	rulesStep := step{
 		method: "POST", uri: "/rpc/replace_rls", profile: "console", response: "null",
-		body: `{"table_name":"sales.orders","groups":[{"column":"unit_id","unit_type":"unit"},{"column":"region_id","unit_type":"region"}]}`,
+		body: `{"table_name":"sales.orders","groups":[{"conditions":[{"column":"unit_id","unit_type":"unit"}]},{"conditions":[{"column":"region_id","unit_type":"region"}]}]}`,
 	}
 
 	tests := []struct {
@@ -265,7 +278,7 @@ func TestTableRead(t *testing.T) {
 
 				resp.State.Get(context.Background(), &read)
 
-				if len(read.RLS) != 2 || read.RLS[1].ColumnName.ValueString() != "region_id" || read.CacheTTL.ValueInt64() != 60 {
+				if len(read.RLS) != 2 || read.RLS[1].Conditions[0].ColumnName.ValueString() != "region_id" || read.CacheTTL.ValueInt64() != 60 {
 					t.Errorf("state = %+v, want two ordered row policies and the cache time", read)
 				}
 			}
@@ -430,14 +443,14 @@ func TestTableImportReadsByName(t *testing.T) {
 }
 
 func TestSameRules(t *testing.T) {
-	a := []client.RLSRule{{ColumnName: "a", UnitType: "x"}, {ColumnName: "b", UnitType: "y"}}
+	a := []client.RLSRule{rule("a", "x"), rule("b", "y")}
 	tests := []struct {
 		name  string
 		right []client.RLSRule
 		want  bool
 	}{
-		{name: "the same rules", right: []client.RLSRule{{ColumnName: "a", UnitType: "x"}, {ColumnName: "b", UnitType: "y"}}, want: true},
-		{name: "the same rules in another order", right: []client.RLSRule{{ColumnName: "b", UnitType: "y"}, {ColumnName: "a", UnitType: "x"}}},
+		{name: "the same rules", right: []client.RLSRule{rule("a", "x"), rule("b", "y")}, want: true},
+		{name: "the same rules in another order", right: []client.RLSRule{rule("b", "y"), rule("a", "x")}},
 		{name: "fewer rules", right: a[:1]},
 		{name: "no rules", right: nil},
 	}
