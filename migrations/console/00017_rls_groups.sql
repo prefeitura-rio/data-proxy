@@ -33,6 +33,11 @@ FOR EACH ROW EXECUTE FUNCTION console.order_rls();
 REVOKE ALL ON console.rls FROM "${AUTH_USER_ROLE}";
 -- +goose ENVSUB OFF
 
+-- keep_claim() reads console.rls to refuse a schema without a claim while a table has rules. The role
+-- of the tokens has no right on that table, so the function runs as its owner, as require_claim() does.
+ALTER FUNCTION console.keep_claim()
+SECURITY DEFINER SET search_path = pg_catalog, pg_temp;
+
 -- The ways of every table, in order, with no number: a condition, or {"all": [...]}.
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.ways()
@@ -534,6 +539,8 @@ BEGIN
 END
 $$;
 -- +goose StatementEnd
+
+ALTER FUNCTION console.keep_claim() SECURITY INVOKER RESET search_path;
 
 DROP FUNCTION console.replace_rls(text, jsonb);
 

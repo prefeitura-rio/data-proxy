@@ -11,6 +11,7 @@ from tests.constants import PROXY_CONSOLE_CONFIG
 from tests.fixtures.console import (
     add_policy_schema,
     add_schema,
+    add_table,
     as_token,
     refusal,
     seed,
@@ -595,6 +596,78 @@ class TestRulesAreReachedOnlyThroughFunctions:
         state = await refusal(console_api, "SELECT * FROM console.rules()")
 
         assert state == INSUFFICIENT
+
+
+@pytest.mark.postgres
+class TestClaimChecksReadTheRulesPastTheRoleOfTheTokens:
+    """The triggers that guard a claim read console.rls, which the role of the tokens cannot read."""
+
+    async def test_a_token_changes_the_settings_of_a_schema_that_has_rules(
+        self, console_api: Postgres
+    ) -> None:
+        """Mark a schema as encrypted. The trigger keep_claim reads the rules, and it must not need a right on the table."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+
+        await console_api.connection.execute(
+            b"UPDATE console.schemas SET encrypted = TRUE WHERE name = 'sales'"
+        )
+
+        assert (
+            await scalar(
+                console_api,
+                "SELECT encrypted FROM console.schemas WHERE name = 'sales'",
+            )
+            is True
+        )
+
+    async def test_a_token_cannot_clear_the_claim_of_a_schema_that_has_rules(
+        self, console_api: Postgres
+    ) -> None:
+        """Keep the old guard: a schema with a rule keeps its claim, with the reason in the message."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+
+        state = await refusal(
+            console_api, "UPDATE console.schemas SET claim = NULL WHERE name = 'sales'"
+        )
+
+        assert state == CHECK_VIOLATION
+
+    async def test_a_token_adds_a_rule_to_a_table_of_a_schema_with_a_claim(
+        self, console_api: Postgres
+    ) -> None:
+        """The trigger require_claim reads the schema and the table, and the new write path runs it too."""
+        await seed(console_api)
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+
+        await console_api.connection.execute(
+            b"SELECT console.replace_rls(%s, %s)",
+            ("p.d.staff", Jsonb([{"column": "cpf", "unit_type": "cpf"}])),
+        )
+
+        assert await scalar(
+            console_api,
+            "SELECT ways FROM console.rules() WHERE table_name = 'p.d.staff'",
+        ) == [{"column": "cpf", "unit_type": "cpf"}]
+
+    async def test_a_rule_on_a_schema_with_no_claim_is_refused(
+        self, console_api: Postgres
+    ) -> None:
+        """Say why: the schema needs a claim before its tables can have rules."""
+        await seed(console_api)
+        await add_schema(console_api, "open")
+        await add_table(console_api, "p.d.open", "open")
+        await as_token(console_api, "dp_admin", ["*"], database_role=True)
+
+        state = await refusal(
+            console_api,
+            "SELECT console.replace_rls(%s, %s)",
+            "p.d.open",
+            Jsonb([{"column": "cpf", "unit_type": "cpf"}]),
+        )
+
+        assert state == CHECK_VIOLATION
 
 
 @pytest.mark.postgres
