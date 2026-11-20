@@ -144,10 +144,10 @@ export const TableName = v.pick(TableRow, ['name', 'schema']);
 
 const Condition = v.object({ column: v.string(), unit_type: v.string() });
 
-/** The rules of one table, as `console.rules()` gives them: conditions and groups, in order, with no number. */
+/** The rules of one table, as `console.rules()` gives them: each rule holds its conditions, in order, with no number. */
 export const RulesRow = v.object({
 	table_name: v.string(),
-	groups: v.array(v.union([Condition, v.object({ all: v.array(Condition) })]))
+	groups: v.array(v.object({ conditions: v.array(Condition) }))
 });
 
 export const Health = v.object({

@@ -54,8 +54,8 @@ async def preview(pg: Postgres, document: Document) -> list[tuple[str, str, str,
 
 
 RULES: list[JsonValue] = [
-    {"column": "cpf", "unit_type": "cpf"},
-    {"column": "cnpj", "unit_type": "cnpj"},
+    {"conditions": [{"column": "cpf", "unit_type": "cpf"}]},
+    {"conditions": [{"column": "cnpj", "unit_type": "cnpj"}]},
 ]
 
 

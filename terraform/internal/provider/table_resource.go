@@ -42,32 +42,31 @@ type tableResource struct {
 	backoff client.Backoff
 }
 
-// rlsModel maps one rls block.
-type rlsModel struct {
+// conditionModel maps one condition block.
+type conditionModel struct {
 	ColumnName types.String `tfsdk:"column_name"`
 	UnitType   types.String `tfsdk:"unit_type"`
 }
 
-// rlsAllModel maps one rls_all block: a group that holds the conditions that all must match.
-type rlsAllModel struct {
-	RLS []rlsModel `tfsdk:"rls"`
+// rlsModel maps one rls block: a rule that holds the conditions that all must match.
+type rlsModel struct {
+	Conditions []conditionModel `tfsdk:"condition"`
 }
 
 // tableModel maps the data_proxy_table resource and data source.
 type tableModel struct {
-	ID           types.String  `tfsdk:"id"`
-	Name         types.String  `tfsdk:"name"`
-	Schema       types.String  `tfsdk:"schema"`
-	Strategy     types.String  `tfsdk:"strategy"`
-	N            types.Int64   `tfsdk:"n"`
-	Fallback     types.Bool    `tfsdk:"fallback"`
-	CacheTTL     types.Int64   `tfsdk:"cache_ttl"`
-	Partitioning types.String  `tfsdk:"partitioning"`
-	Sort         types.List    `tfsdk:"sort"`
-	RLS          []rlsModel    `tfsdk:"rls"`
-	RLSAll       []rlsAllModel `tfsdk:"rls_all"`
-	UpdatedAt    types.String  `tfsdk:"updated_at"`
-	UpdatedBy    types.String  `tfsdk:"updated_by"`
+	ID           types.String `tfsdk:"id"`
+	Name         types.String `tfsdk:"name"`
+	Schema       types.String `tfsdk:"schema"`
+	Strategy     types.String `tfsdk:"strategy"`
+	N            types.Int64  `tfsdk:"n"`
+	Fallback     types.Bool   `tfsdk:"fallback"`
+	CacheTTL     types.Int64  `tfsdk:"cache_ttl"`
+	Partitioning types.String `tfsdk:"partitioning"`
+	Sort         types.List   `tfsdk:"sort"`
+	RLS          []rlsModel   `tfsdk:"rls"`
+	UpdatedAt    types.String `tfsdk:"updated_at"`
+	UpdatedBy    types.String `tfsdk:"updated_by"`
 }
 
 // newTableResource returns the data_proxy_table resource.
@@ -98,27 +97,17 @@ func applyTableRow(ctx context.Context, model *tableModel, row client.Table, rul
 	}
 
 	model.RLS = nil
-	model.RLSAll = nil
 
 	for _, rule := range rules {
-		if len(rule.All) == 0 {
-			model.RLS = append(model.RLS, rlsModel{
-				ColumnName: types.StringValue(rule.ColumnName),
-				UnitType:   types.StringValue(rule.UnitType),
-			})
-
-			continue
-		}
-
-		group := rlsAllModel{}
-		for _, condition := range rule.All {
-			group.RLS = append(group.RLS, rlsModel{
+		block := rlsModel{}
+		for _, condition := range rule.Conditions {
+			block.Conditions = append(block.Conditions, conditionModel{
 				ColumnName: types.StringValue(condition.ColumnName),
 				UnitType:   types.StringValue(condition.UnitType),
 			})
 		}
 
-		model.RLSAll = append(model.RLSAll, group)
+		model.RLS = append(model.RLS, block)
 	}
 
 	return diagnostics
@@ -137,28 +126,19 @@ func sortValues(ctx context.Context, model tableModel) ([]string, diag.Diagnosti
 	return columns, diagnostics
 }
 
-// rlsRules returns the row policies of the model: the plain conditions in order, then the groups in order. The two kinds
-// of block are two lists, so their order between each other is not kept. The filter that the sync builds from them
-// is the same in either order.
+// rlsRules returns the row policies of the model, in the order of the blocks.
 func rlsRules(model tableModel) []client.RLSRule {
-	rules := make([]client.RLSRule, 0, len(model.RLS)+len(model.RLSAll))
+	rules := make([]client.RLSRule, 0, len(model.RLS))
 	for _, block := range model.RLS {
-		rules = append(rules, client.RLSRule{
-			ColumnName: block.ColumnName.ValueString(),
-			UnitType:   block.UnitType.ValueString(),
-		})
-	}
-
-	for _, group := range model.RLSAll {
-		conditions := make([]client.RLSCondition, 0, len(group.RLS))
-		for _, block := range group.RLS {
+		conditions := make([]client.RLSCondition, 0, len(block.Conditions))
+		for _, condition := range block.Conditions {
 			conditions = append(conditions, client.RLSCondition{
-				ColumnName: block.ColumnName.ValueString(),
-				UnitType:   block.UnitType.ValueString(),
+				ColumnName: condition.ColumnName.ValueString(),
+				UnitType:   condition.UnitType.ValueString(),
 			})
 		}
 
-		rules = append(rules, client.RLSRule{All: conditions})
+		rules = append(rules, client.RLSRule{Conditions: conditions})
 	}
 
 	return rules
@@ -237,30 +217,12 @@ func (r *tableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 		},
 		Blocks: map[string]schema.Block{
 			"rls": schema.ListNestedBlock{
-				Description: "A row policy. A reader sees the rows whose column holds a unit of the reader. The order is the order of the unit identifier. The schema needs a `claim`.",
-				NestedObject: schema.NestedBlockObject{
-					Attributes: map[string]schema.Attribute{
-						"column_name": schema.StringAttribute{
-							Description: "The column that holds the unit.",
-							Required:    true,
-							Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
-						},
-						"unit_type": schema.StringAttribute{
-							Description: "The type of the unit, unique in the table with the column.",
-							Required:    true,
-							Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
-						},
-					},
-				},
-			},
-			"rls_all": schema.ListNestedBlock{
-				Description: "A group: two or more `rls` blocks that all must match. A reader needs a grant for each of them, or the way gives no row. Groups are alternatives to each other and to the plain `rls` blocks.",
-				Validators:  []validator.List{},
+				Description: "A row policy: one or more `condition` blocks that all must match. A reader needs a grant for each of them, or the policy gives no row. Policies are alternatives to each other. The schema needs a `claim`.",
 				NestedObject: schema.NestedBlockObject{
 					Blocks: map[string]schema.Block{
-						"rls": schema.ListNestedBlock{
-							Description: "A condition of the way.",
-							Validators:  []validator.List{listvalidator.SizeAtLeast(2)},
+						"condition": schema.ListNestedBlock{
+							Description: "A condition of the policy: the column that holds the unit, and the type of the unit.",
+							Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
 							NestedObject: schema.NestedBlockObject{
 								Attributes: map[string]schema.Attribute{
 									"column_name": schema.StringAttribute{

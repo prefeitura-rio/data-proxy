@@ -138,18 +138,18 @@ func TestConfigOperations(t *testing.T) {
 			run:   func(ctx context.Context, c *Client) (any, error) { return nil, c.DeleteTable(ctx, "sales.orders") },
 		},
 		{
-			name: "list the row policies with the groups that hold their conditions",
+			name: "list the row policies with the conditions of each rule",
 			steps: []step{{
 				method: "POST", uri: "/rpc/rules", contentProfile: "console",
 				response: `[{"table_name":"sales.orders","groups":[` +
-					`{"column":"area","unit_type":"area"},` +
-					`{"all":[{"column":"region_id","unit_type":"region"},{"column":"unit_id","unit_type":"unit"}]}]},` +
-					`{"table_name":"other.table","groups":[{"column":"x","unit_type":"y"}]}]`,
+					`{"conditions":[{"column":"area","unit_type":"area"}]},` +
+					`{"conditions":[{"column":"region_id","unit_type":"region"},{"column":"unit_id","unit_type":"unit"}]}]},` +
+					`{"table_name":"other.table","groups":[{"conditions":[{"column":"x","unit_type":"y"}]}]}]`,
 			}},
 			run: func(ctx context.Context, c *Client) (any, error) { return c.ListRLS(ctx, "sales.orders") },
 			want: []RLSRule{
-				{ColumnName: "area", UnitType: "area"},
-				{All: []RLSCondition{
+				{Conditions: []RLSCondition{{ColumnName: "area", UnitType: "area"}}},
+				{Conditions: []RLSCondition{
 					{ColumnName: "region_id", UnitType: "region"},
 					{ColumnName: "unit_id", UnitType: "unit"},
 				}},
@@ -169,14 +169,14 @@ func TestConfigOperations(t *testing.T) {
 			steps: []step{{
 				method: "POST", uri: "/rpc/replace_rls", contentProfile: "console",
 				body: `{"table_name":"sales.orders","groups":[` +
-					`{"column":"area","unit_type":"area"},` +
-					`{"all":[{"column":"region_id","unit_type":"region"},{"column":"unit_id","unit_type":"unit"}]}]}`,
+					`{"conditions":[{"column":"area","unit_type":"area"}]},` +
+					`{"conditions":[{"column":"region_id","unit_type":"region"},{"column":"unit_id","unit_type":"unit"}]}]}`,
 				response: `null`,
 			}},
 			run: func(ctx context.Context, c *Client) (any, error) {
 				return nil, c.ReplaceRLS(ctx, "sales.orders", []RLSRule{
-					{ColumnName: "area", UnitType: "area"},
-					{All: []RLSCondition{
+					{Conditions: []RLSCondition{{ColumnName: "area", UnitType: "area"}}},
+					{Conditions: []RLSCondition{
 						{ColumnName: "region_id", UnitType: "region"},
 						{ColumnName: "unit_id", UnitType: "unit"},
 					}},
@@ -299,7 +299,7 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 			name:  "a row policy write that the role may not do",
 			steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
 			run: func(ctx context.Context, c *Client) error {
-				return c.ReplaceRLS(ctx, "sales.orders", []RLSRule{{ColumnName: "a", UnitType: "b"}})
+				return c.ReplaceRLS(ctx, "sales.orders", []RLSRule{{Conditions: []RLSCondition{{ColumnName: "a", UnitType: "b"}}}})
 			},
 			wantKind: ErrForbidden,
 			wantText: "replace the row policies of sales.orders",
@@ -308,7 +308,7 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 			name:  "a row policy write that the database refuses, with nothing changed",
 			steps: []step{{status: 400, response: `{"code":"23514","message":"the schema has no claim"}`}},
 			run: func(ctx context.Context, c *Client) error {
-				return c.ReplaceRLS(ctx, "sales.orders", []RLSRule{{ColumnName: "a", UnitType: "b"}})
+				return c.ReplaceRLS(ctx, "sales.orders", []RLSRule{{Conditions: []RLSCondition{{ColumnName: "a", UnitType: "b"}}}})
 			},
 			wantKind: ErrInvalid,
 			wantText: "replace the row policies of sales.orders",

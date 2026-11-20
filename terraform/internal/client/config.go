@@ -87,12 +87,10 @@ type RLSCondition struct {
 	UnitType   string `json:"unit_type"`
 }
 
-// RLSRule is a row policy of a table. It is a condition, or a group that holds conditions that all must match. A group
-// has two or more conditions in All. No number of a group exists: the database numbers the groups by their position.
+// RLSRule is a row policy of a table: one condition or more, and every one must match. A rule of two conditions or
+// more is a group. No number of a group exists: the database numbers the groups by their position.
 type RLSRule struct {
-	ColumnName string         `json:"column,omitempty"`
-	UnitType   string         `json:"unit_type,omitempty"`
-	All        []RLSCondition `json:"all,omitempty"`
+	Conditions []RLSCondition `json:"conditions"`
 }
 
 // rulesRow is a row of console.rules(): a table and its groups in order.

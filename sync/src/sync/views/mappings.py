@@ -10,7 +10,7 @@ from sync.constants import (
     MAX_IDENTIFIER_BYTES,
 )
 from sync.executor import Executor
-from sync.models import AllOf, PartitionedTable, RlsRule, TableConfig, UnitMapping
+from sync.models import PartitionedTable, RlsRule, TableConfig, UnitMapping
 from sync.schema import schema as app_schema
 from sync.settings import settings
 from sync.sources.registry import sources
@@ -37,7 +37,7 @@ def is_list(duckdb_type: str) -> bool:
 
 
 def flatten_rules(rls: list[RlsRule]) -> list[tuple[UnitMapping, str]]:
-    """Return each condition with the number of its group, or the empty text for a condition on its own.
+    """Return each condition with the number of its group, or the empty text for a rule of one condition.
 
     The number is the position of the group among the groups, from 1. Only the template reads it.
     """
@@ -45,11 +45,11 @@ def flatten_rules(rls: list[RlsRule]) -> list[tuple[UnitMapping, str]]:
     number = 0
 
     for rule in rls:
-        if isinstance(rule, AllOf):
+        if len(rule.conditions) > 1:
             number += 1
-            flat.extend((condition, str(number)) for condition in rule.all)
+            flat.extend((condition, str(number)) for condition in rule.conditions)
         else:
-            flat.append((rule, ""))
+            flat.append((rule.conditions[0], ""))
 
     return flat
 

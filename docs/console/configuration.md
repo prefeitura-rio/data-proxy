@@ -11,7 +11,7 @@ The sync configuration is data in three tables of the `console` schema. The migr
 | `projects` | One row per project: `name`. A project has schemas. |
 | `schemas` | One row per synced schema: `project`, `short_name`, `name`, `source`, `settings`, `claim`, `encrypted`. |
 | `tables` | One row per source table: `name`, its `schema`, `strategy`, `n`, `fallback`, `cache_ttl`, `partitioning`, `sort`. |
-| `rls` | The rules of a table: a condition, or a group `all` of two or more. Use `rules()` and `replace_rls()`. |
+| `rls` | The rules of a table: each rule holds one condition or more, and all must match. Use `rules()` and `replace_rls()`. |
 
 Every row records `updated_at` and `updated_by`. The database sets both. The name comes from the `preferred_username` claim of the token, then from `sub`.
 
