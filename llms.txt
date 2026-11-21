@@ -2547,7 +2547,7 @@ stateDiagram-v2
 
 Each schema has one schedule, named `sync-<schema>`. It starts a sync run for that schema only, at the cron of the schedule. A new schema gets the cron of `SYNC_SCHEDULE` (`0 2 * * *`). The workflow `reconcile_schedules` makes the schedules match the schemas. It runs in its own queue, `schedules`, one at a time.
 
-It runs at the start of a worker, and after each insert or delete in `console.schemas`. It also deletes the schedule of a removed schema, and the old global schedule `sync`.
+It runs at the start of a worker, and after each insert, rename or delete in `console.schemas`. A rename is an update of `name`, `project` or `short_name`, which the database refuses today. It also deletes the schedule of a removed schema, and the old global schedule `sync`.
 
 The Sync tab lists the schedules of the schemas in the claim. Its Edit dialog changes the cron, which has 5 fields, or 6 with the seconds first. The times are UTC. The schedule keeps its paused state, its context and its queue. There is no delete button, because every schema keeps one schedule. Pause the schedule to stop its runs.
 
