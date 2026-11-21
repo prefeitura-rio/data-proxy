@@ -1956,6 +1956,7 @@ This table lists what a client sees and why. A status can come from the gateway,
 | `200 []` | The token has no `schemas` claim, no enabled access policy row matches its subject, or a row policy hides every row. A delete that a row policy hides also returns it. | Database |
 | `400` | The claim names an unknown schema, a function gets an unknown action, or the token has an unknown role. | Database or PostgREST |
 | `401` | The signature, issuer, audience or expiry of the token isn't valid. | Gateway |
+| `403` with `RBAC: access denied` | The request has no token. See Expected results. | Gateway |
 | `403` | The role lacks the permission, a row policy refuses a write, or the schema or table is outside the claim (or doesn't exist). | Database |
 | `404` | The sync run or the schedule doesn't exist for this token, or the schema profile is unknown. | Database or PostgREST |
 | `409` | A sync run is in the wrong status for the action, or the provision job hasn't created the schema yet. | Database |
@@ -2034,7 +2035,7 @@ CloudNativePG (CNPG) manages two roles: `ops` (the owner and a superuser) and `d
 
 | Role                     | Purpose                                                                        |
 | ------------------------ | ------------------------------------------------------------------------------ |
-| `anon`                   | Role of a request without a token, with no application table access.           |
+| `anon`                   | Role of a request to PostgREST without a token, with no application table access. From outside the cluster, a request without a token gets `403 RBAC: access denied` from Istio and never reaches this role. The configuration call of the proxy uses it. |
 | `dp_api`, `dp_policy`, `dp_console`, `dp_admin` | One role for each role of `rbac.toml`. A token switches to the role of its `role` claim, and the rules decide what that role may do. The schema and row policies limit the rows. |
 | `serving`                | The login of the serving layer: PostgREST, the PgDog pool and the recovery Deployment (`auth.servingRole`). It's `NOINHERIT` and can switch to `anon` and to every `dp_*` role. |
 
@@ -2053,7 +2054,9 @@ Authorization has two independent conditions. The diagram shows the order of the
 ```mermaid
 %% Authorization checks
 flowchart TD
-  token["Request with a token"] --> valid{"Valid token?"}
+  request["Request"] --> token{"Has a token?"}
+  token -->|"no"| denied["403 RBAC: access denied<br/>from the gateway"]
+  token -->|"yes"| valid{"Valid token?"}
   valid -->|"no"| refused["401 from the gateway"]
   valid -->|"yes"| role["Switch to the role<br/>of the role claim"]
   role --> schema{"Is the schema in the<br/>schemas claim?"}
@@ -2169,9 +2172,12 @@ The table maps each result of a request to its meaning.
 | --------------- | ------------------------------------------------------------------------- |
 | `200` with rows | Token, schema, role, grants, and RLS checks passed.                       |
 | `200 []`        | The request is valid, but the schema claim or row policy exposes no rows. |
-| `401`           | The JSON Web Token (JWT) is missing, not valid, expired, or can't be used by PostgREST.    |
+| `401`           | The JSON Web Token (JWT) isn't valid, is expired, or can't be used by PostgREST.    |
+| `403` with `RBAC: access denied` | The request has no token. Istio refuses it before the proxy. |
 | `403`           | PostgreSQL/PostgREST permission or role configuration isn't valid.        |
 | `404`           | The schema profile, the table, or the snapshot is unknown or unpublished. |
+
+With `ingress.auth.enabled`, the Istio policy of the proxy needs a valid token for each request. It allows only `GET` and `HEAD` on `/health` without a token, and on `/` when the Swagger UI is on. Any other request without the `Authorization` header gets `403` with the body `RBAC: access denied`, and not `401`. It never reaches the proxy.
 
 ---
 
@@ -2320,6 +2326,7 @@ Use this page when a request fails or returns no rows. Request outcomes lists wh
 | Symptom                                       | Check                                                                                                   |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `401 Unauthorized`                            | Check the JSON Web Token (JWT) signature, issuer, audience, expiry, and `role` claim.                                    |
+| `403` with the body `RBAC: access denied`     | Istio refused a request without a token. Send the header `Authorization: Bearer <token>`. Only `GET` and `HEAD` on `/health`, and on `/` with the Swagger UI, need no token. |
 | `403` with `permission denied to set role`    | Check that `configure-db` completed: the `auth.servingRole` login must be a member of `anon` and of every `dp_*` role. |
 | `403` with `permission denied for schema data_proxy` | Check `GRANT USAGE ON SCHEMA data_proxy TO anon/user`.                                             |
 | `200 []` for every table                      | Check `schemas`, the schema profile, the configured subject claim, and enabled `access_policy` rows.    |

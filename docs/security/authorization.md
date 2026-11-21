@@ -5,7 +5,9 @@ Authorization has two independent conditions. The diagram shows the order of the
 ```mermaid
 %% Authorization checks
 flowchart TD
-  token["Request with a token"] --> valid{"Valid token?"}
+  request["Request"] --> token{"Has a token?"}
+  token -->|"no"| denied["403 RBAC: access denied<br/>from the gateway"]
+  token -->|"yes"| valid{"Valid token?"}
   valid -->|"no"| refused["401 from the gateway"]
   valid -->|"yes"| role["Switch to the role<br/>of the role claim"]
   role --> schema{"Is the schema in the<br/>schemas claim?"}
