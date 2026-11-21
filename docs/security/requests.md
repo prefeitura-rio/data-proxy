@@ -25,9 +25,12 @@ The table maps each result of a request to its meaning.
 | --------------- | ------------------------------------------------------------------------- |
 | `200` with rows | Token, schema, role, grants, and RLS checks passed.                       |
 | `200 []`        | The request is valid, but the schema claim or row policy exposes no rows. |
-| `401`           | The JSON Web Token (JWT) is missing, not valid, expired, or can't be used by PostgREST.    |
+| `401`           | The JSON Web Token (JWT) isn't valid, is expired, or can't be used by PostgREST.    |
+| `403` with `RBAC: access denied` | The request has no token. Istio refuses it before the proxy. |
 | `403`           | PostgreSQL/PostgREST permission or role configuration isn't valid.        |
 | `404`           | The schema profile, the table, or the snapshot is unknown or unpublished. |
+
+With `ingress.auth.enabled`, the Istio policy of the proxy needs a valid token for each request. It allows only `GET` and `HEAD` on `/health` without a token, and on `/` when the Swagger UI is on. Any other request without the `Authorization` header gets `403` with the body `RBAC: access denied`, and not `401`. It never reaches the proxy.
 
 <!-- nav:start -->
 ---

@@ -47,6 +47,12 @@ class TestPlanSchedules:
                 id="a-removed-schema-loses-its-schedule",
             ),
             pytest.param(
+                {"hr", "sales_orders"},
+                {"sync-hr", "sync-orders"},
+                SchedulePlan(create=["sales_orders"], delete=["sync-orders"]),
+                id="a-renamed-schema-moves-its-schedule-to-the-new-name",
+            ),
+            pytest.param(
                 {"hr"},
                 {"sync", "sync-hr"},
                 SchedulePlan(create=[], delete=["sync"]),

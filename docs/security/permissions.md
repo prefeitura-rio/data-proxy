@@ -51,6 +51,7 @@ This table lists what a client sees and why. A status can come from the gateway,
 | `200 []` | The token has no `schemas` claim, no enabled access policy row matches its subject, or a row policy hides every row. A delete that a row policy hides also returns it. | Database |
 | `400` | The claim names an unknown schema, a function gets an unknown action, or the token has an unknown role. | Database or PostgREST |
 | `401` | The signature, issuer, audience or expiry of the token isn't valid. | Gateway |
+| `403` with `RBAC: access denied` | The request has no token. See [Expected results](./requests.md#expected-results). | Gateway |
 | `403` | The role lacks the permission, a row policy refuses a write, or the schema or table is outside the claim (or doesn't exist). | Database |
 | `404` | The sync run or the schedule doesn't exist for this token, or the schema profile is unknown. | Database or PostgREST |
 | `409` | A sync run is in the wrong status for the action, or the provision job hasn't created the schema yet. | Database |

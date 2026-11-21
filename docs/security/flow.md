@@ -10,7 +10,7 @@ CloudNativePG (CNPG) manages two roles: `ops` (the owner and a superuser) and `d
 
 | Role                     | Purpose                                                                        |
 | ------------------------ | ------------------------------------------------------------------------------ |
-| `anon`                   | Role of a request without a token, with no application table access.           |
+| `anon`                   | Role of a request to PostgREST without a token, with no application table access. From outside the cluster, a request without a token gets `403 RBAC: access denied` from Istio and never reaches this role. The [configuration call](../proxy/reload.md) of the proxy uses it. |
 | `dp_api`, `dp_policy`, `dp_console`, `dp_admin` | One role for each role of `rbac.toml`. A token switches to the role of its `role` claim, and the rules decide what that role may do. The schema and row policies limit the rows. |
 | `serving`                | The login of the serving layer: PostgREST, the PgDog pool and the recovery Deployment (`auth.servingRole`). It's `NOINHERIT` and can switch to `anon` and to every `dp_*` role. |
 

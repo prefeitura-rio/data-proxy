@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.18.1 - 2026-11-21
+
+### Fixes
+
+- **sync**: reconcile the schedules after a rename of a schema (#44) (4132dbf)
+
+
+- - -
+
 ## helm-v2.18.0 - 2026-11-19
 
 ### Features

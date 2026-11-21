@@ -5,6 +5,7 @@ Use this page when a request fails or returns no rows. [Request outcomes](permis
 | Symptom                                       | Check                                                                                                   |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `401 Unauthorized`                            | Check the JSON Web Token (JWT) signature, issuer, audience, expiry, and `role` claim.                                    |
+| `403` with the body `RBAC: access denied`     | Istio refused a request without a token. Send the header `Authorization: Bearer <token>`. Only `GET` and `HEAD` on `/health`, and on `/` with the Swagger UI, need no token. |
 | `403` with `permission denied to set role`    | Check that `configure-db` completed: the `auth.servingRole` login must be a member of `anon` and of every `dp_*` role. |
 | `403` with `permission denied for schema data_proxy` | Check `GRANT USAGE ON SCHEMA data_proxy TO anon/user`.                                             |
 | `200 []` for every table                      | Check `schemas`, the schema profile, the configured subject claim, and enabled `access_policy` rows.    |
