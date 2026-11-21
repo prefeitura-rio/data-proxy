@@ -40,16 +40,16 @@
   "name": "postgres.rls_mapping_values",
   "description": "Render RLS unit mappings as SQL VALUES rows.",
   "inputs": {
-    "rls_mappings": "Mappings with column, unit_type and duckdb_type fields."
+    "rls_mappings": "Mappings with column, unit_type, duckdb_type and group fields."
   },
   "returns": "Comma-separated SQL VALUES rows."
 }
 #}
 {% macro rls_mapping_values(rls_mappings) -%}
 {% for mapping in rls_mappings %}
-('{{ mapping.column }}', '{{ mapping.unit_type }}', '{{ mapping.duckdb_type | replace("'", "''") }}'){% if not loop.last %}, {% endif %}
+('{{ mapping.column }}', '{{ mapping.unit_type }}', '{{ mapping.duckdb_type | replace("'", "''") }}', {{ mapping.group if mapping.group != '' else 'NULL::integer' }}){% if not loop.last %}, {% endif %}
 {% else %}
-('', '', '')
+('', '', '', NULL::integer)
 {% endfor %}
 {%- endmacro %}
 
@@ -88,24 +88,37 @@ A table with no rules is denied by default. Only a token with schema:* or *, or 
   ) THEN
     v_where := '';
   ELSE
-    SELECT string_agg(predicate, ' OR ') INTO v_where
+    SELECT string_agg(term, ' OR ') INTO v_where
     FROM (
-      SELECT CASE
-        WHEN t.ty = 'VARCHAR[]' THEN
-          format('list_has_any(%I, [%s])', t.col, string_agg(quote_literal(p.unit_id), ','))
-        ELSE format(
-          {{ predicate_format }},
+      SELECT
+        CASE WHEN count(*) = 1 THEN min(rule_filter)
+          ELSE '(' || string_agg(rule_filter, ' AND ' ORDER BY col, ut) || ')'
+        END AS term
+      FROM (
+        SELECT
           t.col,
-          string_agg(quote_literal(p.unit_id), ',')
-        )
-      END AS predicate
-      FROM (VALUES
-        {{ rls_mapping_values(rls_mappings) }}
-      ) AS t(col, ut, ty)
-      JOIN {{ schema }}.access_policy p ON p.unit_type = t.ut
-      WHERE p.subject = v_subject
-      GROUP BY t.col, t.ty
-    ) filters;
+          t.ut,
+          coalesce(t.grp, -row_number() OVER (ORDER BY t.col, t.ut)) AS key,
+          CASE
+            WHEN count(p.unit_id) = 0 THEN NULL
+            WHEN t.ty = 'VARCHAR[]' THEN
+              format('list_has_any(%I, [%s])', t.col, string_agg(quote_literal(p.unit_id), ','))
+            ELSE format(
+              {{ predicate_format }},
+              t.col,
+              string_agg(quote_literal(p.unit_id), ',')
+            )
+          END AS rule_filter
+        FROM (VALUES
+          {{ rls_mapping_values(rls_mappings) }}
+        ) AS t(col, ut, ty, grp)
+        LEFT JOIN {{ schema }}.access_policy p
+          ON p.unit_type = t.ut AND p.subject = v_subject
+        GROUP BY t.grp, t.col, t.ty, t.ut
+      ) AS rules
+      GROUP BY key
+      HAVING bool_and(rule_filter IS NOT NULL)
+    ) AS terms;
 
     v_where := 'WHERE (' || v_where || ')';
   END IF;

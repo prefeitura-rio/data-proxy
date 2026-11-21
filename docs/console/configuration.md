@@ -11,14 +11,14 @@ The sync configuration is data in three tables of the `console` schema. The migr
 | `projects` | One row per project: `name`. A project has schemas. |
 | `schemas` | One row per synced schema: `project`, `short_name`, `name`, `source`, `settings`, `claim`, `encrypted`. |
 | `tables` | One row per source table: `name`, its `schema`, `strategy`, `n`, `fallback`, `cache_ttl`, `partitioning`, `sort`. |
-| `rls` | One row per rule: the `table_name`, the `column_name`, and the `unit_type`. |
+| `rls` | The rules of a table: each rule holds one condition or more, and all must match. Use `rules()` and `replace_rls()`. |
 
 Every row records `updated_at` and `updated_by`. The database sets both. The name comes from the `preferred_username` claim of the token, then from `sub`.
 
 Constraints replace a validation step:
 
 - A project name uses lowercase letters and digits. The project `default` always exists. A project with schemas can't be deleted.
-- A schema has one project. Its `name` is the physical name that the sync, the proxy, S3 and the roles use: `<project>_<short_name>`, or `<short_name>` in `default`. The database builds it from the project and the short name.
+- A schema has one project. Its `name` is the physical name that the sync, the proxy, S3 and the roles use: `<project>_<short_name>`, or `<short_name>` in `default`.
 - A physical name uses lowercase letters, digits and underscores, and it starts with a letter. It has at most 56 characters, so that the role name `schema_<name>` fits in 63. Two schemas can't share one.
 - A schema can't change its project or its short name. Delete it and add it again to rename it.
 - A table name is unique in the whole configuration, and unique in its schema by its last part.

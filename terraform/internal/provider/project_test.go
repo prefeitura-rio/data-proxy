@@ -2,11 +2,13 @@ package provider
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
 	"terraform-provider-data-proxy/internal/client"
 )
@@ -184,13 +186,124 @@ func TestProjectDelete(t *testing.T) {
 	}
 }
 
-func TestProjectUpdateNeverRuns(t *testing.T) {
-	res := newTestProject(t, nil)
-	resp := resource.UpdateResponse{}
-
-	res.Update(context.Background(), resource.UpdateRequest{}, &resp)
-
-	if got := summaries(diagnosticsOf(resp.Diagnostics)); len(got) != 1 || got[0] != "A project can't change" {
-		t.Errorf("diagnostics = %v, want the error of an update", got)
+// TestProjectImportReadsByName checks that the import id becomes the name of the project.
+func TestProjectImportReadsByName(t *testing.T) {
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{name: "a plain name", id: "sales"},
+		{name: "a name with a dash", id: "id-carioca"},
 	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := newTestProject(t, nil)
+			s := resourceSchema(t, res)
+			resp := resource.ImportStateResponse{State: nullState(s)}
+
+			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: tt.id}, &resp)
+
+			var state projectModel
+
+			resp.State.Get(context.Background(), &state)
+
+			if state.Name.ValueString() != tt.id {
+				t.Errorf("name = %q, want %q", state.Name.ValueString(), tt.id)
+			}
+		})
+	}
+}
+
+// TestProjectUpdateNeverRuns checks that an update gives one error, because a project has nothing that can change.
+func TestProjectUpdateNeverRuns(t *testing.T) {
+	tests := []struct {
+		name string
+	}{
+		{name: "an empty request"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := newTestProject(t, nil)
+			resp := resource.UpdateResponse{}
+
+			res.Update(context.Background(), resource.UpdateRequest{}, &resp)
+
+			if got := summaries(diagnosticsOf(resp.Diagnostics)); len(got) != 1 || got[0] != "A project can't change" {
+				t.Errorf("diagnostics = %v, want the error of an update", got)
+			}
+		})
+	}
+}
+
+func TestAccProjectResource(t *testing.T) {
+	name := testAccName()
+	testAccCleanup(t, "projects", client.Eq("name", name))
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{
+				Config: projectConfig(name),
+				Check: acc.ComposeAggregateTestCheckFunc(
+					acc.TestCheckResourceAttr("data_proxy_project.this", "id", name),
+					acc.TestCheckResourceAttrSet("data_proxy_project.this", "updated_by"),
+				),
+			},
+			{ResourceName: "data_proxy_project.this", ImportState: true, ImportStateVerify: true},
+		},
+	})
+}
+
+func TestAccProjectResourceRefusesTheDefaultName(t *testing.T) {
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{Config: projectConfig("default"), ExpectError: regexp.MustCompile(`value must be none of`)},
+		},
+	})
+}
+
+func TestAccProjectResourceRefusesToDeleteAProjectWithSchemas(t *testing.T) {
+	name := testAccName()
+	testAccCleanup(t, "projects", client.Eq("name", name))
+	testAccCleanup(t, "schemas", client.Eq("project", name))
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{Config: projectConfig(name)},
+			{
+				PreConfig: func() {
+					apiClient, err := testAccClient()
+					if err != nil {
+						t.Fatalf("testAccClient: %v", err)
+					}
+
+					if _, err := apiClient.CreateSchema(context.Background(), client.SchemaInput{Project: name, ShortName: "orders"}); err != nil {
+						t.Fatalf("add a schema outside Terraform: %v", err)
+					}
+				},
+				Config:      `# the project leaves the configuration`,
+				ExpectError: regexp.MustCompile(`Couldn't delete the project`),
+			},
+			{
+				PreConfig: func() {
+					apiClient, err := testAccClient()
+					if err != nil {
+						t.Fatalf("testAccClient: %v", err)
+					}
+
+					if err := apiClient.DeleteSchema(context.Background(), name+"_orders"); err != nil {
+						t.Fatalf("delete the schema outside Terraform: %v", err)
+					}
+				},
+				Config: projectConfig(name),
+			},
+		},
+	})
 }

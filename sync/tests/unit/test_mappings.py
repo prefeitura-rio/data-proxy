@@ -1,7 +1,9 @@
+from collections.abc import Mapping, Sequence
+
 import pytest
 
 import sync.views.mappings as utils
-from sync.models import FullTable, UnitMapping
+from sync.models import FullTable, RlsRule, UnitMapping
 
 
 class TestListColumns:
@@ -38,7 +40,7 @@ class TestListColumns:
         table = FullTable(
             name="p.d.people",
             resolved_source="bigquery",
-            rls=[UnitMapping(column="area", unit_type="area")],
+            rls=[RlsRule(conditions=[UnitMapping(column="area", unit_type="area")])],
         )
 
         mapping = utils.table_function_mapping(
@@ -46,36 +48,142 @@ class TestListColumns:
         )
 
         assert mapping["rls_mappings"] == [
-            {"column": "area", "unit_type": "area", "duckdb_type": duckdb_type}
+            {
+                "column": "area",
+                "unit_type": "area",
+                "duckdb_type": duckdb_type,
+                "group": "",
+            }
+        ]
+
+    def test_a_table_without_a_group_keeps_its_config_signature(self) -> None:
+        """Leave the signature as it was, so no table rebuilds its data because of this release."""
+        plain = FullTable(
+            name="p.d.people",
+            resolved_source="bigquery",
+            rls=[RlsRule(conditions=[UnitMapping(column="area", unit_type="area")])],
+        )
+
+        assert plain.config_signature_fields()["rls"] == [
+            {"column": "area", "unit_type": "area"}
         ]
 
     @pytest.mark.parametrize(
-        "duckdb_type",
+        ("rls", "expected"),
         [
-            pytest.param("BIGINT[]", id="numbers"),
-            pytest.param("VARCHAR[][]", id="nested"),
+            pytest.param(
+                [{"conditions": [{"column": "a", "unit_type": "x"}]}],
+                [("a", "x", "")],
+                id="a-rule-of-one-condition-has-no-group",
+            ),
+            pytest.param(
+                [{"column": "a", "unit_type": "x"}],
+                [("a", "x", "")],
+                id="a-flat-condition-reads-as-a-rule-of-one",
+            ),
+            pytest.param(
+                [
+                    {
+                        "conditions": [
+                            {"column": "a", "unit_type": "x"},
+                            {"column": "b", "unit_type": "y"},
+                        ]
+                    }
+                ],
+                [("a", "x", "1"), ("b", "y", "1")],
+                id="the-conditions-of-a-group-share-a-number",
+            ),
+            pytest.param(
+                [
+                    {
+                        "conditions": [
+                            {"column": "a", "unit_type": "x"},
+                            {"column": "b", "unit_type": "y"},
+                        ]
+                    },
+                    {"conditions": [{"column": "c", "unit_type": "z"}]},
+                    {
+                        "conditions": [
+                            {"column": "d", "unit_type": "w"},
+                            {"column": "e", "unit_type": "v"},
+                        ]
+                    },
+                ],
+                [
+                    ("a", "x", "1"),
+                    ("b", "y", "1"),
+                    ("c", "z", ""),
+                    ("d", "w", "2"),
+                    ("e", "v", "2"),
+                ],
+                id="groups-are-numbered-by-position-from-one",
+            ),
         ],
     )
-    def test_rejects_a_list_column_that_is_not_a_list_of_text(
-        self, duckdb_type: str
+    def test_numbers_the_groups_by_position_only_to_render_the_sql(
+        self, rls: list[dict[str, object]], expected: list[tuple[str, str, str]]
     ) -> None:
-        """A grant holds text, so another element type cannot match and the sync stops with a clear message."""
-        table = FullTable(
-            name="p.d.people",
-            resolved_source="bigquery",
-            rls=[UnitMapping(column="area", unit_type="area")],
+        """The number is internal. It goes to the template and nowhere else."""
+        table = FullTable.model_validate(
+            {"name": "p.d.people", "resolved_source": "bigquery", "rls": rls}
         )
+        columns: list[tuple[str, str]] = [(name, "VARCHAR") for name in "abcde"]
 
-        with pytest.raises(ValueError, match="must be VARCHAR"):
-            utils.table_function_mapping("app", table, [("area", duckdb_type)], "sub")
+        mapping = utils.table_function_mapping("app", table, columns, "sub")
 
-    def test_rejects_an_rls_column_that_the_source_lacks(self) -> None:
-        """A rule on a missing column would build a predicate that fails at the first read, so the sync stops."""
-        table = FullTable(
-            name="p.d.people",
-            resolved_source="bigquery",
-            rls=[UnitMapping(column="area", unit_type="area")],
-        )
+        entries = mapping["rls_mappings"]
 
-        with pytest.raises(ValueError, match="not a column"):
-            utils.table_function_mapping("app", table, [("other", "VARCHAR")], "sub")
+        assert isinstance(entries, list)
+        assert [
+            (entry["column"], entry["unit_type"], entry["group"])
+            for entry in entries
+            if isinstance(entry, dict)
+        ] == expected
+
+    def test_the_same_groups_give_the_same_signature_and_another_order_does_not(
+        self,
+    ) -> None:
+        """Hash the nested shape, so a save of the same ways rebuilds nothing."""
+        one = {
+            "conditions": [
+                {"column": "a", "unit_type": "x"},
+                {"column": "b", "unit_type": "y"},
+            ]
+        }
+        two = {"conditions": [{"column": "c", "unit_type": "z"}]}
+
+        def signature(rls: Sequence[Mapping[str, object]]) -> object:
+            table = FullTable.model_validate(
+                {"name": "p.d.people", "resolved_source": "bigquery", "rls": list(rls)}
+            )
+
+            return table.config_signature_fields()["rls"]
+
+        assert signature([one, two]) == signature([one, two])
+        assert signature([one, two]) != signature([two, one])
+        assert signature([two]) == [{"column": "c", "unit_type": "z"}]
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            pytest.param({"conditions": []}, id="a-group-with-no-condition"),
+            pytest.param({"conditions": "a"}, id="a-group-that-is-not-a-list"),
+            pytest.param(
+                {"column": "a", "unit_type": "x", "group": 1}, id="a-group-number"
+            ),
+            pytest.param(
+                {"conditions": [{"column": "a", "unit_type": "x", "conditions": []}]},
+                id="a-group-inside-a-group",
+            ),
+        ],
+    )
+    def test_refuses_a_rule_without_a_list_of_conditions(
+        self, rule: dict[str, object]
+    ) -> None:
+        """Keep the shape small: a list of one condition or more, and no number."""
+        with pytest.raises(
+            ValueError, match=r"rls|conditions|group|Extra|at least|list"
+        ):
+            FullTable.model_validate(
+                {"name": "p.d.people", "resolved_source": "bigquery", "rls": [rule]}
+            )

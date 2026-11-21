@@ -101,3 +101,38 @@ Feature: Scenarios that add, change and delete a schema of their own
     When I delete the schema "orders" of the project "e2eproj" by typing its name
     And I delete the project "e2eproj"
     Then I see no project "e2eproj"
+
+  Scenario: A refresh of the page does not undo an edit of the row rules
+    Given I sign in as "web_root"
+    When I open the "Config" tab
+    And I add the schema "other_refresh"
+    And I edit the schema "other_refresh" with claim "cpf"
+    And I add the table "p.d.refresh" to the schema "other_refresh"
+    And I add a row rule for the table "p.d.refresh" on column "id" with unit type "cpf"
+    And I open the row rules of "p.d.refresh"
+    And I delete the first condition in the editor
+    And the page refreshes its data while the editor is open
+    And I save the row rules
+    Then I see no row rule on "p.d.refresh"
+    When I delete the table "p.d.refresh"
+    And I delete the schema "other_refresh" by typing its name
+    Then I see no row of the schema "other_refresh"
+
+  Scenario: Row rules combine with and, and the cards survive a reload
+    Given I sign in as "web_root"
+    When I open the "Config" tab
+    And I add the schema "other_groups"
+    And I edit the schema "other_groups" with claim "cpf"
+    And I add the table "p.d.groups" to the schema "other_groups"
+    And I build the row rules of "p.d.groups" with the keyboard: region_id of region and unit_id of unit, or area of area
+    Then the editor says "A user sees a row when its area matches one of their area units, or when its region_id matches one of their region units and its unit_id matches one of their unit units."
+    When I save the row rules
+    And I reload the page
+    And I open the row rules of "p.d.groups"
+    Then I see "Group 1: all of these must match" with the columns "region_id" and "unit_id"
+    And the editor says "A user sees a row when its area matches one of their area units, or when its region_id matches one of their region units and its unit_id matches one of their unit units."
+    When I close the editor
+    And I delete the table "p.d.groups"
+    And I delete the schema "other_groups" by typing its name
+    Then I see no row of the schema "other_groups"
+
