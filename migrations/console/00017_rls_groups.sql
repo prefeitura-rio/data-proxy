@@ -38,9 +38,12 @@ REVOKE ALL ON console.rls FROM "${AUTH_USER_ROLE}";
 ALTER FUNCTION console.keep_claim()
 SECURITY DEFINER SET search_path = pg_catalog, pg_temp;
 
--- The rules of every table, in order, with no number: each one is {"conditions": [...]}.
+-- The rules of every table, in order, with no number: each one is {"conditions": [...]}. This helper and
+-- write_rls() live in data_proxy, which PostgREST does not serve, so no request reaches them over HTTP.
+-- Only rules(), replace_rls(), sync_config() and import_config() call them, and the first two check the
+-- permission and the schema claim of the token before they do.
 -- +goose StatementBegin
-CREATE OR REPLACE FUNCTION console.groups()
+CREATE OR REPLACE FUNCTION data_proxy.groups()
 RETURNS TABLE (table_name text, sort_order integer, grp jsonb)
 LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = pg_catalog, console, pg_temp AS $$
@@ -59,13 +62,14 @@ SET search_path = pg_catalog, console, pg_temp AS $$
 $$;
 -- +goose StatementEnd
 
-REVOKE ALL ON FUNCTION console.groups() FROM PUBLIC;
+REVOKE ALL ON FUNCTION data_proxy.groups() FROM PUBLIC;
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.sync_config() RETURNS jsonb
 LANGUAGE sql STABLE AS $$
     WITH grouped AS (
-        SELECT w.* FROM console.groups() AS w WHERE console.mine_table(w.table_name)
+        SELECT w.* FROM data_proxy.groups() AS w
+        WHERE EXISTS (SELECT FROM console.tables AS t WHERE t.name = w.table_name)
     ),
 
     rules AS (
@@ -134,7 +138,7 @@ $$;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
-CREATE OR REPLACE FUNCTION console.write_rls(table_name text, groups jsonb)
+CREATE OR REPLACE FUNCTION data_proxy.write_rls(table_name text, groups jsonb)
 RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, console, pg_temp AS $$
@@ -188,7 +192,13 @@ END
 $$;
 -- +goose StatementEnd
 
-REVOKE ALL ON FUNCTION console.write_rls(text, jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION data_proxy.write_rls(text, jsonb) FROM PUBLIC;
+
+-- The default privileges of the console schema do not reach data_proxy, so the token role gets the right here.
+-- The functions that call the helpers run with the rights of the caller.
+-- +goose ENVSUB ON
+GRANT EXECUTE ON FUNCTION data_proxy.groups(), data_proxy.write_rls(text, jsonb) TO "${AUTH_USER_ROLE}";
+-- +goose ENVSUB OFF
 
 -- +goose StatementBegin
 CREATE OR REPLACE FUNCTION console.import_config(document jsonb) RETURNS void
@@ -249,7 +259,7 @@ BEGIN
         partitioning = excluded.partitioning,
         sort = excluded.sort;
 
-    PERFORM console.write_rls(t.name, coalesce(t.rls, '[]'::jsonb))
+    PERFORM data_proxy.write_rls(t.name, coalesce(t.rls, '[]'::jsonb))
     FROM console.import_schemas(document) AS s
     CROSS JOIN LATERAL jsonb_to_recordset(s.body -> 'tables') AS t (name text, rls jsonb);
 END
@@ -314,7 +324,7 @@ BEGIN
 
     RETURN QUERY
     SELECT w.table_name, jsonb_agg(w.grp ORDER BY w.sort_order)
-    FROM console.groups() AS w
+    FROM data_proxy.groups() AS w
     WHERE console.mine_table(w.table_name)
     GROUP BY w.table_name;
 END
@@ -340,7 +350,7 @@ BEGIN
             USING ERRCODE = 'insufficient_privilege';
     END IF;
 
-    PERFORM console.write_rls(replace_rls.table_name, groups);
+    PERFORM data_proxy.write_rls(replace_rls.table_name, groups);
 END
 $$;
 -- +goose StatementEnd
@@ -545,9 +555,9 @@ DROP FUNCTION console.replace_rls(text, jsonb);
 
 DROP FUNCTION console.rules();
 
-DROP FUNCTION console.write_rls(text, jsonb);
+DROP FUNCTION data_proxy.write_rls(text, jsonb);
 
-DROP FUNCTION console.groups();
+DROP FUNCTION data_proxy.groups();
 
 DROP TRIGGER order_rls ON console.rls;
 
