@@ -116,3 +116,20 @@ Feature: Who sees and does what
     And I do not see the "Sync" tab
     And I do not see the "Config" tab
     And I do not see the "Query" tab
+
+  Scenario: Explain shows a card that drops out when the subject has no grant of one type
+    Given I sign in as "web_admin"
+    When I open the Access tab of the schema "test"
+    And I add the policy "bdd-explain" for "unit" "u1"
+    And I open the "Config" tab
+    And I add the table "p.d.explain" to the schema "test"
+    And I build the row rules of "p.d.explain" with the keyboard: region_id of region and unit_id of unit, or area of area
+    And I explain the subject "bdd-explain" in the editor
+    Then the explanation says "The subject sees no row, because no condition has a grant."
+    And the explanation lists "Group 1: drops out, no grant of region"
+    And the explanation lists "unit_id (unit): u1"
+    When I close the editor
+    And I delete the table "p.d.explain"
+    And I open the Access tab of the schema "test"
+    And I remove the policy "bdd-explain"
+    Then I see no policy "bdd-explain"

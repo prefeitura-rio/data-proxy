@@ -7,7 +7,7 @@
 	import type { RulesRow } from '#lib/types.js';
 	import RuleEditor from './RuleEditor.svelte';
 
-	let { rules, tables, can }: { rules: RulesRow[]; tables: { name: string }[]; can: Can } = $props();
+	let { rules, tables, can }: { rules: RulesRow[]; tables: { name: string; schema: string }[]; can: Can } = $props();
 
 	let editing = $state<string | null>(null);
 
@@ -56,6 +56,7 @@
 
 <RuleEditor
 	table={editing}
+	schema={tables.find((table) => table.name === editing)?.schema ?? ''}
 	stored={rules.find((rule) => rule.table_name === editing)?.groups ?? []}
 	submission={save}
 	onclose={() => (editing = null)}
