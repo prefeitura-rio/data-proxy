@@ -4,12 +4,18 @@ import json
 
 import psycopg
 import pytest
-from psycopg.sql import Identifier
+from psycopg.sql import SQL, Identifier
 
 from sync.settings import settings
 from sync.templates import render_template
 from tests.fixtures.types import Postgres
-from tests.helpers.core import fetch_all, response_headers, scalar, set_request_headers
+from tests.helpers.core import (
+    fetch_all,
+    response_headers,
+    scalar,
+    set_request_headers,
+    set_setting,
+)
 from tests.helpers.ducklake import publish_people_catalog
 from tests.helpers.routing import act_as_token
 
@@ -206,6 +212,27 @@ class TestServingFunctions:
         )
 
         assert rows == expected
+
+    async def test_table_changes_function_returns_no_row_for_a_table_without_row_rules(
+        self, ducklake_view: Postgres
+    ) -> None:
+        """A token that lists the schema, with no wildcard and no grant (*, *), reads no change."""
+        await set_setting(ducklake_view, "app.claim_sub", "nobody")
+        await ducklake_view.connection.execute(
+            SQL("DELETE FROM {}.access_policy").format(
+                ducklake_view.namespace.identifier
+            )
+        )
+        await act_as_token(ducklake_view, "dp_admin", ducklake_view.namespace.schema)
+
+        rows = await fetch_all(
+            ducklake_view,
+            "postgres/select_changes",
+            mapping={"schema": ducklake_view.namespace.identifier},
+            params={"start_snapshot": 1, "end_snapshot": 2},
+        )
+
+        assert rows == []
 
     async def test_table_changes_function_refuses_a_role_without_read_ducklake(
         self, ducklake_view: Postgres

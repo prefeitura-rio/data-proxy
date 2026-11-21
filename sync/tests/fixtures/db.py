@@ -44,7 +44,7 @@ from tests.fixtures.types import (
 )
 from tests.helpers.core import clone_database, one_worker_at_a_time
 from tests.helpers.ducklake import publish_people_catalog
-from tests.helpers.routing import act_as_token
+from tests.helpers.routing import act_as_token, grant_everything
 from tests.helpers.state import initialize_schemas
 
 
@@ -183,6 +183,8 @@ async def ducklake_view(
 ) -> AsyncIterator[Postgres]:
     """Reconcile the people view over the real DuckLake catalog.
 
+    The table has no row rules, so the subject holds the grant (*, *) to read it.
+
     The published state commits on its own connection, because pg_duckdb refuses
     a transaction that writes both a PostgreSQL table and DuckDB.
     """
@@ -199,6 +201,7 @@ async def ducklake_view(
     await initialize_schemas(ducklake_catalog.backend, config)
     await reconcile_views(ducklake_catalog.backend, config)
     await act_as_token(ducklake_catalog, "dp_api", schema)
+    await grant_everything(ducklake_catalog)
     publisher = await psycopg.AsyncConnection.connect(
         ducklake_catalog.dsn, autocommit=True
     )

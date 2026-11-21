@@ -5,14 +5,16 @@ Authorization has two independent conditions. The diagram shows the order of the
 ```mermaid
 %% Authorization checks
 flowchart TD
-  token["Request with a token"] --> valid{"Valid token?"}
+  request["Request"] --> token{"Has a token?"}
+  token -->|"no"| denied["403 RBAC: access denied<br/>from the gateway"]
+  token -->|"yes"| valid{"Valid token?"}
   valid -->|"no"| refused["401 from the gateway"]
   valid -->|"yes"| role["Switch to the role<br/>of the role claim"]
   role --> schema{"Is the schema in the<br/>schemas claim?"}
   schema -->|"no"| none["200, no rows"]
   schema -->|"yes"| all{"Does the claim have * or<br/>schema:* ?"}
   all -->|"yes"| every["Every row of the table"]
-  all -->|"no"| policy{"Does an access policy row<br/>match the subject and the unit?<br/>A grant * and * matches all."}
+  all -->|"no"| policy{"Does an access policy row<br/>match the subject and the unit?<br/>A grant * and * matches all.<br/>A table with no rules has<br/>no unit to match."}
   policy -->|"yes"| unit["The rows of those units"]
   policy -->|"no"| none
 ```
@@ -63,6 +65,36 @@ OR unit_type/unit_id matches the row
 A token whose `schemas` claim has `*`, or `<schema>:*` for the schema of the table, skips this condition and reads every row.
 
 A subject with the grant `unit_type = '*'` and `unit_id = '*'` in the `access_policy` of the schema reads every row of the tables of that schema too. The grant covers one subject and one schema. Revoking it deletes the row, like any other grant.
+
+### A list column
+
+The column of an `rls` rule can hold a list of text, such as `area_responsavel` with the type `ARRAY<STRING>` in BigQuery. A row is visible when at least one value of the list equals a unit of the grant. A row with an empty list or a NULL list is visible only to a reader of every row. A list of another type stops the sync with an error.
+
+### Groups that need several conditions
+
+A rule holds a list of conditions. A reader sees a row when all conditions of one rule match grants. Rules are alternatives, so any one rule is enough. A rule of two conditions or more is a group:
+
+```json
+"rls": [
+  {"conditions": [
+    {"column": "region_id", "unit_type": "region"},
+    {"column": "unit_id", "unit_type": "unit"}
+  ]},
+  {"conditions": [{"column": "area", "unit_type": "area"}]}
+]
+```
+
+A reader sees a row when its `region_id` and its `unit_id` match grants, or when its `area` matches a grant.
+
+A rule needs a grant for each of its conditions. A reader who lacks one grant gets no row from that rule. A missing grant never widens the filter.
+
+The short form `{"column": "area", "unit_type": "area"}` means a rule of one condition. The database stores and returns the full form. Nobody writes a number for a group, and no API shows one.
+
+### A table with no rules
+
+The default is to deny. A table with no `rls` rules has no unit column to match, so it returns no row to a token that lists the schema. Only two cases read it: a token with `*` or `<schema>:*`, and a subject with the grant `*` and `*`. To give a user the rows, grant `*` and `*`, or add `rls` rules to the table and grant its units.
+
+The same rule applies to the table function, the aggregate function and the change feed of the table.
 
 An access policy row exists only while the grant is active. Revoking access deletes the row. A missing schema claim or access policy grant normally returns `200 []`. It isn't an authentication error.
 

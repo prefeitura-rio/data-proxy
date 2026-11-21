@@ -13,6 +13,7 @@ on:
       - proxy/**
       - helm/**
       - k6/**
+      - migrations/**
       - scripts/**
       - terraform/**
       - Containerfile.sync
@@ -76,7 +77,7 @@ jobs:
           BEFORE: ${{ github.event.before || github.event.pull_request.base.sha }}
           FORCE_FULL: ${{ inputs.force_full || false }}
           CI_REPOSITORY: ${{ github.repository }}
-        run: devenv --profile chart shell -- ci changes
+        run: devenv --profile chart shell -- ci detect changes
   repo:
     defaults:
       run:
@@ -374,52 +375,38 @@ jobs:
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
       - name: Update from main
-        run: ci git update
-      - name: Resolve latest image SHAs from registry
-        id: shas
+        run: git pull --rebase origin main
+      - name: Resolve the image SHAs, read the next version and decide whether to release
+        id: plan
         env:
           CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: ci images resolve
-      - name: Read next version
-        id: version
-        run: ci version
-      - name: Skip if no release-level commit or chart changes exist
-        id: guard
-        run: ci guard
+        run: ci plan chart
+      - name: Pin the images, bump the version, write the changelog and tag
+        if: steps.plan.outputs.skip != 'true'
+        run: ci release chart
         env:
-          RELEASE: ${{ steps.version.outputs.release }}
-      - name: Login to registry
-        if: steps.guard.outputs.skip != 'true'
-        run: ci chart login
+          SYNC_SHA: ${{ steps.plan.outputs.sync }}
+          PG_SHA: ${{ steps.plan.outputs.postgres }}
+          NU_SHA: ${{ steps.plan.outputs.jobs }}
+          PROXY_SHA: ${{ steps.plan.outputs.proxy }}
+          CONSOLE_SHA: ${{ steps.plan.outputs.console }}
+          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI_REGISTRY_USER: ${{ github.actor }}
+      - name: Package chart
+        if: steps.plan.outputs.skip != 'true'
+        run: ci package chart
+      - name: Push the release commit and tag
+        if: steps.plan.outputs.skip != 'true'
+        run: git push --atomic origin HEAD:main "${{ steps.plan.outputs.tag }}"
+      - name: Publish the chart and write the release notes
+        if: steps.plan.outputs.skip != 'true'
+        run: ci publish chart "${{ steps.plan.outputs.tag }}"
         env:
           CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CI_REGISTRY_USER: ${{ github.actor }}
-      - name: Pin the images, bump the version, write the changelog and tag
-        if: steps.guard.outputs.skip != 'true'
-        run: ci release bump
-        env:
-          PIPELINE_SHA: ${{ steps.shas.outputs.sync }}
-          PG_SHA: ${{ steps.shas.outputs.postgres }}
-          NU_SHA: ${{ steps.shas.outputs.jobs }}
-          PROXY_SHA: ${{ steps.shas.outputs.proxy }}
-          CONSOLE_SHA: ${{ steps.shas.outputs.console }}
-      - name: Package chart
-        if: steps.guard.outputs.skip != 'true'
-        run: ci chart package
-      - name: Push the release commit and tag
-        if: steps.guard.outputs.skip != 'true'
-        run: ci release push "${{ steps.version.outputs.tag }}"
-      - name: Publish chart
-        if: steps.guard.outputs.skip != 'true'
-        run: ci chart publish
-        env:
-          CI_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Write the release notes
-        if: steps.guard.outputs.skip != 'true'
-        run: ci release notes "${{ steps.version.outputs.tag }}"
       - name: Create the GitHub release
-        if: steps.guard.outputs.skip != 'true'
-        run: gh release create "${{ steps.version.outputs.tag }}" --title "Helm chart ${{ steps.version.outputs.tag }}" --notes-file packaged/notes.md packaged/*.tgz
+        if: steps.plan.outputs.skip != 'true'
+        run: gh release create "${{ steps.plan.outputs.tag }}" --title "Helm chart ${{ steps.plan.outputs.tag }}" --notes-file packaged/notes.md packaged/*.tgz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   cache-branch:

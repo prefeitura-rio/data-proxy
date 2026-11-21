@@ -90,15 +90,10 @@ tests:
           value: AuthorizationPolicy
         template: istio.yaml
       - equal:
-          path: spec.rules[1].to[0].operation.methods[0]
-          value: GET
-        documentSelector:
-          path: kind
-          value: AuthorizationPolicy
-        template: istio.yaml
-      - equal:
-          path: spec.rules[1].to[0].operation.paths[0]
-          value: /health
+          path: spec.rules[1].to[0].operation
+          value:
+            methods: [GET, HEAD]
+            paths: [/health]
         documentSelector:
           path: kind
           value: AuthorizationPolicy
@@ -131,8 +126,19 @@ tests:
       swaggerUi.enabled: true
     asserts:
       - equal:
-          path: spec.rules[1].to[0].operation.paths[0]
-          value: /
+          path: spec.rules[1].to[0].operation
+          value:
+            methods: [GET, HEAD]
+            paths: [/]
+        documentSelector:
+          path: kind
+          value: AuthorizationPolicy
+        template: istio.yaml
+      - equal:
+          path: spec.rules[2].to[0].operation
+          value:
+            methods: [GET, HEAD]
+            paths: [/health]
         documentSelector:
           path: kind
           value: AuthorizationPolicy

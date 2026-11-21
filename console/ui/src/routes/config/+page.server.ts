@@ -3,6 +3,7 @@ import { error, fail } from '@sveltejs/kit';
 import { list, optional, text, whole } from '#lib/forms.js';
 import { containsFilter, pageOf, rangeQuery } from '#lib/list.js';
 import { schemaPayload } from '#lib/projects.js';
+import { parseRules } from '#lib/rules.js';
 import { can } from '#lib/permissions.js';
 import { writeMessage } from '#lib/messages.js';
 import { api, need } from '#lib/server/api.js';
@@ -12,7 +13,7 @@ import {
 	Health,
 	ImportChange,
 	ProjectRow,
-	RlsRow,
+	RulesRow,
 	SchemaRow,
 	Synced,
 	TableName,
@@ -39,7 +40,7 @@ export const load: PageServerLoad = async ({ locals, parent, url, depends }) => 
 		client.get('/projects?order=name', v.array(ProjectRow)),
 		client.get('/schemas?order=name', v.array(SchemaRow)),
 		client.get('/tables?select=name,schema&order=schema,name', v.array(TableName)),
-		client.get('/rls?order=table_name,column_name', v.array(RlsRow)),
+		client.rpc('rules', v.array(RulesRow)),
 		client.get('/health?order=name', v.array(Health))
 	]);
 	const schemaRows = need(schemas);
@@ -189,32 +190,20 @@ export const actions: Actions = {
 
 		return done(await api(locals.session).delete(`/tables?name=eq.${name}`));
 	},
-	createRls: async ({ locals, request }) => {
+	saveRules: async ({ locals, request }) => {
 		const form = await request.formData();
+		const rules = parseRules(form);
+
+		if (!rules.ok) {
+			return fail(400, { message: rules.message });
+		}
 
 		return done(
-			await api(locals.session).post('/rls', {
+			await api(locals.session).rpc('replace_rls', v.unknown(), {
 				table_name: text(form, 'table_name'),
-				column_name: text(form, 'column_name'),
-				unit_type: text(form, 'unit_type')
+				groups: rules.rows
 			})
 		);
-	},
-	updateRls: async ({ locals, request }) => {
-		const form = await request.formData();
-		const id = encodeURIComponent(text(form, 'id'));
-
-		return done(
-			await api(locals.session).patch(`/rls?id=eq.${id}`, {
-				column_name: text(form, 'column_name'),
-				unit_type: text(form, 'unit_type')
-			})
-		);
-	},
-	deleteRls: async ({ locals, request }) => {
-		const id = encodeURIComponent(text(await request.formData(), 'id'));
-
-		return done(await api(locals.session).delete(`/rls?id=eq.${id}`));
 	},
 	preview: async ({ locals, request }) => {
 		const text = await documentText(await request.formData());

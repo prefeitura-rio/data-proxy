@@ -619,6 +619,7 @@ The Terraform provider of Data Proxy is a Go module in `terraform/`, with its ow
 - **GO-10** Keep `tf:test:unit` green. It runs `go test ./...` without `TF_ACC`, so the acceptance tests don't run. [must, devenv]
 - **GO-11** Write a table of cases with a `name` field, and run each case with `t.Run(tt.name, ...)`. [must, review]
 - **GO-12** Test the client against an `httptest` server. Test a delay with a fake clock, never with a real wait. [must, review]
+- **GO-13** Name a Go file with one word, and keep one test file for it with the same name and the suffix `_test`. Put a helper that several test files share in `provider_test.go` or `client_test.go`. `main.go` has no test. [should, review]
 
 ```go
 for _, tt := range tests {
@@ -815,7 +816,7 @@ Applies to: every commit.
 - **GIT-06** Expect these release levels: a type with `!` bumps major, `feat:` bumps minor, `fix:` bumps patch and all other types create no release. `cog` applies the rules, and `cog.toml` has its settings. [must, cog]
 - **GIT-07** Use `!` only with `feat` or `fix` release commits. Explain the migration in the body. Don't use a `BREAKING CHANGE` footer. [must, cog]
 - **GIT-08** Don't edit `CHANGELOG.md` by hand. The release step writes it from the commits, and it lists only breaking changes, features and fixes. [must, cog]
-- **GIT-11** Expect no chart release from a commit that changes only `terraform/`, `docs/` or `llms.txt`, even as a `feat` or a `fix`. `ci guard` skips such a commit. [must, ci]
+- **GIT-11** Expect no chart release from a commit that changes only `terraform/`, `docs/` or `llms.txt`, even as a `feat` or a `fix`. `ci plan chart` skips such a commit. [must, ci]
 
 ```text
 feat(sync)!: require DBOS workflow recovery

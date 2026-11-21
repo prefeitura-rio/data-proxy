@@ -110,8 +110,20 @@
 			<form method="POST" action={`?/add&schema=${data.schema}`} use:enhance={add.submit} class="toolbar">
 				<Field label="Subject" name="subject" placeholder="subject" required />
 				<Field label="Unit type" name="unit_type" placeholder="unit type" required />
-				<Field label="Unit id" name="unit_id" placeholder="unit id" required />
+				<label class="flex min-w-64 flex-col gap-1 text-sm">
+					<span class="text-base-content/70">Unit id</span>
+					<textarea
+						class="textarea field-sizing-content min-h-8 w-full resize-none py-[calc(0.25rem-1px)] leading-6 textarea-sm"
+						name="unit_id"
+						rows="1"
+						placeholder="north, south"
+						aria-describedby="unit-id-help"
+						required></textarea>
+				</label>
 				<SubmitButton class="btn-primary btn-sm" pending={add.pending}><Plus size={14} /> Add</SubmitButton>
+				<p id="unit-id-help" class="basis-full text-xs text-base-content/60">
+					One id, or several separated by a comma or a new line. For every row use unit type * and unit id *.
+				</p>
 			</form>
 		{/if}
 	</Section>

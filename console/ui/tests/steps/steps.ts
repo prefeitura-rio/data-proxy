@@ -570,41 +570,140 @@ Then('the table {name} shows cache TTL {string}', async ({ page }, table: string
 	).toBeVisible();
 });
 
+/** The card of one table in the list of row rules. */
+const rulesOf = (page: Page, table: string) =>
+	page.locator('li', { has: page.getByRole('heading', { name: table, exact: true }) });
+
+/** Open the editor of the row rules of one table. */
+async function openRules(page: Page, table: string) {
+	await rulesOf(page, table).getByRole('button', { name: 'Edit' }).click();
+	await expect(page.locator('dialog[open]')).toBeVisible();
+}
+
+/** Save the editor, and wait for the toast. */
+async function saveRules(page: Page) {
+	await saved(page, () => page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click());
+}
+
 When(
 	'I add a row rule for the table {name} on column {string} with unit type {string}',
 	async ({ page }, table: string, column: string, unit: string) => {
-		await page.locator('form[action="?/createRls"] select[name=table_name]').selectOption(table);
-		await page.locator('form[action="?/createRls"] input[name=column_name]').fill(column);
-		await page.locator('form[action="?/createRls"] input[name=unit_type]').fill(unit);
-		await saved(page, () => page.getByRole('button', { name: 'Add rule' }).click());
+		await openRules(page, table);
+		await page.locator('dialog[open]').getByRole('button', { name: 'Add a condition', exact: true }).click();
+		await page.locator('dialog[open] [data-list=any] input[name=column]').last().fill(column);
+		await page.locator('dialog[open] [data-list=any] input[name=unit_type]').last().fill(unit);
+		await saveRules(page);
 	}
 );
 
 When('I change the unit type of the rule on {name} to {string}', async ({ page }, table: string, unit: string) => {
-	await page
-		.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id `) })
-		.getByRole('button', { name: 'Edit' })
-		.click();
-	await page.locator('dialog[open] input[name=unit_type]').fill(unit);
-	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
+	await openRules(page, table);
+	await page.locator('dialog[open] [data-list=any] input[name=unit_type]').first().fill(unit);
+	await saveRules(page);
 });
 
 Then('I see a row rule on {name} with unit type {string}', async ({ page }, table: string, unit: string) => {
-	await expect(
-		page.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id ${unit}`) })
-	).toBeVisible();
+	await expect(rulesOf(page, table)).toContainText(`matches one of their ${unit} units`);
 });
 
 When('I delete the row rule of {name}', async ({ page }, table: string) => {
+	await openRules(page, table);
 	await page
-		.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id `) })
-		.getByRole('button', { name: 'Delete' })
+		.locator('dialog[open]')
+		.getByRole('button', { name: /^Delete the condition/ })
+		.first()
 		.click();
-	await page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click();
+	await saveRules(page);
 });
 
 Then('I see no row rule on {name}', async ({ page }, table: string) => {
-	await expect(page.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id `) })).toHaveCount(0);
+	await expect(rulesOf(page, table)).toContainText('No rule');
+});
+
+/** Fill the focused condition: the field that has the focus is the column, and Tab moves to the unit type. */
+async function typeCondition(page: Page, column: string, unit: string) {
+	await page.keyboard.type(column);
+	await page.keyboard.press('Tab');
+	await page.keyboard.type(unit);
+}
+
+When(
+	'I build the row rules of {name} with the keyboard: region_id of region and unit_id of unit, or area of area',
+	async ({ page }, table: string) => {
+		await openRules(page, table);
+		const dialog = page.locator('dialog[open]');
+
+		await dialog.getByRole('button', { name: 'Add a condition', exact: true }).focus();
+		await page.keyboard.press('Enter');
+		await expect(dialog.locator('[data-list=any] input[name=column]').last()).toBeFocused();
+		await typeCondition(page, 'region_id', 'region');
+
+		await dialog.getByRole('button', { name: 'Must also match something new' }).focus();
+		await page.keyboard.press('Enter');
+		await expect(dialog.locator('[data-card]').first().locator('input[name=column]').nth(1)).toBeFocused();
+		await typeCondition(page, 'unit_id', 'unit');
+
+		await dialog.getByRole('button', { name: 'Add a condition', exact: true }).first().focus();
+		await page.keyboard.press('Enter');
+		await expect(dialog.locator('[data-list=any] input[name=column]').last()).toBeFocused();
+		await typeCondition(page, 'area', 'area');
+	}
+);
+
+When('I explain the subject {string} in the editor', async ({ page }, subject: string) => {
+	const panel = page.locator('dialog[open]').getByTestId('rule-explain');
+
+	await panel.getByText('Explain for a subject').click();
+	await panel.locator('input[name=explain_subject]').fill(subject);
+	await panel.getByRole('button', { name: 'Explain' }).click();
+});
+
+Then('the explanation says {string}', async ({ page }, text: string) => {
+	await expect(page.getByTestId('rule-explain-rows')).toHaveText(text);
+});
+
+Then('the explanation lists {string}', async ({ page }, text: string) => {
+	await expect(page.locator('dialog[open]').getByTestId('rule-explain')).toContainText(text);
+});
+
+Then('the editor says {string}', async ({ page }, text: string) => {
+	await expect(page.getByTestId('rule-sentence')).toHaveText(text);
+});
+
+When('I delete the first condition in the editor', async ({ page }) => {
+	await page
+		.locator('dialog[open]')
+		.getByRole('button', { name: /^Delete the condition/ })
+		.first()
+		.click();
+});
+
+/** The Config page polls while a schema is new, because the test stack runs no sync to create it. Wait for one poll. */
+When('the page refreshes its data while the editor is open', async ({ page }) => {
+	await page.waitForResponse((response) => response.url().includes('__data.json'), { timeout: 15_000 });
+});
+
+When('I save the row rules', async ({ page }) => {
+	await saveRules(page);
+});
+
+When('I open the row rules of {name}', async ({ page }, table: string) => {
+	await openRules(page, table);
+});
+
+Then(
+	'I see {string} with the columns {string} and {string}',
+	async ({ page }, heading: string, first: string, second: string) => {
+		const card = page.locator('dialog[open] [data-card]').first();
+
+		await expect(card.getByText(heading)).toBeVisible();
+		await expect(card.locator('input[name=column]').nth(0)).toHaveValue(first);
+		await expect(card.locator('input[name=column]').nth(1)).toHaveValue(second);
+	}
+);
+
+When('I close the editor', async ({ page }) => {
+	await page.locator('dialog[open]').getByRole('button', { name: 'Cancel' }).click();
 });
 
 When('I delete the table {name}', async ({ page }, table: string) => {
@@ -713,8 +812,31 @@ When('I add the policy {string} for {string} {string}', async ({ page }, subject
 	const form = page.locator('form[action^="?/add"]');
 	await form.locator('input[name=subject]').fill(subject);
 	await form.locator('input[name=unit_type]').fill(unit);
-	await form.locator('input[name=unit_id]').fill(id);
+	await form.locator('[name=unit_id]').fill(id);
 	await saved(page, () => form.getByRole('button', { name: 'Add' }).click());
+});
+
+When(
+	'I add the policy {string} for {string} with the unit ids {string}',
+	async ({ page }, subject: string, unit: string, ids: string) => {
+		const form = page.locator('form[action^="?/add"]');
+		await form.locator('input[name=subject]').fill(subject);
+		await form.locator('input[name=unit_type]').fill(unit);
+		await form.locator('[name=unit_id]').fill(ids);
+		await form.getByRole('button', { name: 'Add' }).click();
+	}
+);
+
+Then('the toast says {string}', async ({ page }, message: string) => {
+	await expect(page.getByRole('status')).toContainText(message);
+});
+
+Then('the form says {string}', async ({ page }, message: string) => {
+	await expect(page.getByRole('alert').filter({ hasText: message })).toBeVisible();
+});
+
+Then('I see {int} policy rows for {string}', async ({ page }, count: number, subject: string) => {
+	await expect(policy(page, subject)).toHaveCount(count);
 });
 
 const policy = (page: Page, subject: string) =>
@@ -744,7 +866,7 @@ Then('I see the policy {string}', async ({ page }, subject: string) => {
 });
 
 When('I remove the policy {string}', async ({ page }, subject: string) => {
-	await policy(page, subject).getByRole('button', { name: 'Delete' }).click();
+	await policy(page, subject).first().getByRole('button', { name: 'Delete' }).click();
 	await saved(page, () => page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click());
 });
 

@@ -11,7 +11,6 @@
     "dl_view": "DuckDB view name prepared by the DuckLake helper.",
     "columns": "Structured SQL-safe column metadata. A column with sortable set has a type that DuckDB and PostgreSQL sort the same way.",
     "claim_setting": "PostgreSQL session setting containing the current claim.",
-    "has_rls": "Enable the row-level security branch.",
     "rls_mappings": "Unit mappings used to build the access-policy predicate.",
     "source_table": "SQL literal name of the source table, as stored in state.",
     "fallbacks": "Ordered list of {name, function, view} records for configured fallback sources.",
@@ -52,7 +51,7 @@ BEGIN
 
   v_subject := current_setting('{{ claim_setting }}', true);
 
-{{ rls_where_clause(schema, schema_literal, has_rls, rls_mappings, fallbacks | length == 0) }}
+{{ rls_where_clause(schema, schema_literal, rls_mappings, fallbacks | length == 0) }}
   IF v_where IS NULL THEN
     RETURN;
   END IF;

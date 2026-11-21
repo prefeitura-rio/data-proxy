@@ -56,9 +56,16 @@ The Config page edits a row in a dialog:
 
 - A schema has a `claim` and `encrypted`.
 - A table has a strategy, `n`, `fallback`, a cache TTL (time to live) and sort columns.
-- A row rule has a column and a unit type.
+- The row rules of a table open in one dialog. A condition has a column and a unit type. A card needs all of its conditions. A panel explains the rules for one subject.
 
 The page doesn't edit `partitioning`. Change it with an import of the document.
+
+The Access page adds grants in one form:
+
+- Write one unit id, or a list of ids separated by a comma or a new line. A space after the comma is optional, so `north,south` and `north, south` mean the same.
+- The page writes one row for each id. A row that exists is skipped, and the message says how many.
+- The wildcard grant is the single pair `*` and `*`. A list can't mix `*` with other ids.
+- A list holds at most 100 ids. The Edit dialog changes one row.
 
 ## Live data
 

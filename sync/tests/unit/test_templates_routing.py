@@ -4,6 +4,7 @@ import json
 import re
 from typing import Final
 
+import duckdb
 import psycopg
 import pytest
 from psycopg.sql import SQL, Identifier
@@ -38,6 +39,7 @@ from tests.helpers.core import fetch_all, scalar, set_request_headers, set_setti
 from tests.helpers.routing import (
     act_as_token,
     call_table_function,
+    grant_everything,
     grant_unit,
     insert_access_policy,
     install_table_function,
@@ -429,6 +431,7 @@ class TestTableFunction:
         """A role without read_api is refused, a schema outside the claim returns nothing, and the others read."""
         await install_table_function(table_function, has_rls=False, fallbacks=[])
         await put_state(table_function, ROUTED_TABLE, FULL)
+        await grant_everything(table_function)
 
         if outcome == "refused":
             with pytest.raises(psycopg.Error) as error:
@@ -589,6 +592,186 @@ class TestTableFunction:
             where.split("[")[1].split("]", maxsplit=1)[0].split(",")
         )
 
+    @pytest.mark.parametrize(
+        ("fallbacks", "pattern"),
+        [
+            pytest.param(
+                [],
+                r"WHERE \(list_has_any\(unit_id, \['u[12]','u[12]'\]\)\)",
+                id="without-fallback",
+            ),
+            pytest.param(
+                ["bigquery"],
+                r"WHERE \(list_has_any\(unit_id, \['u[12]','u[12]'\]\)\)",
+                id="with-fallback",
+            ),
+        ],
+    )
+    async def test_view_function_matches_a_list_column_with_list_has_any(
+        self, table_function: Postgres, fallbacks: list[str], pattern: str
+    ) -> None:
+        """A list column cannot take IN, so a row shows when one of its values has a grant."""
+        await install_table_function(
+            table_function, has_rls=True, fallbacks=fallbacks, rls_type="VARCHAR[]"
+        )
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await grant_unit(table_function, "u")
+        await insert_access_policy(table_function, "u", "unit", "u2")
+
+        rows, _ = await call_table_function(table_function)
+
+        assert re.fullmatch(pattern, str(rows[-1][1])) is not None
+
+    @pytest.mark.parametrize(
+        ("grants", "expected"),
+        [
+            pytest.param([("unit", "SMAS")], [1], id="one-value-of-the-list"),
+            pytest.param([("unit", "SMAS"), ("unit", "SME")], [1, 2], id="two-grants"),
+            pytest.param([("unit", "SMT")], [], id="no-value-matches"),
+            pytest.param([("*", "*")], [1, 2, 3, 4], id="wildcard-grant"),
+        ],
+    )
+    @pytest.mark.parametrize("fallbacks", [[], ["bigquery"]], ids=["dl", "fallback"])
+    async def test_view_function_predicate_of_a_list_column_filters_rows_in_duckdb(
+        self,
+        table_function: Postgres,
+        fallbacks: list[str],
+        grants: list[tuple[str, str]],
+        expected: list[int],
+    ) -> None:
+        """DuckDB runs the predicate on both paths. A row with an empty or NULL list stays hidden."""
+        await install_table_function(
+            table_function, has_rls=True, fallbacks=fallbacks, rls_type="VARCHAR[]"
+        )
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await set_setting(table_function, "app.claim_sub", "u")
+        for unit_type, unit_id in grants:
+            await insert_access_policy(table_function, "u", unit_type, unit_id)
+
+        rows, _ = await call_table_function(table_function)
+        where = str(rows[-1][1]).replace("unit_id", "area")
+
+        duck = duckdb.connect()
+        duck.execute("CREATE TABLE t(id INT, area VARCHAR[])")
+        duck.execute(
+            "INSERT INTO t VALUES (1, ['SMAS','SMS']), (2, ['SME']), (3, []), (4, NULL)"
+        )
+        found = [
+            row[0]
+            for row in duck.execute(f"SELECT id FROM t {where} ORDER BY id").fetchall()
+        ]
+
+        assert found == expected
+
+    @pytest.mark.parametrize(
+        ("rules", "grants", "expected"),
+        [
+            pytest.param(
+                [("a", "ta", None), ("b", "tb", None)],
+                [("ta", "x")],
+                [1, 2],
+                id="alone-rules-join-with-or",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1)],
+                [("ta", "x"), ("tb", "y")],
+                [1],
+                id="group-needs-both-columns",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1)],
+                [("ta", "x")],
+                [],
+                id="group-without-one-grant-drops-out",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1), ("c", "tc", 2)],
+                [("ta", "x"), ("tc", "z")],
+                [3],
+                id="a-dropped-group-leaves-the-other-group",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1), ("c", "tc", 2)],
+                [("ta", "x"), ("tb", "y"), ("tc", "z")],
+                [1, 3],
+                id="two-groups-join-with-or",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1), ("c", "tc", None)],
+                [("tc", "z")],
+                [3],
+                id="a-plain-rule-beside-a-dropped-group",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1)],
+                [("*", "*")],
+                [1, 2, 3],
+                id="wildcard-grant-reads-everything",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1)],
+                [],
+                [],
+                id="no-grant-reads-nothing",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "ta", 1)],
+                [("ta", "x")],
+                [],
+                id="same-unit-type-in-a-group-needs-both-columns-to-hold-a-grant",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("c", "ta", 1)],
+                [("ta", "q"), ("ta", "x")],
+                [1, 2],
+                id="same-unit-type-in-a-group-matches-any-granted-value-in-each-column",
+            ),
+        ],
+    )
+    async def test_view_function_combines_grouped_rules_with_and_inside_a_group(
+        self,
+        table_function: Postgres,
+        rules: list[tuple[str, str, int | None]],
+        grants: list[tuple[str, str]],
+        expected: list[int],
+    ) -> None:
+        """A group needs a grant for every rule in it, and groups are alternatives. A group with a missing grant never widens the filter."""
+        mappings: list[dict[str, str]] = [
+            {
+                "column": column,
+                "unit_type": unit_type,
+                "duckdb_type": "VARCHAR",
+                "group": "" if group is None else str(group),
+            }
+            for column, unit_type, group in rules
+        ]
+        await install_table_function(
+            table_function, has_rls=True, fallbacks=[], rules=mappings
+        )
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await set_setting(table_function, "app.claim_sub", "u")
+        for unit_type, unit_id in grants:
+            await insert_access_policy(table_function, "u", unit_type, unit_id)
+
+        rows, _ = await call_table_function(table_function)
+
+        found: list[int] = []
+
+        if len(rows) > 0:
+            duck = duckdb.connect()
+            duck.execute("CREATE TABLE t(id INT, a VARCHAR, b VARCHAR, c VARCHAR)")
+            duck.execute(
+                "INSERT INTO t VALUES (1, 'x', 'y', 'q'), (2, 'x', 'n', 'q'), (3, 'n', 'n', 'z')"
+            )
+            found = [
+                row[0]
+                for row in duck.execute(
+                    f"SELECT id FROM t {rows[-1][1]} ORDER BY id"
+                ).fetchall()
+            ]
+
+        assert found == expected
+
     async def test_view_function_passes_an_empty_predicate_to_the_wildcard_schema_claim(
         self, table_function: Postgres
     ) -> None:
@@ -669,16 +852,55 @@ class TestTableFunction:
 
         assert rows == []
 
-    async def test_view_function_passes_an_empty_predicate_without_rls(
-        self, table_function: Postgres
+    @pytest.mark.parametrize(
+        ("subject", "grants", "schemas", "reads"),
+        [
+            pytest.param("u", [], None, False, id="schema-claim-and-no-grant"),
+            pytest.param("u", [("unit", "u1")], None, False, id="unit-grant-only"),
+            pytest.param("u", [("*", "u1")], None, False, id="wildcard-type-only"),
+            pytest.param("u", [("*", "*")], None, True, id="wildcard-grant"),
+            pytest.param("u", [], "*", True, id="every-schema-claim"),
+            pytest.param("u", [], "SCHEMA:*", True, id="schema-wildcard-claim"),
+            pytest.param("u", [], "other:*", False, id="wildcard-of-another-schema"),
+            pytest.param("u", [], "", False, id="empty-schemas-claim"),
+        ],
+    )
+    async def test_view_function_denies_a_table_without_row_rules_by_default(
+        self,
+        table_function: Postgres,
+        subject: str,
+        grants: list[tuple[str, str]],
+        schemas: str | None,
+        reads: bool,
     ) -> None:
-        """Passes an empty predicate without rls."""
+        """A table with no row rules returns a row only to a wildcard claim or to the grant (*, *)."""
         await install_table_function(table_function, has_rls=False, fallbacks=[])
         await put_state(table_function, ROUTED_TABLE, FULL)
+        await set_setting(table_function, "app.claim_sub", subject)
+        for unit_type, unit_id in grants:
+            await insert_access_policy(table_function, subject, unit_type, unit_id)
+        claim = (
+            None
+            if schemas is None
+            else schemas.replace("SCHEMA", table_function.namespace.schema)
+        )
+
+        rows, _ = await call_table_function(table_function, schemas=claim)
+
+        assert rows == ([("ducklake", "", "7")] if reads else [])
+
+    async def test_view_function_denies_a_table_without_row_rules_to_the_wildcard_grant_of_another_subject(
+        self, table_function: Postgres
+    ) -> None:
+        """Only the grant (*, *) of the subject itself lifts the denial."""
+        await install_table_function(table_function, has_rls=False, fallbacks=[])
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await set_setting(table_function, "app.claim_sub", "u")
+        await insert_access_policy(table_function, "other", "*", "*")
 
         rows, _ = await call_table_function(table_function)
 
-        assert rows == [("ducklake", "", "7")]
+        assert rows == []
 
     async def test_view_function_an_empty_ducklake_result_never_calls_bigquery(
         self, table_function: Postgres

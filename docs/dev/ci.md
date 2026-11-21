@@ -4,7 +4,7 @@ The workflow `.github/workflows/ci.yaml` checks, tests, builds and releases. A s
 
 ## Triggers
 
-The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `terraform/`, `nix/`, `k3d/`, `k6/`, `scripts/`, the workflows, the container files and the linter and devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
+The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `terraform/`, `nix/`, `k3d/`, `k6/`, `migrations/`, `scripts/`, the workflows, the container files and the linter and devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
 
 A manual start has three inputs. `force_checks` runs every check and test without the saved task state. `force_full` does the same, builds every image and starts the release job, which still needs a release-level commit and a chart or image change. `provider_version` sets the version of the provider release.
 
@@ -45,7 +45,7 @@ flowchart LR
 
 | Job | Work |
 | --- | --- |
-| `changes` | Runs `ci changes`. It writes which images need a build and whether the chart needs a release. |
+| `changes` | Runs `ci detect changes`. It writes which images need a build and whether the chart needs a release. |
 | `repo` | Runs `repo:lint` and `repo:test:unit`. |
 | `test-sync`, `test-console`, `test-proxy` | Run the `:int` task of the component in the `integration` profile. A task runs only if one of its inputs changed. |
 | `test-terraform` | Runs `tf:test:int`. Only `terraform` waits for it. |
@@ -60,7 +60,7 @@ Each job restores the task state of the last green run of `main` before it runs,
 
 ## Images
 
-`ci changes` matches the files that changed since the last `helm-v*` tag against the table `IMAGES` in `scripts/lib.nu`. A push to `main` compares with the last tag. A pull request compares with its base. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `18-` to the hash.
+`ci detect changes` matches the files that changed since the last `helm-v*` tag against the table `IMAGES` in `scripts/lib.nu`. A push to `main` compares with the last tag. A pull request compares with its base. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `18-` to the hash.
 
 | Image | Rebuilds when this changes |
 | --- | --- |
@@ -75,17 +75,14 @@ CI releases the Helm chart from Conventional Commits with `cog`. `cog` reads the
 
 | Command | Work |
 | --- | --- |
-| `ci version` | Prints the next version, or says that no release is due. It changes nothing. |
-| `ci guard` | Skips the release when no chart file and no image path changed since the last tag, or when every release commit changed only the provider or the docs. |
-| `ci images resolve`, `ci images pin` | Find the newest tag of each image and write the tags in `helm/values.yaml`, so a release never uses `latest`. |
-| `ci release bump` | Runs `cog bump`. It sets the chart version, writes `CHANGELOG.md`, commits and tags. |
-| `ci chart package` | Package the chart. |
-| `ci release push <tag>` | Push the commit and the tag in one push. |
-| `ci chart publish`, `ci release notes <tag>` | Publish the chart, and write the release notes. |
+| `ci plan chart` | Finds the newest tag of each image, reads the next version, and decides whether a release is due. It changes no file. Release is due when a chart file or an image path changed since the last tag, and a commit outside the provider and the docs can release. |
+| `ci release chart` | Runs `cog bump`. The hook of `cog.toml` runs `ci prepare chart`, which pins the images and sets the chart version and the DBOS version. `cog` writes `CHANGELOG.md`, commits and tags. |
+| `ci package chart` | Package the chart. |
+| `ci publish chart <tag>` | Publish the chart, and write the release notes. |
 
 A commit that changes only `terraform/`, `docs/` or `llms.txt` never releases the chart, even as a `feat` or a `fix`. A later release still counts it in the version and the changelog.
 
-The job pushes the commit and the tag before it publishes the chart. A failed push publishes nothing, so run the workflow again. After a failed publish, run `ci chart package` and `ci chart publish` at the tag. `GITHUB_TOKEN` can't push to `main`. The job pushes with the deploy key `bot` (the secret `RELEASE_DEPLOY_KEY` of the environment `release`), which `protect-main` lists as a bypass.
+The job pushes the commit and the tag with `git push --atomic` before it publishes the chart. A failed push publishes nothing, so run the workflow again. After a failed publish, run `ci package chart` and `ci publish chart` at the tag. `GITHUB_TOKEN` can't push to `main`. The job pushes with the deploy key `bot` (the secret `RELEASE_DEPLOY_KEY` of the environment `release`), which `protect-main` lists as a bypass.
 
 Staging follows every chart. Production follows the chart tag `prod`, which a reviewer moves. See [Production deploys](./promote.md).
 

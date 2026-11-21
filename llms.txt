@@ -411,7 +411,7 @@ KEDA reads the length of the DBOS queues in the application database and scales 
 
 ### Release and recovery
 
-The chart keeps `DBOS_APPLICATION_VERSION` (`sync.dbos.applicationVersion`) at `0.1.0` for every release. The recovery Deployment then lets any new pod continue the workflows of a dead pod. A new release replays the saved steps of a workflow that was running. Drain the queues before a release that adds, removes or reorders steps of a workflow, or change `sync.dbos.applicationVersion` for that release. A new version leaves the queued workflows of the old version to the old pods.
+The release raises `DBOS_APPLICATION_VERSION` (`sync.dbos.applicationVersion`) when the code in `sync/src/sync/` changed since the last release. The version starts at `1.0.0`. A hook of `cog.toml` compares that folder with the last `helm-v*` tag. A change raises the major number. A release with no change there keeps the version, so any new pod continues the workflows of a dead pod. A new version leaves the queued workflows of the old version to the old pods. Raise the version by hand for a change outside that folder that alters a workflow.
 
 ### Sync sequence
 
@@ -656,7 +656,7 @@ These fields describe one table of a schema in `sync.json`. The table says which
 | `n`         | No               | Keep the newest `n` time partitions.                                                                       |
 | `fallback`  | Partitioned only | Allow the configured source to serve uncovered partitions when it has fallback metadata. Default: `false`. |
 | `cache_ttl` | No               | Proxy cache lifetime in seconds.                                                                           |
-| `rls`       | No               | Unit column and unit type pairs. See Security.                                        |
+| `rls`       | No               | Rules, each `{"conditions": [...]}`. A table with no rules returns no row, except to a wildcard claim or a `*` grant. See Security. |
 | `ducklake`  | No               | Table-level DuckLake settings, including `sort` and `partitioning`.                                        |
 | `ducklake`  | No               | Table-level DuckLake settings, including custom partition transforms.                                      |
 
@@ -1237,6 +1237,8 @@ The Secret of a login has the name `<release>-cnpg-<role>`: `-cnpg-ops`, `-cnpg-
 ### Security and predicate pushdown
 
 The PostgreSQL functions are `SECURITY DEFINER` and read `access_policy` using the request claim settings. They build the allowed-row predicate and pass it into the DuckDB SQL query. This enforces RLS before the Parquet scan returns rows.
+
+An `rls` rule on a list column, such as `ARRAY<STRING>`, gives a row to a user. At least one value of the list must match a grant.
 
 The table function builds the access policy predicate once and passes it to each source helper. See Security.
 
@@ -1954,6 +1956,7 @@ This table lists what a client sees and why. A status can come from the gateway,
 | `200 []` | The token has no `schemas` claim, no enabled access policy row matches its subject, or a row policy hides every row. A delete that a row policy hides also returns it. | Database |
 | `400` | The claim names an unknown schema, a function gets an unknown action, or the token has an unknown role. | Database or PostgREST |
 | `401` | The signature, issuer, audience or expiry of the token isn't valid. | Gateway |
+| `403` with `RBAC: access denied` | The request has no token. See Expected results. | Gateway |
 | `403` | The role lacks the permission, a row policy refuses a write, or the schema or table is outside the claim (or doesn't exist). | Database |
 | `404` | The sync run or the schedule doesn't exist for this token, or the schema profile is unknown. | Database or PostgREST |
 | `409` | A sync run is in the wrong status for the action, or the provision job hasn't created the schema yet. | Database |
@@ -2032,7 +2035,7 @@ CloudNativePG (CNPG) manages two roles: `ops` (the owner and a superuser) and `d
 
 | Role                     | Purpose                                                                        |
 | ------------------------ | ------------------------------------------------------------------------------ |
-| `anon`                   | Role of a request without a token, with no application table access.           |
+| `anon`                   | Role of a request to PostgREST without a token, with no application table access. From outside the cluster, a request without a token gets `403 RBAC: access denied` from Istio and never reaches this role. The configuration call of the proxy uses it. |
 | `dp_api`, `dp_policy`, `dp_console`, `dp_admin` | One role for each role of `rbac.toml`. A token switches to the role of its `role` claim, and the rules decide what that role may do. The schema and row policies limit the rows. |
 | `serving`                | The login of the serving layer: PostgREST, the PgDog pool and the recovery Deployment (`auth.servingRole`). It's `NOINHERIT` and can switch to `anon` and to every `dp_*` role. |
 
@@ -2051,14 +2054,16 @@ Authorization has two independent conditions. The diagram shows the order of the
 ```mermaid
 %% Authorization checks
 flowchart TD
-  token["Request with a token"] --> valid{"Valid token?"}
+  request["Request"] --> token{"Has a token?"}
+  token -->|"no"| denied["403 RBAC: access denied<br/>from the gateway"]
+  token -->|"yes"| valid{"Valid token?"}
   valid -->|"no"| refused["401 from the gateway"]
   valid -->|"yes"| role["Switch to the role<br/>of the role claim"]
   role --> schema{"Is the schema in the<br/>schemas claim?"}
   schema -->|"no"| none["200, no rows"]
   schema -->|"yes"| all{"Does the claim have * or<br/>schema:* ?"}
   all -->|"yes"| every["Every row of the table"]
-  all -->|"no"| policy{"Does an access policy row<br/>match the subject and the unit?<br/>A grant * and * matches all."}
+  all -->|"no"| policy{"Does an access policy row<br/>match the subject and the unit?<br/>A grant * and * matches all.<br/>A table with no rules has<br/>no unit to match."}
   policy -->|"yes"| unit["The rows of those units"]
   policy -->|"no"| none
 ```
@@ -2110,6 +2115,36 @@ A token whose `schemas` claim has `*`, or `<schema>:*` for the schema of the tab
 
 A subject with the grant `unit_type = '*'` and `unit_id = '*'` in the `access_policy` of the schema reads every row of the tables of that schema too. The grant covers one subject and one schema. Revoking it deletes the row, like any other grant.
 
+#### A list column
+
+The column of an `rls` rule can hold a list of text, such as `area_responsavel` with the type `ARRAY<STRING>` in BigQuery. A row is visible when at least one value of the list equals a unit of the grant. A row with an empty list or a NULL list is visible only to a reader of every row. A list of another type stops the sync with an error.
+
+#### Groups that need several conditions
+
+A rule holds a list of conditions. A reader sees a row when all conditions of one rule match grants. Rules are alternatives, so any one rule is enough. A rule of two conditions or more is a group:
+
+```json
+"rls": [
+  {"conditions": [
+    {"column": "region_id", "unit_type": "region"},
+    {"column": "unit_id", "unit_type": "unit"}
+  ]},
+  {"conditions": [{"column": "area", "unit_type": "area"}]}
+]
+```
+
+A reader sees a row when its `region_id` and its `unit_id` match grants, or when its `area` matches a grant.
+
+A rule needs a grant for each of its conditions. A reader who lacks one grant gets no row from that rule. A missing grant never widens the filter.
+
+The short form `{"column": "area", "unit_type": "area"}` means a rule of one condition. The database stores and returns the full form. Nobody writes a number for a group, and no API shows one.
+
+#### A table with no rules
+
+The default is to deny. A table with no `rls` rules has no unit column to match, so it returns no row to a token that lists the schema. Only two cases read it: a token with `*` or `<schema>:*`, and a subject with the grant `*` and `*`. To give a user the rows, grant `*` and `*`, or add `rls` rules to the table and grant its units.
+
+The same rule applies to the table function, the aggregate function and the change feed of the table.
+
 An access policy row exists only while the grant is active. Revoking access deletes the row. A missing schema claim or access policy grant normally returns `200 []`. It isn't an authentication error.
 
 ### Seed access policy
@@ -2157,9 +2192,12 @@ The table maps each result of a request to its meaning.
 | --------------- | ------------------------------------------------------------------------- |
 | `200` with rows | Token, schema, role, grants, and RLS checks passed.                       |
 | `200 []`        | The request is valid, but the schema claim or row policy exposes no rows. |
-| `401`           | The JSON Web Token (JWT) is missing, not valid, expired, or can't be used by PostgREST.    |
+| `401`           | The JSON Web Token (JWT) isn't valid, is expired, or can't be used by PostgREST.    |
+| `403` with `RBAC: access denied` | The request has no token. Istio refuses it before the proxy. |
 | `403`           | PostgreSQL/PostgREST permission or role configuration isn't valid.        |
 | `404`           | The schema profile, the table, or the snapshot is unknown or unpublished. |
+
+With `ingress.auth.enabled`, the Istio policy of the proxy needs a valid token for each request. It allows only `GET` and `HEAD` on `/health` without a token, and on `/` when the Swagger UI is on. Any other request without the `Authorization` header gets `403` with the body `RBAC: access denied`, and not `401`. It never reaches the proxy.
 
 ---
 
@@ -2308,6 +2346,7 @@ Use this page when a request fails or returns no rows. Request outcomes lists wh
 | Symptom                                       | Check                                                                                                   |
 | --------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `401 Unauthorized`                            | Check the JSON Web Token (JWT) signature, issuer, audience, expiry, and `role` claim.                                    |
+| `403` with the body `RBAC: access denied`     | Istio refused a request without a token. Send the header `Authorization: Bearer <token>`. Only `GET` and `HEAD` on `/health`, and on `/` with the Swagger UI, need no token. |
 | `403` with `permission denied to set role`    | Check that `configure-db` completed: the `auth.servingRole` login must be a member of `anon` and of every `dp_*` role. |
 | `403` with `permission denied for schema data_proxy` | Check `GRANT USAGE ON SCHEMA data_proxy TO anon/user`.                                             |
 | `200 []` for every table                      | Check `schemas`, the schema profile, the configured subject claim, and enabled `access_policy` rows.    |
@@ -2410,9 +2449,16 @@ The Config page edits a row in a dialog:
 
 - A schema has a `claim` and `encrypted`.
 - A table has a strategy, `n`, `fallback`, a cache TTL (time to live) and sort columns.
-- A row rule has a column and a unit type.
+- The row rules of a table open in one dialog. A condition has a column and a unit type. A card needs all of its conditions. A panel explains the rules for one subject.
 
 The page doesn't edit `partitioning`. Change it with an import of the document.
+
+The Access page adds grants in one form:
+
+- Write one unit id, or a list of ids separated by a comma or a new line. A space after the comma is optional, so `north,south` and `north, south` mean the same.
+- The page writes one row for each id. A row that exists is skipped, and the message says how many.
+- The wildcard grant is the single pair `*` and `*`. A list can't mix `*` with other ids.
+- A list holds at most 100 ids. The Edit dialog changes one row.
 
 ### Live data
 
@@ -2459,7 +2505,7 @@ The console talks to PostgREST only. The `console` scenario in `k6/scenarios/con
 
 - Send `Authorization: Bearer <JWT>` with a `role` claim (one role of `rbac.toml`) and a `schemas` claim that lists the schemas of the user. Send `Accept-Profile: console` on reads and `Content-Profile: console` on writes, because PostgREST also serves the schemas of the synced data. The access tab sends the data schema as the profile.
 - Send `Prefer: return=representation` to get the written row back.
-- Reads are `GET /runs`, `GET /schemas` and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are read-only: `GET /queues` and `GET /schedules`. The functions are `POST /rpc/start_sync`, `POST /rpc/import_config` and `GET /rpc/table_files`. `GET /rpc/permissions` tells the console which controls to show.
+- Reads are `GET /runs`, `GET /schemas` and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are read-only: `GET /queues` and `GET /schedules`. The functions are `POST /rpc/start_sync`, `POST /rpc/import_config`, `POST /rpc/replace_rls` and `GET /rpc/table_files`. `GET /rpc/permissions` tells the console which controls to show.
 
 | Status | Meaning |
 | --- | --- |
@@ -2521,7 +2567,7 @@ stateDiagram-v2
 
 Each schema has one schedule, named `sync-<schema>`. It starts a sync run for that schema only, at the cron of the schedule. A new schema gets the cron of `SYNC_SCHEDULE` (`0 2 * * *`). The workflow `reconcile_schedules` makes the schedules match the schemas. It runs in its own queue, `schedules`, one at a time.
 
-It runs at the start of a worker, and after each insert or delete in `console.schemas`. It also deletes the schedule of a removed schema, and the old global schedule `sync`.
+It runs at the start of a worker, and after each insert, rename or delete in `console.schemas`. A rename is an update of `name`, `project` or `short_name`, which the database refuses today. It also deletes the schedule of a removed schema, and the old global schedule `sync`.
 
 The Sync tab lists the schedules of the schemas in the claim. Its Edit dialog changes the cron, which has 5 fields, or 6 with the seconds first. The times are UTC. The schedule keeps its paused state, its context and its queue. There is no delete button, because every schema keeps one schedule. Pause the schedule to stop its runs.
 
@@ -2548,14 +2594,14 @@ The sync configuration is data in three tables of the `console` schema. The migr
 | `projects` | One row per project: `name`. A project has schemas. |
 | `schemas` | One row per synced schema: `project`, `short_name`, `name`, `source`, `settings`, `claim`, `encrypted`. |
 | `tables` | One row per source table: `name`, its `schema`, `strategy`, `n`, `fallback`, `cache_ttl`, `partitioning`, `sort`. |
-| `rls` | One row per rule: the `table_name`, the `column_name`, and the `unit_type`. |
+| `rls` | The rules of a table: each rule holds one condition or more, and all must match. Use `rules()` and `replace_rls()`. |
 
 Every row records `updated_at` and `updated_by`. The database sets both. The name comes from the `preferred_username` claim of the token, then from `sub`.
 
 Constraints replace a validation step:
 
 - A project name uses lowercase letters and digits. The project `default` always exists. A project with schemas can't be deleted.
-- A schema has one project. Its `name` is the physical name that the sync, the proxy, S3 and the roles use: `<project>_<short_name>`, or `<short_name>` in `default`. The database builds it from the project and the short name.
+- A schema has one project. Its `name` is the physical name that the sync, the proxy, S3 and the roles use: `<project>_<short_name>`, or `<short_name>` in `default`.
 - A physical name uses lowercase letters, digits and underscores, and it starts with a letter. It has at most 56 characters, so that the role name `schema_<name>` fits in 63. Two schemas can't share one.
 - A schema can't change its project or its short name. Delete it and add it again to rename it.
 - A table name is unique in the whole configuration, and unique in its schema by its last part.
@@ -2893,7 +2939,7 @@ The workflow `.github/workflows/ci.yaml` checks, tests, builds and releases. A s
 
 ### Triggers
 
-The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `terraform/`, `nix/`, `k3d/`, `k6/`, `scripts/`, the workflows, the container files and the linter and devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
+The pipeline runs on a push to `main`, on a pull request and on a manual start. A push or a pull request starts it only when it changes a path of the list `ci_paths`. The list has the component folders, `terraform/`, `nix/`, `k3d/`, `k6/`, `migrations/`, `scripts/`, the workflows, the container files and the linter and devenv files. A change in `docs/` doesn't start it. A new run of a branch waits for the run before it, so two releases never overlap.
 
 A manual start has three inputs. `force_checks` runs every check and test without the saved task state. `force_full` does the same, builds every image and starts the release job, which still needs a release-level commit and a chart or image change. `provider_version` sets the version of the provider release.
 
@@ -2934,7 +2980,7 @@ flowchart LR
 
 | Job | Work |
 | --- | --- |
-| `changes` | Runs `ci changes`. It writes which images need a build and whether the chart needs a release. |
+| `changes` | Runs `ci detect changes`. It writes which images need a build and whether the chart needs a release. |
 | `repo` | Runs `repo:lint` and `repo:test:unit`. |
 | `test-sync`, `test-console`, `test-proxy` | Run the `:int` task of the component in the `integration` profile. A task runs only if one of its inputs changed. |
 | `test-terraform` | Runs `tf:test:int`. Only `terraform` waits for it. |
@@ -2949,7 +2995,7 @@ Each job restores the task state of the last green run of `main` before it runs,
 
 ### Images
 
-`ci changes` matches the files that changed since the last `helm-v*` tag against the table `IMAGES` in `scripts/lib.nu`. A push to `main` compares with the last tag. A pull request compares with its base. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `18-` to the hash.
+`ci detect changes` matches the files that changed since the last `helm-v*` tag against the table `IMAGES` in `scripts/lib.nu`. A push to `main` compares with the last tag. A pull request compares with its base. Each image goes to `ghcr.io/<repository>-<name>` with the short commit hash and `latest` as tags. The PostgreSQL image adds the prefix `18-` to the hash.
 
 | Image | Rebuilds when this changes |
 | --- | --- |
@@ -2964,17 +3010,14 @@ CI releases the Helm chart from Conventional Commits with `cog`. `cog` reads the
 
 | Command | Work |
 | --- | --- |
-| `ci version` | Prints the next version, or says that no release is due. It changes nothing. |
-| `ci guard` | Skips the release when no chart file and no image path changed since the last tag, or when every release commit changed only the provider or the docs. |
-| `ci images resolve`, `ci images pin` | Find the newest tag of each image and write the tags in `helm/values.yaml`, so a release never uses `latest`. |
-| `ci release bump` | Runs `cog bump`. It sets the chart version, writes `CHANGELOG.md`, commits and tags. |
-| `ci chart package` | Package the chart. |
-| `ci release push <tag>` | Push the commit and the tag in one push. |
-| `ci chart publish`, `ci release notes <tag>` | Publish the chart, and write the release notes. |
+| `ci plan chart` | Finds the newest tag of each image, reads the next version, and decides whether a release is due. It changes no file. Release is due when a chart file or an image path changed since the last tag, and a commit outside the provider and the docs can release. |
+| `ci release chart` | Runs `cog bump`. The hook of `cog.toml` runs `ci prepare chart`, which pins the images and sets the chart version and the DBOS version. `cog` writes `CHANGELOG.md`, commits and tags. |
+| `ci package chart` | Package the chart. |
+| `ci publish chart <tag>` | Publish the chart, and write the release notes. |
 
 A commit that changes only `terraform/`, `docs/` or `llms.txt` never releases the chart, even as a `feat` or a `fix`. A later release still counts it in the version and the changelog.
 
-The job pushes the commit and the tag before it publishes the chart. A failed push publishes nothing, so run the workflow again. After a failed publish, run `ci chart package` and `ci chart publish` at the tag. `GITHUB_TOKEN` can't push to `main`. The job pushes with the deploy key `bot` (the secret `RELEASE_DEPLOY_KEY` of the environment `release`), which `protect-main` lists as a bypass.
+The job pushes the commit and the tag with `git push --atomic` before it publishes the chart. A failed push publishes nothing, so run the workflow again. After a failed publish, run `ci package chart` and `ci publish chart` at the tag. `GITHUB_TOKEN` can't push to `main`. The job pushes with the deploy key `bot` (the secret `RELEASE_DEPLOY_KEY` of the environment `release`), which `protect-main` lists as a bypass.
 
 Staging follows every chart. Production follows the chart tag `prod`, which a reviewer moves. See Production deploys.
 
@@ -3022,9 +3065,8 @@ Start `promote.yaml` by hand with the input `version`, such as `2.11.0`. The job
 
 | Command | Work |
 | --- | --- |
-| `ci chart prod` | Prints the version that production runs. |
-| `ci chart next` | Writes the version to promote, the version of production and whether they differ. |
-| `ci chart promote <version>` | Moves the tag `prod` to a released version. `--if-latest` skips an old version. |
+| `ci plan promotion` | Writes the version to promote, the version of production and whether they differ. |
+| `ci promote chart <version>` | Moves the tag `prod` to a released version. `--if-latest` skips an old version. |
 
 ### Settings
 
@@ -3042,11 +3084,11 @@ The Terraform provider has its own versions and its own releases. A chart releas
 
 CI runs on every push to `main`. When `repo` and `test-terraform` pass, the job `terraform` of CI runs the action `terraform-release` on the same commit. The action decides whether a release is due. The job doesn't wait for the chart release. A failed provider release turns the run red, so the chart stays out of staging.
 
-1. `ci terraform next` reads the commits that changed `terraform/` since the last tag `terraform-v<version>`.
+1. `ci plan terraform` reads the commits that changed `terraform/` since the last tag `terraform-v<version>`.
 2. A `feat` or a breaking commit raises the minor version, and a `fix` raises the patch. Other types give no release. The major version stays 0 until a person sets it.
-3. `ci terraform release` builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and signs the checksums with the GPG key.
+3. `ci release terraform` builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and signs the checksums with the GPG key.
 4. It creates the GitHub Release `terraform-v<version>` with the archives, the checksum file and its signature. The notes list the commit subjects under `terraform/`.
-5. `ci terraform registry` writes the registry files from every release and uploads them to a bucket.
+5. `ci publish terraform` writes the registry files from every release and uploads them to a bucket.
 
 A tag that exists already makes the job fail, so a version never changes after its release. To release a version by hand, start CI with the input `provider_version`.
 
@@ -3092,16 +3134,16 @@ Replace the source with `<host>/<namespace>/data-proxy` of your registry. A loca
 
 ### Roll back and rotate
 
-- A bad release stays in the registry. Fix it with a new `fix` commit. Or delete the GitHub Release and run `ci terraform registry` again, which drops the version from the files.
-- To rotate the key, add the new key and rerun `ci terraform registry`. A release that the old key signed fails to install with the new key, so keep the old key until you release again.
+- A bad release stays in the registry. Fix it with a new `fix` commit. Or delete the GitHub Release and run `ci publish terraform` again, which drops the version from the files.
+- To rotate the key, add the new key and rerun `ci publish terraform`. A release that the old key signed fails to install with the new key, so keep the old key until you release again.
 
 ### Commands
 
 | Command | Work |
 | --- | --- |
-| `ci terraform next` | Writes `release` and `version` from the commits since the last provider tag. |
-| `ci terraform release <version>` | Builds, signs and publishes the GitHub Release. |
-| `ci terraform registry` | Writes the registry files from the releases and uploads them to the bucket. |
+| `ci plan terraform` | Writes `release` and `version` from the commits since the last provider tag. |
+| `ci release terraform <version>` | Builds, signs and publishes the GitHub Release. |
+| `ci publish terraform` | Writes the registry files from the releases and uploads them to the bucket. |
 
 CI and releases describes the chart release.
 
@@ -3678,7 +3720,7 @@ These variables set the DBOS application and its system database.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `DBOS_APPLICATION_NAME` | `data-proxy-sync` | DBOS application name. |
-| `DBOS_APPLICATION_VERSION` | `0.1.0` | DBOS application version. |
+| `DBOS_APPLICATION_VERSION` | `3.0.0` | DBOS application version. |
 | `DBOS_SHUTDOWN_TIMEOUT_SECONDS` | `300` | Seconds that a worker waits for its running workflows after SIGTERM. The chart gives the pod 30 more seconds. |
 | `DBOS_SYSTEM_SCHEMA` | `dbos` | DBOS metadata schema. |
 | `DBOS_APP_SCHEMA` | `data_proxy` | Application state schema. |
@@ -3957,7 +3999,7 @@ Never use the `identity` transform on a column with a different value in each ro
 
 ### Sort columns of an integer range table
 
-A sort on the key gives each file tight row groups, so a lookup on one value reads one row group. DuckLake sorts the rows of one insert in memory. A sorted table therefore gets one insert for each batch file, and a sort keeps one batch and not the whole table. The same test as above, with the table sorted by the key, gave these results.
+A sort on the key gives each file tight row groups, so a lookup on one value reads one row group. DuckLake keeps the rows of one insert in memory, to sort them or to split them into partition files. A sorted or partitioned table therefore gets one insert for each batch file, and an insert holds one batch and not the whole table. The same test as above, with the table sorted by the key, gave these results.
 
 | Commit | Files | Time | Peak memory | Row groups read by a lookup |
 | --- | --- | --- | --- | --- |
@@ -4021,6 +4063,28 @@ The port is open to the pods in the cluster, and `/schema_cache` on it shows the
 | `pgrst_db_pool_timeouts_total`  | Requests that gave up after `dbPoolAcquisitionTimeout` seconds. A rising value means that clients get errors. |
 
 Alert when `pgrst_db_pool_waiting` stays above 0, and when the timeouts counter rises. Both point to a database that needs more capacity, or to a request mix that's too demanding.
+
+### SeaweedFS metrics
+
+The SeaweedFS master and volume pods serve Prometheus metrics on port 9327.
+
+| Metric                                                  | Meaning                                                              |
+| ------------------------------------------------------- | -------------------------------------------------------------------- |
+| `SeaweedFS_master_volume_layout_writable{collection}`   | Volumes of the collection that accept a write. The bucket is the collection. |
+| `SeaweedFS_volumeServer_volumes{collection}`            | Volumes on the volume server. Sum them over the collections.         |
+| `SeaweedFS_volumeServer_max_volumes`                    | Volume slots of the volume server. SeaweedFS sets it from the disk size when the chart sets `maxVolumes: 0`. |
+
+When every slot holds a volume and no volume accepts a write, each upload fails with HTTP 500. The sync then records `extraction_failed` for every table, and the S3 gateway logs `No writable volumes and no free volumes left`. Deleted bytes that compaction did not remove fill the volumes. Alert before this point.
+
+```promql
+sum(SeaweedFS_volumeServer_max_volumes) - sum(SeaweedFS_volumeServer_volumes) < 5
+```
+
+```promql
+SeaweedFS_master_volume_layout_writable{collection!=""} == 0
+```
+
+The first rule fires when fewer than 5 free slots remain. The second rule fires when the collection of the bucket has no writable volume. Use a `for` of 5 minutes on both rules. Raise `seaweedfs.volume.dataDirs[].size` to add slots. Lower `seaweedfs.master.garbageThreshold` to compact sooner.
 
 ### Load profile limits
 
@@ -4297,8 +4361,19 @@ resource "data_proxy_table" "orders" {
   sort     = ["order_id"]
 
   rls {
-    column_name = "unit_id"
-    unit_type   = "unit"
+    column_name = "area"
+    unit_type   = "area"
+  }
+
+  rls {
+    condition {
+      column_name = "region_id"
+      unit_type   = "region"
+    }
+    condition {
+      column_name = "unit_id"
+      unit_type   = "unit"
+    }
   }
 }
 ```
@@ -4307,9 +4382,9 @@ resource "data_proxy_table" "orders" {
 - `strategy`: `full` (default) or `partitioned`. `n` and `fallback` need `partitioned`.
 - `cache_ttl`: the seconds that the proxy caches an answer.
 - `partitioning`: a JSON array of partition transforms. `sort`: a list of columns.
-- `rls`: the row policies in order. The schema needs a `claim`, or the database refuses them.
+- `rls`: a row policy. The schema needs a `claim`, or the database refuses it. Policies are alternatives. Write one condition as `column_name` and `unit_type`. Write two or more conditions that all must match as `condition` blocks. The two forms do not mix, and one `condition` block is refused. The order of the blocks stays the same.
 
-A change of `rls` deletes the policies of the table and adds them again, in two calls. It isn't atomic. A change of the strategy, the partitioning, the sort or the policies makes the next sync rebuild the table. Import with the name.
+A change of `rls` replaces the policies of the table in one call, so a failure leaves the old policies. A change of the strategy, the partitioning, the sort or the policies makes the next sync rebuild the table. Import with the name.
 
 ### `data_proxy_access_policy`
 

@@ -27,7 +27,7 @@ import {
     triggerSync,
     userToken,
     waitForJob,
-    waitForPipeline,
+    waitForSync,
     waitForWorkflow,
 } from "../lib/index.js";
 
@@ -140,7 +140,7 @@ function recovery(k8s) {
     waitForJob(k8s, triggerSync(k8s, true));
     killWorkflowOwner(k8s);
     waitForWorkflow(k8s);
-    const completed = waitForPipeline(PHASE_TIMEOUT_SECONDS);
+    const completed = waitForSync(PHASE_TIMEOUT_SECONDS);
     checks({ "the sync service recovered after restart": () => completed });
     const live = syncPods(k8s).map((pod) => pod.metadata.uid);
     expect("the pod that owned the workflow is gone", podsBefore.filter((uid) => !live.includes(uid)).length === 1);

@@ -26,7 +26,7 @@ spec:
         value: data-proxy.local
       - name: NAMESPACE
         value: data-proxy
-      - name: PIPELINE
+      - name: SYNC_DEPLOYMENT
         value: data-proxy-sync
       - name: E2E_SCRIPT_CONFIGMAP
         value: data-proxy-e2e

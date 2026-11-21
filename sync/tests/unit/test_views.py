@@ -11,6 +11,7 @@ import sync.views.reconcile as views_module
 from sync.models import (
     FullTable,
     PartitionedTable,
+    RlsRule,
     SchemaConfig,
     SyncConfig,
     UnitMapping,
@@ -100,12 +101,12 @@ class TestSourceMappings:
         }
 
     @pytest.mark.parametrize(
-        ("table", "fallback_names", "has_rls"),
+        ("table", "fallback_names", "rls_columns"),
         [
             pytest.param(
                 FullTable(name="p.d.people", resolved_source="bigquery"),
                 [],
-                "false",
+                [],
                 id="local",
             ),
             pytest.param(
@@ -113,28 +114,32 @@ class TestSourceMappings:
                     name="p.d.people", resolved_source="bigquery", fallback=True
                 ),
                 ["bigquery"],
-                "false",
+                [],
                 id="bq",
             ),
             pytest.param(
                 FullTable(
                     name="p.d.people",
                     resolved_source="bigquery",
-                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                    rls=[
+                        RlsRule(
+                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
+                        )
+                    ],
                 ),
                 [],
-                "true",
+                ["unit_id"],
                 id="rls",
             ),
         ],
     )
-    def test_passes_the_fallback_the_rls_flag_and_the_claim_to_the_table_function(
+    def test_passes_the_fallback_the_row_rules_and_the_claim_to_the_table_function(
         self,
         table: FullTable | PartitionedTable,
         fallback_names: list[str],
-        has_rls: str,
+        rls_columns: list[str],
     ) -> None:
-        """Name the fallback sources, say whether the table has row rules, and name the claim setting."""
+        """Name the fallback sources, list the columns of the row rules, and name the claim setting."""
         mapping = utils.table_function_mapping(
             "app", table, [("unit_id", "VARCHAR")], "sub"
         )
@@ -144,7 +149,10 @@ class TestSourceMappings:
         assert [
             f["name"] for f in fallbacks_value if isinstance(f, dict)
         ] == fallback_names
-        assert mapping["has_rls"] == has_rls
+        rls_value = mapping["rls_mappings"]
+        assert isinstance(rls_value, list)
+        assert [m["column"] for m in rls_value if isinstance(m, dict)] == rls_columns
+        assert "has_rls" not in mapping
         assert mapping["claim_setting"] == "app.claim_sub"
 
     def test_keeps_the_same_signature_for_equal_serving_definitions(self) -> None:
@@ -263,7 +271,11 @@ class TestAggregateFunction:
                 FullTable(
                     name="p.d.people",
                     resolved_source="bigquery",
-                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                    rls=[
+                        RlsRule(
+                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
+                        )
+                    ],
                 ),
                 "postgres/views/create_function",
                 utils.table_function_mapping,
@@ -275,7 +287,11 @@ class TestAggregateFunction:
                     name="p.d.people",
                     resolved_source="bigquery",
                     fallback=True,
-                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                    rls=[
+                        RlsRule(
+                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
+                        )
+                    ],
                 ),
                 "postgres/views/create_function",
                 utils.table_function_mapping,
@@ -286,7 +302,11 @@ class TestAggregateFunction:
                 FullTable(
                     name="p.d.people",
                     resolved_source="bigquery",
-                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                    rls=[
+                        RlsRule(
+                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
+                        )
+                    ],
                 ),
                 "postgres/views/create_aggregate_function",
                 utils.aggregate_function_mapping,
@@ -297,7 +317,11 @@ class TestAggregateFunction:
                 FullTable(
                     name="p.d.people",
                     resolved_source="bigquery",
-                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                    rls=[
+                        RlsRule(
+                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
+                        )
+                    ],
                 ),
                 "postgres/create_table_changes_function",
                 utils.table_changes_function_mapping,

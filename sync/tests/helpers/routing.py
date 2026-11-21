@@ -80,10 +80,21 @@ async def grant_unit(pg: Postgres, subject: str) -> None:
     await insert_access_policy(pg, subject, "unit", "u1")
 
 
+async def grant_everything(pg: Postgres, subject: str = "u") -> None:
+    """Act as the subject and give it the wildcard grant (*, *), which reads every row of the schema."""
+    await set_setting(pg, "app.claim_sub", subject)
+    await insert_access_policy(pg, subject, "*", "*")
+
+
 async def install_table_function(
-    pg: Postgres, *, has_rls: bool, fallbacks: list[str]
+    pg: Postgres,
+    *,
+    has_rls: bool,
+    fallbacks: list[str],
+    rls_type: str = "VARCHAR",
+    rules: list[dict[str, str]] | None = None,
 ) -> None:
-    """Render the per-table function over the stub source helpers."""
+    """Render the per-table function over the stub source helpers. A table without row rules (`has_rls=False`) has no unit mapping."""
     from sync.views.mappings import function_columns
 
     columns = function_columns(
@@ -101,7 +112,18 @@ async def install_table_function(
             "columns": columns,
             "claim_setting": "app.claim_sub",
             "has_rls": str(has_rls).lower(),
-            "rls_mappings": [{"column": "unit_id", "unit_type": "unit"}],
+            "rls_mappings": rules
+            if rules is not None
+            else [
+                {
+                    "column": "unit_id",
+                    "unit_type": "unit",
+                    "duckdb_type": rls_type,
+                    "group": "",
+                }
+            ]
+            if has_rls
+            else [],
             "source_table": Literal(ROUTED_TABLE),
             "fallbacks": [
                 {
@@ -158,7 +180,16 @@ async def install_aggregate_function(
             "columns": columns,
             "claim_setting": "app.claim_sub",
             "has_rls": str(has_rls).lower(),
-            "rls_mappings": [{"column": "unit_id", "unit_type": "unit"}],
+            "rls_mappings": [
+                {
+                    "column": "unit_id",
+                    "unit_type": "unit",
+                    "duckdb_type": "VARCHAR",
+                    "group": "",
+                }
+            ]
+            if has_rls
+            else [],
             "source_table": Literal(ROUTED_TABLE),
             "fallbacks": [{"name": name} for name in fallbacks],
             "user_role": Identifier(settings.AUTH_USER_ROLE),

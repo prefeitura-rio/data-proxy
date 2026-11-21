@@ -37,7 +37,7 @@ runs:
     - name: Decide whether a release is due
       id: next
       shell: devenv --profile terraform shell -- bash -e {0}
-      run: nu scripts/ci.nu terraform next
+      run: nu scripts/ci.nu plan terraform
       env:
         VERSION: ${{ inputs.version }}
     - name: Authenticate to Google Cloud
@@ -49,7 +49,7 @@ runs:
     - name: Build, sign and publish the release
       if: steps.next.outputs.release == 'true'
       shell: devenv --profile terraform shell -- bash -e {0}
-      run: nu scripts/ci.nu terraform release "$PROVIDER_VERSION"
+      run: nu scripts/ci.nu release terraform "$PROVIDER_VERSION"
       env:
         PROVIDER_VERSION: ${{ steps.next.outputs.version }}
         GH_TOKEN: ${{ inputs.github-token }}
@@ -61,7 +61,7 @@ runs:
     - name: Publish the registry
       if: steps.next.outputs.release == 'true'
       shell: devenv --profile terraform shell -- bash -e {0}
-      run: nu scripts/ci.nu terraform registry
+      run: nu scripts/ci.nu publish terraform
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         TERRAFORM_REGISTRY_HOST: ${{ inputs.registry-host }}

@@ -9,7 +9,7 @@ export * from "./cluster.js";
 export * from "./console.js";
 export * from "./runs.js";
 export * from "./policy.js";
-export * from "./pipeline.js";
+export * from "./sync.js";
 export * from "./rbac.js";
 export * from "./loadtest.js";
 export * from "./schemas.js";

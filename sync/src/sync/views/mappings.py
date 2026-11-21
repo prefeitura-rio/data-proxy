@@ -10,7 +10,7 @@ from sync.constants import (
     MAX_IDENTIFIER_BYTES,
 )
 from sync.executor import Executor
-from sync.models import PartitionedTable, TableConfig, UnitMapping
+from sync.models import PartitionedTable, RlsRule, TableConfig, UnitMapping
 from sync.schema import schema as app_schema
 from sync.settings import settings
 from sync.sources.registry import sources
@@ -29,6 +29,64 @@ def is_nested_or_json(duckdb_type: str) -> bool:
     """Return true when a DuckDB type carries JSON, alone or nested."""
     upper = duckdb_type.upper()
     return upper.startswith(("STRUCT", "ARRAY", "LIST", "JSON"))
+
+
+def is_list(duckdb_type: str) -> bool:
+    """Return true when the DuckDB type is a list, such as `VARCHAR[]`."""
+    return duckdb_type.endswith("[]")
+
+
+def flatten_rules(rls: list[RlsRule]) -> list[tuple[UnitMapping, str]]:
+    """Return each condition with the number of its group, or the empty text for a rule of one condition.
+
+    The number is the position of the group among the groups, from 1. Only the template reads it.
+    """
+    flat: list[tuple[UnitMapping, str]] = []
+    number = 0
+
+    for rule in rls:
+        if len(rule.conditions) > 1:
+            number += 1
+            flat.extend((condition, str(number)) for condition in rule.conditions)
+        else:
+            flat.append((rule.conditions[0], ""))
+
+    return flat
+
+
+def rls_mapping_entries(
+    rls: list[RlsRule], columns: list[tuple[str, str]]
+) -> list[dict[str, TemplateValue]]:
+    """Return the rls mappings with the DuckDB type of each column, which the macro uses to choose the predicate.
+
+    A list column matches a grant when one of its values equals the unit id, so only a list of text can work.
+    """
+    types = dict(columns)
+    entries: list[dict[str, TemplateValue]] = []
+
+    for mapping, group in flatten_rules(rls):
+        if mapping.column not in types:
+            raise ValueError(
+                f"The rls column {mapping.column!r} is not a column of the source table"
+            )
+
+        duckdb_type = types[mapping.column]
+
+        if is_list(duckdb_type) and duckdb_type.upper() != "VARCHAR[]":
+            raise ValueError(
+                f"Column {mapping.column!r} has type {duckdb_type}, but a list column with an rls rule must be VARCHAR[]"
+            )
+
+        entries.append(
+            {
+                "column": mapping.column,
+                "unit_type": mapping.unit_type,
+                "duckdb_type": duckdb_type.upper(),
+                "group": group,
+            }
+        )
+
+    return entries
 
 
 def pg_scalar_type(duckdb_type: str) -> str:
@@ -289,7 +347,7 @@ def table_function_mapping(
     """Return mappings for the function behind one table view."""
     table_name = table.table_name
     claim_name = claim if claim is not None and len(claim) > 0 else "sub"
-    rls: list[UnitMapping] = [] if table.rls is None else table.rls
+    rls: list[RlsRule] = [] if table.rls is None else table.rls
 
     source = sources.configure(table.resolved_source, table.resolved_source_settings)
 
@@ -314,11 +372,7 @@ def table_function_mapping(
         "dl_view": f"dl_{schema}_{table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim_name}",
-        "has_rls": "true" if len(rls) > 0 else "false",
-        "rls_mappings": [
-            {"column": mapping.column, "unit_type": mapping.unit_type}
-            for mapping in rls
-        ],
+        "rls_mappings": rls_mapping_entries(rls, columns),
         "source_table": Literal(table.name),
         "fallbacks": fallback,
         "user_role": Identifier(settings.AUTH_USER_ROLE),
@@ -349,7 +403,7 @@ def table_changes_function_mapping(
 ) -> dict[str, TemplateValue]:
     """Return mappings for one DuckLake table change-feed function."""
     claim_name = claim if claim is not None and len(claim) > 0 else "sub"
-    rls: list[UnitMapping] = [] if table.rls is None else table.rls
+    rls: list[RlsRule] = [] if table.rls is None else table.rls
     return {
         "schema": Identifier(schema),
         "schema_literal": Literal(schema),
@@ -358,11 +412,7 @@ def table_changes_function_mapping(
         "duckdb_view": f"dl_changes_{schema}_{table.table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim_name}",
-        "has_rls": "true" if len(rls) > 0 else "false",
-        "rls_mappings": [
-            {"column": mapping.column, "unit_type": mapping.unit_type}
-            for mapping in rls
-        ],
+        "rls_mappings": rls_mapping_entries(rls, columns),
         "metadata_schema": schema,
         "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
         "user_role": Identifier(settings.AUTH_USER_ROLE),

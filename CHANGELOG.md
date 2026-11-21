@@ -2,6 +2,101 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.20.0 - 2026-11-21
+
+### Features
+
+- **console**: explain the row rules of a table for one subject (#54) (301d75f)
+
+
+- - -
+
+## helm-v2.19.0 - 2026-11-21
+
+### Features
+
+- **sync**: let row rules hold groups of conditions that all must match, with a console editor (#52) (79f676a)
+
+
+- - -
+
+## helm-v2.18.1 - 2026-11-21
+
+### Fixes
+
+- **sync**: reconcile the schedules after a rename of a schema (#44) (4132dbf)
+
+
+- - -
+
+## helm-v2.18.0 - 2026-11-19
+
+### Features
+
+- **sync**: bump the DBOS application version when the sync code changes (#47) (268c50a)
+
+### Fixes
+
+- **ci**: run the workflow on a change under migrations/ [DEV-676] (#45) (b530c76)
+- **helm**: allow HEAD on the public proxy routes (#46) (aaa1ddf)
+
+
+- - -
+
+## helm-v2.17.2 - 2026-11-19
+
+### Fixes
+
+- **sync**: match a list column of an rls rule with list_has_any (#43) (8bc4ade)
+
+
+- - -
+
+## helm-v2.17.1 - 2026-11-19
+
+### Fixes
+
+- **console**: give the unit id box the height of the other fields (#42) (e927a97)
+
+
+- - -
+
+## helm-v2.17.0 - 2026-11-19
+
+### Features
+
+- **console**: add many unit ids at once on the Access page (#41) (5c5a529)
+
+
+- - -
+
+## helm-v2.16.3 - 2026-11-18
+
+### Fixes
+
+- deny every row of a table that has no row rules (#40) (c0f7876)
+
+
+- - -
+
+## helm-v2.16.2 - 2026-11-17
+
+### Fixes
+
+- insert one file at a time into a partitioned table (#37) (feeb46a)
+
+
+- - -
+
+## helm-v2.16.1 - 2026-11-17
+
+### Fixes
+
+- record the last error of a failed dump (#36) (17fe20c)
+
+
+- - -
+
 ## helm-v2.16.0 - 2026-11-17
 
 ### Features
