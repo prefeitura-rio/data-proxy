@@ -324,7 +324,8 @@ data "data_proxy_schema_health" "provisioned" {
 							Projects map[string]json.RawMessage `json:"projects"`
 						}
 
-						if err := json.Unmarshal([]byte(value), &document); err != nil {
+						err := json.Unmarshal([]byte(value), &document)
+						if err != nil {
 							return err
 						}
 

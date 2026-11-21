@@ -164,8 +164,10 @@ func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) 
 }
 
 // ptr returns a pointer to a copy of the value.
+//
+//go:fix inline
 func ptr[T any](value T) *T {
-	return &value
+	return new(value)
 }
 
 // diagnostic is a comparable copy of a Terraform diagnostic: its attribute path, summary and detail.
@@ -202,7 +204,7 @@ var fullEnv = map[string]string{
 }
 
 func TestReadSettings(t *testing.T) {
-	hcl := model(ptr("https://hcl.example.com"), ptr("https://id.hcl.example.com/token"), ptr("hcl-client"), ptr("hcl-secret"), []string{"hcl"})
+	hcl := model(new("https://hcl.example.com"), new("https://id.hcl.example.com/token"), new("hcl-client"), new("hcl-secret"), []string{"hcl"})
 	hclSettings := settings{
 		endpoint: "https://hcl.example.com",
 		credentials: client.Credentials{
@@ -253,7 +255,7 @@ func TestReadSettings(t *testing.T) {
 		},
 		{
 			name:  "the environment fills only what the block leaves out",
-			model: model(ptr("https://hcl.example.com"), nil, ptr("hcl-client"), nil, nil),
+			model: model(new("https://hcl.example.com"), nil, new("hcl-client"), nil, nil),
 			env:   fullEnv,
 			want: settings{
 				endpoint: "https://hcl.example.com",
@@ -267,7 +269,7 @@ func TestReadSettings(t *testing.T) {
 		},
 		{
 			name:  "an empty scope list in the block takes precedence over the environment",
-			model: model(ptr("https://hcl.example.com"), ptr("https://id.hcl.example.com/token"), ptr("hcl-client"), ptr("hcl-secret"), []string{}),
+			model: model(new("https://hcl.example.com"), new("https://id.hcl.example.com/token"), new("hcl-client"), new("hcl-secret"), []string{}),
 			env:   fullEnv,
 			want: settings{
 				endpoint: "https://hcl.example.com",
@@ -281,7 +283,7 @@ func TestReadSettings(t *testing.T) {
 		},
 		{
 			name:  "no scopes anywhere",
-			model: model(ptr("https://hcl.example.com"), ptr("https://id.hcl.example.com/token"), ptr("hcl-client"), ptr("hcl-secret"), nil),
+			model: model(new("https://hcl.example.com"), new("https://id.hcl.example.com/token"), new("hcl-client"), new("hcl-secret"), nil),
 			want: settings{
 				endpoint: "https://hcl.example.com",
 				credentials: client.Credentials{
@@ -306,7 +308,7 @@ func TestReadSettings(t *testing.T) {
 		},
 		{
 			name:  "an empty string in the block hides the environment",
-			model: model(ptr("https://hcl.example.com"), ptr("https://id.hcl.example.com/token"), ptr("hcl-client"), ptr(""), []string{"hcl"}),
+			model: model(new("https://hcl.example.com"), new("https://id.hcl.example.com/token"), new("hcl-client"), new(""), []string{"hcl"}),
 			env:   fullEnv,
 			want: settings{
 				endpoint: "https://hcl.example.com",
@@ -980,6 +982,7 @@ func newStepClient(t *testing.T, steps []step) *client.Client {
 			t.Errorf("write the response: %v", err)
 		}
 	}))
+
 	t.Cleanup(func() {
 		server.Close()
 

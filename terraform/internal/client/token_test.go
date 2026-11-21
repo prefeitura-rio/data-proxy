@@ -42,7 +42,8 @@ type tokenRequest struct {
 
 // ServeHTTP records the token request and answers it with token-<n>, or with the status that the test set.
 func (ts *tokenServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
+	err := r.ParseForm()
+	if err != nil {
 		ts.t.Errorf("parse the token request: %v", err)
 	}
 
@@ -78,7 +79,8 @@ func (ts *tokenServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		body["expires_in"] = ts.expiresIn
 	}
 
-	if err := json.NewEncoder(w).Encode(body); err != nil {
+	err = json.NewEncoder(w).Encode(body)
+	if err != nil {
 		ts.t.Errorf("write the token response: %v", err)
 	}
 }

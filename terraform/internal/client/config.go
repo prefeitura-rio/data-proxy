@@ -142,7 +142,8 @@ func onlyRow[T any](rows []T, table string) (T, error) {
 func (c *Client) CreateProject(ctx context.Context, name string) (Project, error) {
 	var rows []Project
 
-	if err := c.Insert(ctx, ConsoleProfile, "projects", map[string]string{"name": name}, &rows); err != nil {
+	err := c.Insert(ctx, ConsoleProfile, "projects", map[string]string{"name": name}, &rows)
+	if err != nil {
 		return Project{}, err
 	}
 
@@ -167,7 +168,8 @@ func (c *Client) DeleteProject(ctx context.Context, name string) error {
 func (c *Client) CreateSchema(ctx context.Context, input SchemaInput) (Schema, error) {
 	var rows []Schema
 
-	if err := c.Insert(ctx, ConsoleProfile, "schemas", input, &rows); err != nil {
+	err := c.Insert(ctx, ConsoleProfile, "schemas", input, &rows)
+	if err != nil {
 		return Schema{}, err
 	}
 
@@ -197,7 +199,8 @@ func (c *Client) GetSchemaByParts(ctx context.Context, project, shortName string
 func (c *Client) UpdateSchema(ctx context.Context, name string, update SchemaUpdate) (Schema, error) {
 	var rows []Schema
 
-	if err := c.Patch(ctx, ConsoleProfile, "schemas", []Filter{Eq("name", name)}, update, &rows); err != nil {
+	err := c.Patch(ctx, ConsoleProfile, "schemas", []Filter{Eq("name", name)}, update, &rows)
+	if err != nil {
 		return Schema{}, err
 	}
 
@@ -213,7 +216,8 @@ func (c *Client) DeleteSchema(ctx context.Context, name string) error {
 func (c *Client) CreateTable(ctx context.Context, input TableInput) (Table, error) {
 	var rows []Table
 
-	if err := c.Insert(ctx, ConsoleProfile, "tables", input, &rows); err != nil {
+	err := c.Insert(ctx, ConsoleProfile, "tables", input, &rows)
+	if err != nil {
 		return Table{}, err
 	}
 
@@ -233,7 +237,8 @@ func (c *Client) GetTable(ctx context.Context, name string) (Table, error) {
 func (c *Client) UpdateTable(ctx context.Context, name string, update TableUpdate) (Table, error) {
 	var rows []Table
 
-	if err := c.Patch(ctx, ConsoleProfile, "tables", []Filter{Eq("name", name)}, update, &rows); err != nil {
+	err := c.Patch(ctx, ConsoleProfile, "tables", []Filter{Eq("name", name)}, update, &rows)
+	if err != nil {
 		return Table{}, err
 	}
 
@@ -250,7 +255,8 @@ func (c *Client) DeleteTable(ctx context.Context, name string) error {
 func (c *Client) ListRLS(ctx context.Context, table string) ([]RLSRule, error) {
 	var rows []rulesRow
 
-	if err := c.RPC(ctx, ConsoleProfile, "rules", nil, &rows); err != nil {
+	err := c.RPC(ctx, ConsoleProfile, "rules", nil, &rows)
+	if err != nil {
 		return nil, err
 	}
 
@@ -272,7 +278,8 @@ func (c *Client) ReplaceRLS(ctx context.Context, table string, rules []RLSRule) 
 
 	args := map[string]any{"table_name": table, "groups": rules}
 
-	if err := c.RPC(ctx, ConsoleProfile, "replace_rls", args, nil); err != nil {
+	err := c.RPC(ctx, ConsoleProfile, "replace_rls", args, nil)
+	if err != nil {
 		return fmt.Errorf("replace the row policies of %s: %w", table, err)
 	}
 
@@ -307,7 +314,8 @@ func (c *Client) ListHistory(ctx context.Context, schema string, limit int) ([]H
 
 	var entries []HistoryEntry
 
-	if err := c.Get(ctx, ConsoleProfile, "config_history", filters, &entries); err != nil {
+	err := c.Get(ctx, ConsoleProfile, "config_history", filters, &entries)
+	if err != nil {
 		return nil, err
 	}
 
@@ -318,7 +326,8 @@ func (c *Client) ListHistory(ctx context.Context, schema string, limit int) ([]H
 func (c *Client) ExportConfig(ctx context.Context) (json.RawMessage, error) {
 	var document json.RawMessage
 
-	if err := c.GetRPC(ctx, ConsoleProfile, "export_config", &document); err != nil {
+	err := c.GetRPC(ctx, ConsoleProfile, "export_config", &document)
+	if err != nil {
 		return nil, fmt.Errorf("export the configuration: %w", err)
 	}
 
@@ -329,7 +338,8 @@ func (c *Client) ExportConfig(ctx context.Context) (json.RawMessage, error) {
 func (c *Client) SyncConfig(ctx context.Context) (json.RawMessage, error) {
 	var document json.RawMessage
 
-	if err := c.GetRPC(ctx, ConsoleProfile, "sync_config", &document); err != nil {
+	err := c.GetRPC(ctx, ConsoleProfile, "sync_config", &document)
+	if err != nil {
 		return nil, fmt.Errorf("read the sync configuration: %w", err)
 	}
 

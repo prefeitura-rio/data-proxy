@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -199,7 +200,8 @@ func TestRequests(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			c, requests := newServer(t, http.StatusOK, `[]`)
 
-			if err := testCase.call(context.Background(), c); err != nil {
+			err := testCase.call(context.Background(), c)
+			if err != nil {
 				t.Fatalf("call: %v", err)
 			}
 
@@ -222,9 +224,7 @@ func TestRequests(t *testing.T) {
 			}
 
 			want := map[string]string{"Authorization": "Bearer jwt-123", "Accept": "application/json", "Content-Type": testCase.contentType}
-			for name, value := range testCase.headers {
-				want[name] = value
-			}
+			maps.Copy(want, testCase.headers)
 
 			for name, value := range want {
 				if got.headers.Get(name) != value {
@@ -260,7 +260,8 @@ func TestDecodesTheResponse(t *testing.T) {
 
 			var rows []row
 
-			if err := c.Insert(context.Background(), ConsoleProfile, "projects", row{Name: "a"}, &rows); err != nil {
+			err := c.Insert(context.Background(), ConsoleProfile, "projects", row{Name: "a"}, &rows)
+			if err != nil {
 				t.Fatalf("Insert: %v", err)
 			}
 
@@ -288,7 +289,8 @@ func TestAcceptsAnEmptyResponse(t *testing.T) {
 
 			var rows []row
 
-			if err := c.Delete(context.Background(), ConsoleProfile, "projects", []Filter{Eq("id", "1")}, &rows); err != nil {
+			err := c.Delete(context.Background(), ConsoleProfile, "projects", []Filter{Eq("id", "1")}, &rows)
+			if err != nil {
 				t.Fatalf("Delete: %v", err)
 			}
 
@@ -895,6 +897,7 @@ func newStepClient(t *testing.T, steps []step) *Client {
 			t.Errorf("write the response: %v", err)
 		}
 	}))
+
 	t.Cleanup(func() {
 		server.Close()
 
@@ -942,11 +945,13 @@ func sameJSON(t *testing.T, want, got string) bool {
 
 	var left, right any
 
-	if err := json.Unmarshal([]byte(want), &left); err != nil {
+	err := json.Unmarshal([]byte(want), &left)
+	if err != nil {
 		t.Fatalf("want is not JSON: %v", err)
 	}
 
-	if err := json.Unmarshal([]byte(got), &right); err != nil {
+	err = json.Unmarshal([]byte(got), &right)
+	if err != nil {
 		return false
 	}
 

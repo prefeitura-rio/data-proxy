@@ -10,8 +10,10 @@ import (
 )
 
 // ptr returns a pointer to a copy of the value.
+//
+//go:fix inline
 func ptr[T any](value T) *T {
-	return &value
+	return new(value)
 }
 
 // The rows that the test server answers: a project, a schema and a table.
@@ -27,11 +29,11 @@ func TestConfigOperations(t *testing.T) {
 	wantProject := Project{Name: "sales", UpdatedAt: "2026-01-01T00:00:00Z", UpdatedBy: "terraform"}
 	wantSchema := Schema{
 		Name: "sales_orders", Project: "sales", ShortName: "orders", Source: "bigquery",
-		Settings: json.RawMessage("null"), Claim: ptr("preferred_username"),
+		Settings: json.RawMessage("null"), Claim: new("preferred_username"),
 		UpdatedAt: "2026-01-01T00:00:00Z", UpdatedBy: "terraform",
 	}
 	wantTable := Table{
-		Name: "sales.orders", Schema: "sales_orders", Strategy: "partitioned", N: ptr(3), CacheTTL: ptr(60),
+		Name: "sales.orders", Schema: "sales_orders", Strategy: "partitioned", N: new(3), CacheTTL: new(60),
 		Partitioning: json.RawMessage("null"), Sort: []string{"order_id"}, UpdatedAt: "t", UpdatedBy: "u",
 	}
 
@@ -70,7 +72,7 @@ func TestConfigOperations(t *testing.T) {
 				status: 201, response: "[" + schemaRow + "]",
 			}},
 			run: func(ctx context.Context, c *Client) (any, error) {
-				return c.CreateSchema(ctx, SchemaInput{Project: "sales", ShortName: "orders", Claim: ptr("preferred_username")})
+				return c.CreateSchema(ctx, SchemaInput{Project: "sales", ShortName: "orders", Claim: new("preferred_username")})
 			},
 			want: wantSchema,
 		},
@@ -98,7 +100,7 @@ func TestConfigOperations(t *testing.T) {
 				response: "[" + schemaRow + "]",
 			}},
 			run: func(ctx context.Context, c *Client) (any, error) {
-				return c.UpdateSchema(ctx, "sales_orders", SchemaUpdate{Source: "bigquery", Claim: ptr("preferred_username")})
+				return c.UpdateSchema(ctx, "sales_orders", SchemaUpdate{Source: "bigquery", Claim: new("preferred_username")})
 			},
 			want: wantSchema,
 		},
@@ -118,8 +120,8 @@ func TestConfigOperations(t *testing.T) {
 			}},
 			run: func(ctx context.Context, c *Client) (any, error) {
 				return c.CreateTable(ctx, TableInput{
-					Name: "sales.orders", Schema: "sales_orders", Strategy: "partitioned", N: ptr(3),
-					CacheTTL: ptr(60), Sort: []string{"order_id"},
+					Name: "sales.orders", Schema: "sales_orders", Strategy: "partitioned", N: new(3),
+					CacheTTL: new(60), Sort: []string{"order_id"},
 				})
 			},
 			want: wantTable,
@@ -140,7 +142,7 @@ func TestConfigOperations(t *testing.T) {
 				response: "[" + tableRow + "]",
 			}},
 			run: func(ctx context.Context, c *Client) (any, error) {
-				return c.UpdateTable(ctx, "sales.orders", TableUpdate{Strategy: "partitioned", N: ptr(3), Sort: []string{"order_id"}})
+				return c.UpdateTable(ctx, "sales.orders", TableUpdate{Strategy: "partitioned", N: new(3), Sort: []string{"order_id"}})
 			},
 			want: wantTable,
 		},
@@ -227,7 +229,7 @@ func TestConfigOperations(t *testing.T) {
 			run: func(ctx context.Context, c *Client) (any, error) {
 				return c.GetSyncState(ctx, "sales.orders")
 			},
-			want: TableSyncState{Schema: "sales_orders", Name: "sales.orders", Synced: true, Signature: ptr("abc"), PartitionCount: 2},
+			want: TableSyncState{Schema: "sales_orders", Name: "sales.orders", Synced: true, Signature: new("abc"), PartitionCount: 2},
 		},
 		{
 			name: "list the newest changes of a schema",
@@ -292,6 +294,7 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 			steps: []step{{response: "[]"}},
 			run: func(ctx context.Context, c *Client) error {
 				_, err := c.GetProject(ctx, "sales")
+
 				return err
 			},
 			wantKind: ErrNoRow,
@@ -307,6 +310,7 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 			steps: []step{{status: 409, response: `{"code":"23505","message":"duplicate key"}`}},
 			run: func(ctx context.Context, c *Client) error {
 				_, err := c.CreateSchema(ctx, SchemaInput{})
+
 				return err
 			},
 			wantKind: ErrConflict,
@@ -316,6 +320,7 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 			steps: []step{{status: 403, response: `{"code":"42501","message":"new row violates row-level security policy"}`}},
 			run: func(ctx context.Context, c *Client) error {
 				_, err := c.CreateTable(ctx, TableInput{})
+
 				return err
 			},
 			wantKind: ErrForbidden,
@@ -325,6 +330,7 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 			steps: []step{{status: 201, response: "[]"}},
 			run: func(ctx context.Context, c *Client) error {
 				_, err := c.CreateProject(ctx, "sales")
+
 				return err
 			},
 			wantText: "the write to projects gave back 0 rows, want one",
@@ -348,16 +354,22 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 			wantText: "replace the row policies of sales.orders",
 		},
 		{
-			name:     "an export that fails",
-			steps:    []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
-			run:      func(ctx context.Context, c *Client) error { _, err := c.ExportConfig(ctx); return err },
+			name:  "an export that fails",
+			steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
+			run: func(ctx context.Context, c *Client) error {
+				_, err := c.ExportConfig(ctx)
+				return err
+			},
 			wantKind: ErrForbidden,
 			wantText: "export the configuration",
 		},
 		{
-			name:     "a sync configuration that fails",
-			steps:    []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
-			run:      func(ctx context.Context, c *Client) error { _, err := c.SyncConfig(ctx); return err },
+			name:  "a sync configuration that fails",
+			steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
+			run: func(ctx context.Context, c *Client) error {
+				_, err := c.SyncConfig(ctx)
+				return err
+			},
 			wantKind: ErrForbidden,
 			wantText: "read the sync configuration",
 		},

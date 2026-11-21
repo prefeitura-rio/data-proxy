@@ -45,7 +45,8 @@ func retryNoRow(
 			return err
 		}
 
-		if waitErr := wait(ctx, delay); waitErr != nil {
+		waitErr := wait(ctx, delay)
+		if waitErr != nil {
 			return waitErr
 		}
 

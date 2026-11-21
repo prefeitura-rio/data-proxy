@@ -156,7 +156,8 @@ func (jk jsonKind) ValidateString(ctx context.Context, req validator.StringReque
 
 	var value any
 
-	if err := json.Unmarshal([]byte(req.ConfigValue.ValueString()), &value); err != nil {
+	err := json.Unmarshal([]byte(req.ConfigValue.ValueString()), &value)
+	if err != nil {
 		resp.Diagnostics.AddAttributeError(req.Path, "Invalid JSON", fmt.Sprintf("%s: %s.", jk.Description(ctx), err))
 
 		return

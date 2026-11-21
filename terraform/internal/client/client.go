@@ -149,7 +149,8 @@ func (c *Client) Get(ctx context.Context, profile, table string, filters []Filte
 func (c *Client) GetOne(ctx context.Context, profile, table string, filters []Filter, out any) error {
 	var rows []json.RawMessage
 
-	if err := c.Get(ctx, profile, table, filters, &rows); err != nil {
+	err := c.Get(ctx, profile, table, filters, &rows)
+	if err != nil {
 		return err
 	}
 
@@ -161,7 +162,8 @@ func (c *Client) GetOne(ctx context.Context, profile, table string, filters []Fi
 			return nil
 		}
 
-		if err := json.Unmarshal(rows[0], out); err != nil {
+		err := json.Unmarshal(rows[0], out)
+		if err != nil {
 			return fmt.Errorf("decode the row of %s: %w", table, err)
 		}
 
@@ -220,7 +222,8 @@ func (c *Client) GetRPC(ctx context.Context, profile, function string, out any) 
 func (c *Client) Permissions(ctx context.Context) ([]string, error) {
 	var permissions []string
 
-	if err := c.GetRPC(ctx, ConsoleProfile, "permissions", &permissions); err != nil {
+	err := c.GetRPC(ctx, ConsoleProfile, "permissions", &permissions)
+	if err != nil {
 		return nil, fmt.Errorf("read the permissions of the token: %w", err)
 	}
 

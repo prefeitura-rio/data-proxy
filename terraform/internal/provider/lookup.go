@@ -64,7 +64,8 @@ func (l *lookup[T]) Read(ctx context.Context, req datasource.ReadRequest, resp *
 		return
 	}
 
-	if err := l.read(ctx, l.client, &model); err != nil {
+	err := l.read(ctx, l.client, &model)
+	if err != nil {
 		addAPIError(&resp.Diagnostics, "Couldn't read "+l.suffix, l.permission, err)
 
 		return

@@ -332,7 +332,8 @@ func (sr *schemaResource) Delete(ctx context.Context, req resource.DeleteRequest
 		return
 	}
 
-	if err := sr.client.DeleteSchema(ctx, state.Name.ValueString()); err != nil {
+	err := sr.client.DeleteSchema(ctx, state.Name.ValueString())
+	if err != nil {
 		addAPIError(&resp.Diagnostics, "Couldn't delete the schema", "delete_config", err)
 
 		return
@@ -348,7 +349,8 @@ func (sr *schemaResource) Delete(ctx context.Context, req resource.DeleteRequest
 	waitCtx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 
-	if err := sr.client.WaitDeprovisioned(waitCtx, state.Name.ValueString()); err != nil {
+	err = sr.client.WaitDeprovisioned(waitCtx, state.Name.ValueString())
+	if err != nil {
 		addAPIError(&resp.Diagnostics, "The schema is not dropped yet", "", err)
 	}
 }

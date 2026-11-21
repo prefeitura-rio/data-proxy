@@ -57,7 +57,7 @@ func schemaState(protected bool, deleteTimeout string) schemaModel {
 	model := schemaPlan("")
 	applySchemaRow(&model, client.Schema{
 		Name: "sales_orders", Project: "sales", ShortName: "orders", Source: "bigquery",
-		Settings: []byte(`{"a":2,"b":1}`), Claim: ptr("preferred_username"), UpdatedAt: "old", UpdatedBy: "old",
+		Settings: []byte(`{"a":2,"b":1}`), Claim: new("preferred_username"), UpdatedAt: "old", UpdatedBy: "old",
 	})
 	model.Settings = types.StringValue(`{"a": 2, "b": 1}`)
 	model.DeletionProtection = types.BoolValue(protected)

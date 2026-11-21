@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -88,15 +88,17 @@ func TestOptionalConversions(t *testing.T) {
 		run  func() (got, want string)
 	}{
 		{name: "a nil text is null", run: func() (string, string) { return stringValue(nil).String(), types.StringNull().String() }},
-		{name: "a text is a value", run: func() (string, string) { return stringValue(ptr("x")).ValueString(), "x" }},
-		{name: "a null text has no pointer", run: func() (string, string) { return fmt.Sprint(stringPointer(types.StringNull()) == nil), "true" }},
-		{name: "an unknown text has no pointer", run: func() (string, string) { return fmt.Sprint(stringPointer(types.StringUnknown()) == nil), "true" }},
+		{name: "a text is a value", run: func() (string, string) { return stringValue(new("x")).ValueString(), "x" }},
+		{name: "a null text has no pointer", run: func() (string, string) { return strconv.FormatBool(stringPointer(types.StringNull()) == nil), "true" }},
+		{name: "an unknown text has no pointer", run: func() (string, string) {
+			return strconv.FormatBool(stringPointer(types.StringUnknown()) == nil), "true"
+		}},
 		{name: "a text has a pointer", run: func() (string, string) { return *stringPointer(types.StringValue("x")), "x" }},
 		{name: "a nil number is null", run: func() (string, string) { return intValue(nil).String(), types.Int64Null().String() }},
-		{name: "a number is a value", run: func() (string, string) { return fmt.Sprint(intValue(ptr(3)).ValueInt64()), "3" }},
-		{name: "a null number has no pointer", run: func() (string, string) { return fmt.Sprint(intPointer(types.Int64Null()) == nil), "true" }},
-		{name: "an unknown number has no pointer", run: func() (string, string) { return fmt.Sprint(intPointer(types.Int64Unknown()) == nil), "true" }},
-		{name: "a number has a pointer", run: func() (string, string) { return fmt.Sprint(*intPointer(types.Int64Value(4))), "4" }},
+		{name: "a number is a value", run: func() (string, string) { return strconv.FormatInt(intValue(new(3)).ValueInt64(), 10), "3" }},
+		{name: "a null number has no pointer", run: func() (string, string) { return strconv.FormatBool(intPointer(types.Int64Null()) == nil), "true" }},
+		{name: "an unknown number has no pointer", run: func() (string, string) { return strconv.FormatBool(intPointer(types.Int64Unknown()) == nil), "true" }},
+		{name: "a number has a pointer", run: func() (string, string) { return strconv.Itoa(*intPointer(types.Int64Value(4))), "4" }},
 	}
 
 	for _, testCase := range tests {

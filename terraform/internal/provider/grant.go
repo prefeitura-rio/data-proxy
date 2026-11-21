@@ -152,7 +152,8 @@ func (gr *grantResource) Create(ctx context.Context, req resource.CreateRequest,
 
 	grant := grantFromModel(plan)
 
-	if err := gr.client.CreateGrant(ctx, grant); err != nil {
+	err := gr.client.CreateGrant(ctx, grant)
+	if err != nil {
 		addAPIError(&resp.Diagnostics, "Couldn't create the grant", "create_policy", err)
 
 		return
@@ -206,7 +207,8 @@ func (gr *grantResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		return
 	}
 
-	if err := gr.client.DeleteGrant(ctx, grantFromModel(state)); err != nil {
+	err := gr.client.DeleteGrant(ctx, grantFromModel(state))
+	if err != nil {
 		addAPIError(&resp.Diagnostics, "Couldn't delete the grant", "delete_policy", err)
 	}
 }

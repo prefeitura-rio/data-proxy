@@ -86,7 +86,8 @@ func parseError(status int, raw []byte) *Error {
 
 	var parsed body
 
-	if err := json.Unmarshal(raw, &parsed); err == nil && (parsed.Code != "" || parsed.Message != "") {
+	err := json.Unmarshal(raw, &parsed)
+	if err == nil && (parsed.Code != "" || parsed.Message != "") {
 		result.Code = parsed.Code
 		result.Message = parsed.Message
 

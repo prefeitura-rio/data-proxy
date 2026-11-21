@@ -73,7 +73,8 @@ func (c *Client) CreateGrant(ctx context.Context, grant Grant) error {
 func (c *Client) ListGrants(ctx context.Context, grant Grant) ([]Grant, error) {
 	var rows []Grant
 
-	if err := c.Get(ctx, accessProfile, "policy", grantFilters(grant), &rows); err != nil {
+	err := c.Get(ctx, accessProfile, "policy", grantFilters(grant), &rows)
+	if err != nil {
 		return nil, err
 	}
 

@@ -458,7 +458,8 @@ func (r *tableResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	saved := rlsRules(state)
 
 	if !sameRules(rules, saved) {
-		if err := r.client.ReplaceRLS(ctx, row.Name, rules); err != nil {
+		err := r.client.ReplaceRLS(ctx, row.Name, rules)
+		if err != nil {
 			addAPIError(&resp.Diagnostics, "Couldn't replace the row policies of the table", "edit_config", err)
 
 			rules = saved
@@ -484,7 +485,8 @@ func (r *tableResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 		return
 	}
 
-	if err := r.client.DeleteTable(ctx, state.Name.ValueString()); err != nil {
+	err := r.client.DeleteTable(ctx, state.Name.ValueString())
+	if err != nil {
 		addAPIError(&resp.Diagnostics, "Couldn't delete the table", "delete_config", err)
 	}
 }

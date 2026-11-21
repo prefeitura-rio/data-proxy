@@ -39,6 +39,7 @@ func TestLookupMetadata(t *testing.T) {
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			source := &lookup[struct{}]{suffix: testCase.suffix}
+
 			var resp datasource.MetadataResponse
 
 			source.Metadata(context.Background(), datasource.MetadataRequest{ProviderTypeName: testCase.provider}, &resp)

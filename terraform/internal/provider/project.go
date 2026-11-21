@@ -162,7 +162,8 @@ func (pr *projectResource) Delete(ctx context.Context, req resource.DeleteReques
 		return
 	}
 
-	if err := pr.client.DeleteProject(ctx, state.Name.ValueString()); err != nil {
+	err := pr.client.DeleteProject(ctx, state.Name.ValueString())
+	if err != nil {
 		addAPIError(&resp.Diagnostics, "Couldn't delete the project", "delete_config", err)
 	}
 }
