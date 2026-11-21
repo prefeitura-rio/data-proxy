@@ -266,9 +266,24 @@ class TestAccessPolicyTemplates:
                 id="schema-added",
             ),
             pytest.param(
-                "UPDATE console.schemas SET name = name",
+                "UPDATE console.schemas SET settings = settings",
                 ["provision_schemas", "reload_proxy"],
                 id="schema-changed",
+            ),
+            pytest.param(
+                "UPDATE console.schemas SET name = name",
+                ["provision_schemas", "reconcile_schedules", "reload_proxy"],
+                id="schema-renamed",
+            ),
+            pytest.param(
+                "UPDATE console.schemas SET project = project",
+                ["provision_schemas", "reconcile_schedules", "reload_proxy"],
+                id="schema-moved-to-another-project",
+            ),
+            pytest.param(
+                "UPDATE console.schemas SET short_name = short_name",
+                ["provision_schemas", "reconcile_schedules", "reload_proxy"],
+                id="schema-short-name-changed",
             ),
             pytest.param(
                 "DELETE FROM console.schemas",
@@ -334,6 +349,30 @@ class TestAccessPolicyTemplates:
             ).format(Identifier(dbos_schema))
         )
         assert [queue for (queue,) in await cursor.fetchall()] == ["schedules"]
+
+    async def test_console_triggers_queues_the_reconcile_of_the_schedules_after_a_rename(
+        self, rbac: Postgres, dbos_schema: str
+    ) -> None:
+        """A renamed schema needs the schedule of its new name, and its old schedule must go. The trigger keep_name refuses a rename today, so the test turns it off in its own transaction."""
+        await rbac.connection.execute(
+            SQL("INSERT INTO console.schemas (name) VALUES ('a')")
+        )
+        await rbac.connection.execute(
+            SQL("ALTER TABLE console.schemas DISABLE TRIGGER keep_name")
+        )
+        await empty_queues(rbac, dbos_schema)
+
+        await rbac.connection.execute(
+            SQL(
+                "UPDATE console.schemas SET name = 'b', short_name = 'b' WHERE name = 'a'"
+            )
+        )
+
+        assert await queued_workflows(rbac, dbos_schema) == [
+            "provision_schemas",
+            "reconcile_schedules",
+            "reload_proxy",
+        ]
 
     async def test_console_triggers_queues_the_next_run_while_one_is_running(
         self, rbac: Postgres, dbos_schema: str
