@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.19.0 - 2026-11-21
+
+### Features
+
+- **sync**: let row rules hold groups of conditions that all must match, with a console editor (#52) (79f676a)
+
+
+- - -
+
 ## helm-v2.18.1 - 2026-11-21
 
 ### Fixes

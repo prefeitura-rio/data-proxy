@@ -43,7 +43,7 @@ These variables set the DBOS application and its system database.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `DBOS_APPLICATION_NAME` | `data-proxy-sync` | DBOS application name. |
-| `DBOS_APPLICATION_VERSION` | `2.0.0` | DBOS application version. |
+| `DBOS_APPLICATION_VERSION` | `3.0.0` | DBOS application version. |
 | `DBOS_SHUTDOWN_TIMEOUT_SECONDS` | `300` | Seconds that a worker waits for its running workflows after SIGTERM. The chart gives the pod 30 more seconds. |
 | `DBOS_SYSTEM_SCHEMA` | `dbos` | DBOS metadata schema. |
 | `DBOS_APP_SCHEMA` | `data_proxy` | Application state schema. |
