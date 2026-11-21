@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"regexp"
 	"strings"
@@ -603,6 +604,10 @@ func TestAccTableResource(t *testing.T) {
 // TestAccRLSHelpersAreNotServed checks over HTTP that a token reaches the rules only through rules() and replace_rls().
 // The helpers write_rls and groups live in a schema that PostgREST does not serve, so each one is a 404.
 func TestAccRLSHelpersAreNotServed(t *testing.T) {
+	if os.Getenv(acc.EnvTfAcc) == "" {
+		t.Skipf("set %s to run the acceptance tests", acc.EnvTfAcc)
+	}
+
 	testAccPreCheck(t)
 
 	project := testAccName()
