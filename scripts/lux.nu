@@ -18,7 +18,7 @@ def lock-digest [text: string]: nothing -> string {
                 version: $entry.rock.version
                 constraint: $entry.rock.constraint?
                 hashes: $entry.rock.hashes
-                dependencies: ($entry.rock.dependencies | sort)
+                dependencies: ($entry.rock.dependencies? | default [] | sort)
             }
         }
     }
