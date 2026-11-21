@@ -9,6 +9,7 @@ import {
     catalogSchemaGone,
     filesGone,
     NEW_SCHEMA,
+    schemaIdentity,
     NEW_SCHEMA_SOURCE,
     NEW_SCHEMA_UNIT_1_IDS,
     postgrestCall,
@@ -47,7 +48,7 @@ function newSchema(k8s) {
 
     try {
         const created = [
-            consoleCall("POST", "/schemas", "admin", { name: NEW_SCHEMA, claim: "preferred_username" }),
+            consoleCall("POST", "/schemas", "admin", { ...schemaIdentity(NEW_SCHEMA), claim: "preferred_username" }),
             consoleCall("POST", "/tables", "admin", { name: NEW_SCHEMA_SOURCE, schema: NEW_SCHEMA, strategy: "full" }),
             consoleCall("POST", "/rls", "admin", {
                 table_name: NEW_SCHEMA_SOURCE,
@@ -78,7 +79,7 @@ function newSchema(k8s) {
                 () => {
                     const health = rowsOf(consoleCall("GET", `/health?name=eq.${NEW_SCHEMA}`, "admin"))[0];
 
-                    return health?.schema_exists === true && health.access_policy === true;
+                    return health?.schema_exists === true && health.schema_exists === true;
                 },
                 "provision to create the new schema",
             ),
@@ -92,7 +93,8 @@ function newSchema(k8s) {
 
         expect(
             "the admin adds a policy row to the new schema",
-            postgrestCall(NEW_SCHEMA, "POST", "/access_policy", "admin", {
+            postgrestCall("access", "POST", "/policy", "admin", {
+                scope: NEW_SCHEMA.replace("__", "."),
                 subject: SUBJECT,
                 unit_type: "unit",
                 unit_id: "unit_1",

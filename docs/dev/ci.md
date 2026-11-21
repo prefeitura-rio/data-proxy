@@ -53,7 +53,7 @@ flowchart LR
 | `build-images` | Builds each changed image and pushes nothing. It fills the layer cache while the tests run. |
 | `push-images` | Waits for every test job. It builds each image again from the cache, pushes it and signs it, so no image of an untested commit reaches the registry. |
 | `helm` | Releases the chart when the chart or an image changed. |
-| `terraform` | Runs the action `terraform-release` on main after `repo` and `test-terraform` pass. The provider tag is `terraform-v*`. See [Provider releases](./provider.md). |
+| `terraform` | Runs the action `terraform-release` on main after `repo` and `test-terraform` pass. The provider tag is `terraform-v*`. See [Provider releases](../terraform.md#releases). |
 | `cache-branch`, `cache-pr` | Delete the caches of a deleted branch and of a closed pull request. They're the only jobs that run on those events. |
 
 Each job restores the task state of the last green run of `main` before it runs, and only a run on `main` saves it. Caches keep the uv cache, the pnpm store and the Nix fetcher files between runs, keyed by the lock files.

@@ -46,7 +46,7 @@ describe("postgrest.query with an aggregate", function()
 		args = "select=a,n:b.sum()",
 		started = 0,
 		postgrest = "http://postgrest",
-		aggregate_path = "/rpc/people_aggregate",
+		aggregate_path = "/rpc/people_agg",
 	}
 
 	--- Make a sender that gives the answers in order, and records the uri and the args of each call.
@@ -69,7 +69,7 @@ describe("postgrest.query with an aggregate", function()
 		local response = postgrest.query(aggregate, sender, no_sleep)
 
 		assert.same({ status = 200, body = '[{"a":1,"n":5}]' }, response)
-		assert.same({ { uri = "/rpc/people_aggregate", args = "" } }, seen)
+		assert.same({ { uri = "/rpc/people_agg", args = "" } }, seen)
 	end)
 
 	it("returns a partial answer of the function, so the cap of the function reaches the client", function()
@@ -88,7 +88,7 @@ describe("postgrest.query with an aggregate", function()
 		local response = postgrest.query(aggregate, sender, no_sleep)
 
 		assert.same({ status = 200, body = "[1]" }, response)
-		assert.same({ "/rpc/people_aggregate", "/people" }, { seen[1].uri, seen[2].uri })
+		assert.same({ "/rpc/people_agg", "/people" }, { seen[1].uri, seen[2].uri })
 		assert.same("select=a,n:b.sum()", seen[2].args)
 	end)
 
@@ -107,7 +107,7 @@ describe("postgrest.query with an aggregate", function()
 			local response = postgrest.query(aggregate, sender, no_sleep)
 
 			assert.same({ status = 200, body = "[1]" }, response)
-			assert.same({ "/rpc/people_aggregate", "/people" }, { seen[1].uri, seen[2].uri })
+			assert.same({ "/rpc/people_agg", "/people" }, { seen[1].uri, seen[2].uri })
 		end)
 	end
 
@@ -152,7 +152,7 @@ describe("postgrest.query with a count", function()
 		postgrest = "http://postgrest",
 		headers = { Prefer = "count=exact" },
 		count = {
-			path = "/rpc/people_aggregate",
+			path = "/rpc/people_agg",
 			count_headers = { ["X-DuckLake-Filter"] = "count" },
 			page_headers = { ["X-DuckLake-Filter"] = "page" },
 		},
@@ -186,7 +186,7 @@ describe("postgrest.query with a count", function()
 
 		postgrest.query(counted, sender, no_sleep)
 
-		assert.same({ "/rpc/people_aggregate", "/people" }, { seen[1].uri, seen[2].uri })
+		assert.same({ "/rpc/people_agg", "/people" }, { seen[1].uri, seen[2].uri })
 		assert.same({ "", "limit=20&offset=40" }, { seen[1].args, seen[2].args })
 		assert.same({ ["X-DuckLake-Filter"] = "count" }, seen[1].headers)
 		assert.same({ ["X-DuckLake-Filter"] = "page", ["X-DuckLake-Snapshot"] = "239" }, seen[2].headers)

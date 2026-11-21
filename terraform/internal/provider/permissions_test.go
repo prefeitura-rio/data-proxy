@@ -16,12 +16,11 @@ import (
 	"terraform-provider-data-proxy/internal/client"
 )
 
-// staticToken is a TokenSource that returns itself as the token.
 type staticToken string
 
 // Token returns the string as the token.
-func (s staticToken) Token(context.Context) (string, error) {
-	return string(s), nil
+func (t staticToken) Token(context.Context) (string, error) {
+	return string(t), nil
 }
 
 // readPermissions runs the data source against a server that answers GET /rpc/permissions with the status and the
@@ -45,7 +44,7 @@ func readPermissions(t *testing.T, status int, body string) ([]string, []diagnos
 	}))
 	t.Cleanup(server.Close)
 
-	apiClient, err := client.New(server.URL, staticToken("jwt-123"), server.Client())
+	c, err := client.New(server.URL, staticToken("jwt-123"), server.Client())
 	if err != nil {
 		t.Fatalf("client.New: %v", err)
 	}
@@ -57,7 +56,7 @@ func readPermissions(t *testing.T, status int, body string) ([]string, []diagnos
 
 	var configureResp datasource.ConfigureResponse
 
-	dataSource.Configure(ctx, datasource.ConfigureRequest{ProviderData: apiClient}, &configureResp)
+	dataSource.Configure(ctx, datasource.ConfigureRequest{ProviderData: c}, &configureResp)
 
 	if configureResp.Diagnostics.HasError() {
 		t.Fatalf("Configure: %v", configureResp.Diagnostics)
@@ -148,16 +147,16 @@ func TestPermissionsDataSourceRead(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, diags := readPermissions(t, tt.status, tt.body)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got, diags := readPermissions(t, testCase.status, testCase.body)
 
-			if !reflect.DeepEqual(diags, tt.diags) {
-				t.Fatalf("diagnostics = %+v, want %+v", diags, tt.diags)
+			if !reflect.DeepEqual(diags, testCase.diags) {
+				t.Fatalf("diagnostics = %+v, want %+v", diags, testCase.diags)
 			}
 
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("permissions = %q, want %q", got, tt.want)
+			if !reflect.DeepEqual(got, testCase.want) {
+				t.Errorf("permissions = %q, want %q", got, testCase.want)
 			}
 		})
 	}
@@ -180,16 +179,16 @@ func TestPermissionsDataSourceConfigure(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			dataSource := &permissionsDataSource{}
 
 			var resp datasource.ConfigureResponse
 
-			dataSource.Configure(context.Background(), datasource.ConfigureRequest{ProviderData: tt.providerData}, &resp)
+			dataSource.Configure(context.Background(), datasource.ConfigureRequest{ProviderData: testCase.providerData}, &resp)
 
-			if got := diagnosticsOf(resp.Diagnostics); !reflect.DeepEqual(got, tt.diags) {
-				t.Errorf("diagnostics = %+v, want %+v", got, tt.diags)
+			if got := diagnosticsOf(resp.Diagnostics); !reflect.DeepEqual(got, testCase.diags) {
+				t.Errorf("diagnostics = %+v, want %+v", got, testCase.diags)
 			}
 
 			if dataSource.client != nil {

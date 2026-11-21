@@ -1,27 +1,23 @@
 import asyncio
-import os
-import shutil
-import subprocess
-from collections.abc import AsyncIterator, Mapping
-from uuid import uuid4
+from typing import ClassVar
 
 import psycopg
 import pytest
-from dbos._migration import ensure_dbos_schema, run_dbos_migrations
 from psycopg import AsyncConnection
-from psycopg.sql import SQL, Identifier
-from sqlalchemy import create_engine
 
-from tests.constants import POSTGRES_URL
 from tests.fixtures.types import Postgres
 from tests.helpers.core import scalar
 from tests.helpers.migrations import (
+    GOOSE,
     MIGRATIONS,
     ROLES,
     description_lines,
+    goose,
     migration_files,
     migration_sql,
+    scratch_url,
 )
+from tests.helpers.rbac import relations_with
 
 CHECK_VIOLATION = "23514"
 
@@ -66,25 +62,7 @@ class TestClaimChecksUnderConcurrency:
             await adding
 
 
-GOOSE = shutil.which("goose")
 CONSOLE_WRITES = {"projects", "schemas", "tables"}
-
-
-async def relations_with(pg: Postgres, privilege: str, *, any_column: bool) -> set[str]:
-    """Return the console tables on which the role of the tokens holds a privilege, on a column or on the table."""
-    check = "has_any_column_privilege" if any_column else "has_table_privilege"
-    cursor = await pg.connection.execute(
-        f"""
-        SELECT c.relname
-        FROM pg_class AS c
-        INNER JOIN pg_namespace AS n ON c.relnamespace = n.oid
-        WHERE n.nspname = 'console' AND c.relkind IN ('r', 'p')
-            AND {check}('dp_api', c.oid, %s)
-        """.encode(),
-        (privilege,),
-    )
-
-    return {name for (name,) in await cursor.fetchall()}
 
 
 @pytest.mark.postgres
@@ -197,63 +175,6 @@ class TestGrantsOfTheMigrations:
 
         assert "queues" not in text
         assert "schedules" not in text
-
-
-def scratch_url(name: str) -> str:
-    """Return the connection string of a scratch database."""
-    return f"{POSTGRES_URL}/{name}"
-
-
-async def goose(
-    folder: str,
-    name: str,
-    *command: str,
-    env: Mapping[str, str] = ROLES,
-) -> subprocess.CompletedProcess[str]:
-    """Run goose on a scratch database, with the role names that the migrations fill into their grants."""
-    return await asyncio.to_thread(
-        subprocess.run,
-        [
-            str(GOOSE),
-            "-dir",
-            str(MIGRATIONS / folder),
-            "postgres",
-            scratch_url(name),
-            *command,
-        ],
-        env={
-            **{k: v for k, v in os.environ.items() if not k.startswith("AUTH_")},
-            **env,
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-
-@pytest.fixture
-async def scratch_databases() -> AsyncIterator[tuple[str, str]]:
-    """Give two empty databases, with the DBOS tables in the first, for a run of the whole set of migrations."""
-    app, catalog = f"mig_app_{uuid4().hex[:8]}", f"mig_cat_{uuid4().hex[:8]}"
-    async with await AsyncConnection.connect(
-        f"{POSTGRES_URL}/postgres", autocommit=True
-    ) as admin:
-        for name in (app, catalog):
-            await admin.execute(SQL("CREATE DATABASE {}").format(Identifier(name)))
-
-        engine = create_engine(
-            scratch_url(app).replace("postgresql://", "postgresql+psycopg://", 1)
-        )
-        try:
-            ensure_dbos_schema(engine, "dbos")
-            run_dbos_migrations(engine, "dbos", use_listen_notify=True)
-            yield app, catalog
-        finally:
-            engine.dispose()
-            for name in (app, catalog):
-                await admin.execute(
-                    SQL("DROP DATABASE {} WITH (FORCE)").format(Identifier(name))
-                )
 
 
 @pytest.mark.postgres
@@ -383,10 +304,332 @@ class TestMigrationRun:
                 return (bool(row[0]), bool(row[1]))
 
         assert await parts() == (True, True)
-        assert (await goose("console", app, "down")).returncode == 0
+        assert (await goose("console", app, "down-to", "17")).returncode == 0
         assert await parts() == (False, False)
         assert (await goose("console", app, "up")).returncode == 0
         assert await parts() == (True, True)
+
+    async def test_the_catalog_and_default_project_migrations_go_down_and_up_again(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """Down to version 18 drops the catalog view and the ltree extension, and gives the delete policy its old text."""
+        app, _ = scratch_databases
+        await goose("console", app, "up")
+
+        async def state() -> tuple[object, ...]:
+            async with await AsyncConnection.connect(scratch_url(app)) as connection:
+                cursor = await connection.execute(
+                    b"SELECT to_regclass('console.catalog') IS NOT NULL,"
+                    b" EXISTS (SELECT FROM pg_extension WHERE extname = 'ltree'),"
+                    b" (SELECT qual LIKE '%default%' FROM pg_policies"
+                    b"  WHERE schemaname = 'console' AND tablename = 'projects' AND policyname = 'delete_scope')"
+                )
+                row = await cursor.fetchone()
+                assert row is not None
+                return row
+
+        assert await state() == (True, True, True)
+        assert (await goose("console", app, "down-to", "18")).returncode == 0
+        assert await state() == (False, False, False)
+        assert (await goose("console", app, "up")).returncode == 0
+        assert await state() == (True, True, True)
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(GOOSE is None, reason="goose is not installed")
+class TestProjectSchemaNames:
+    """The migration that gives every schema the name `<project>__<schema>`."""
+
+    SEED = (
+        b"INSERT INTO console.projects (name) VALUES ('sales');"
+        b"INSERT INTO console.schemas (project, short_name) VALUES ('default', 'legacy'), ('sales', 'orders');"
+        b"INSERT INTO console.tables (name, schema) VALUES ('p.d.t', 'sales_orders');"
+        b"CREATE SCHEMA legacy; CREATE SCHEMA sales_orders; CREATE TABLE sales_orders.t (id int);"
+        b"INSERT INTO data_proxy.state VALUES ('sales_orders.t', '{}');"
+        b"INSERT INTO data_proxy.scope (workflow_id, run_id, schema_name) VALUES ('w', 'w', 'legacy');"
+        b"INSERT INTO data_proxy.errors (reason, fields)"
+        b' VALUES (\'x\', \'{"schema": "legacy", "table": "legacy.t"}\');'
+        b"INSERT INTO dbos.workflow_schedules (schedule_id, schedule_name, workflow_name, schedule, context)"
+        b" VALUES ('i', 'sync-sales_orders', 'run_sync', '0 2 * * *', '{\"schemas\": [\"sales_orders\"]}')"
+    )
+    STATE = (
+        b"SELECT (SELECT array_agg(name ORDER BY name) FROM console.schemas),"
+        b" (SELECT schema FROM console.tables),"
+        b" (SELECT array_agg(nspname ORDER BY nspname) FROM pg_namespace"
+        b"  WHERE nspname IN ('legacy', 'sales_orders', 'default__legacy', 'sales__orders')),"
+        b" (SELECT table_name FROM data_proxy.state),"
+        b" (SELECT schema_name FROM data_proxy.scope),"
+        b" (SELECT fields::text FROM data_proxy.errors)"
+    )
+
+    async def state(self, app: str) -> tuple[object, ...]:
+        """Read the names that the migration changes."""
+        async with await AsyncConnection.connect(scratch_url(app)) as connection:
+            row = await (await connection.execute(self.STATE)).fetchone()
+            assert row is not None
+            return row
+
+    async def test_every_name_changes_and_goes_back_with_the_down_part(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """The schema, the table link, the state, the scope, the errors and the schedule follow the new name, and the Down part restores them."""
+        app, _ = scratch_databases
+        await goose("console", app, "up-to", "20")
+        async with await AsyncConnection.connect(
+            scratch_url(app), autocommit=True
+        ) as connection:
+            for statement in self.SEED.decode().split(";"):
+                await connection.execute(statement.encode())
+        old = await self.state(app)
+
+        assert (await goose("console", app, "up")).returncode == 0
+        assert await self.state(app) == (
+            ["default__legacy", "sales__orders"],
+            "sales__orders",
+            ["default__legacy", "sales__orders"],
+            "sales__orders.t",
+            "default__legacy",
+            '{"table": "default__legacy.t", "schema": "default__legacy"}',
+        )
+
+        assert (await goose("console", app, "down-to", "20")).returncode == 0
+        assert await self.state(app) == old
+
+    async def test_the_schedules_go_and_a_reconcile_creates_them_again(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """DBOS pickles the schema list of a schedule, so the migration deletes the schedule and queues the reconcile."""
+        app, _ = scratch_databases
+        await goose("console", app, "up-to", "20")
+        async with await AsyncConnection.connect(
+            scratch_url(app), autocommit=True
+        ) as connection:
+            for statement in self.SEED.decode().split(";"):
+                await connection.execute(statement.encode())
+
+        assert (await goose("console", app, "up")).returncode == 0
+
+        async with await AsyncConnection.connect(scratch_url(app)) as connection:
+            schedules = await (
+                await connection.execute(
+                    b"SELECT count(*) FROM dbos.workflow_schedules"
+                )
+            ).fetchone()
+            queued = await (
+                await connection.execute(
+                    b"SELECT queue_name FROM dbos.workflow_status WHERE name = 'reconcile_schedules'"
+                )
+            ).fetchall()
+
+        assert schedules == (0,)
+        assert ("schedules",) in queued
+
+    async def test_one_sync_run_for_every_schema_rebuilds_the_generated_objects(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """The functions of a renamed schema name the old schema, so the migration queues one run that rebuilds them."""
+        app, _ = scratch_databases
+        await goose("console", app, "up-to", "20")
+        async with await AsyncConnection.connect(
+            scratch_url(app), autocommit=True
+        ) as connection:
+            for statement in self.SEED.decode().split(";"):
+                await connection.execute(statement.encode())
+
+        assert (await goose("console", app, "up")).returncode == 0
+
+        async with await AsyncConnection.connect(scratch_url(app)) as connection:
+            cursor = await connection.execute(
+                b"SELECT queue_name, status FROM dbos.workflow_status WHERE name = 'run_sync'"
+            )
+            rows = await cursor.fetchall()
+
+        assert rows == [("sync", "ENQUEUED")]
+
+    async def test_a_schema_name_of_the_old_form_is_refused(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """The check on the name keeps the form `<project>__<schema>`, also in the project default."""
+        app, _ = scratch_databases
+        await goose("console", app, "up")
+
+        async with await AsyncConnection.connect(
+            scratch_url(app), autocommit=True
+        ) as connection:
+            with pytest.raises(
+                psycopg.errors.CheckViolation, match="schemas_name_parts"
+            ):
+                await connection.execute(
+                    b"INSERT INTO console.schemas (name, project, short_name) VALUES ('hr', 'default', 'hr')"
+                )
+
+    async def test_a_schema_added_later_gets_the_new_name(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """A project and a short name give the physical name without a name."""
+        app, _ = scratch_databases
+        await goose("console", app, "up")
+
+        async with await AsyncConnection.connect(
+            scratch_url(app), autocommit=True
+        ) as connection:
+            await connection.execute(
+                b"INSERT INTO console.schemas (project, short_name) VALUES ('default', 'hr')"
+            )
+            row = await (
+                await connection.execute(b"SELECT name FROM console.schemas")
+            ).fetchone()
+
+        assert row == ("default__hr",)
+
+    async def test_two_schemas_of_one_old_name_are_refused(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """The schema `a_b` of the project default and the schema `b` of the project `a` would share the S3 folder `a_b`."""
+        app, _ = scratch_databases
+        await goose("console", app, "up")
+
+        async with await AsyncConnection.connect(
+            scratch_url(app), autocommit=True
+        ) as connection:
+            await connection.execute(
+                b"INSERT INTO console.projects (name) VALUES ('a')"
+            )
+            await connection.execute(
+                b"INSERT INTO console.schemas (project, short_name) VALUES ('default', 'a_b')"
+            )
+            with pytest.raises(
+                psycopg.errors.UniqueViolation, match="schemas_data_prefix"
+            ):
+                await connection.execute(
+                    b"INSERT INTO console.schemas (project, short_name) VALUES ('a', 'b')"
+                )
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(GOOSE is None, reason="goose is not installed")
+class TestAccessSchema:
+    """The migration that moves the grants of every schema into one table."""
+
+    SEED = (
+        b"INSERT INTO console.projects (name) VALUES ('sales');"
+        b"INSERT INTO console.schemas (project, short_name) VALUES ('default', 'legacy'), ('sales', 'orders');"
+        b"CREATE TABLE default__legacy.access_policy (subject text NOT NULL, unit_type text, unit_id text);"
+        b"CREATE TABLE sales__orders.access_policy (subject text NOT NULL, unit_type text, unit_id text);"
+        b"INSERT INTO default__legacy.access_policy VALUES"
+        b" ('ana', 'unit', '1'), ('bo', 'unit', '2'), ('carol', NULL, NULL), ('dee', 'unit', NULL);"
+        b"INSERT INTO sales__orders.access_policy VALUES ('ana', 'unit', '1'), ('eve', 'unit', '3')"
+    )
+    GRANTS: ClassVar[list[tuple[str, str, str, str]]] = [
+        ("ana", "default.legacy", "unit", "1"),
+        ("ana", "sales.orders", "unit", "1"),
+        ("bo", "default.legacy", "unit", "2"),
+        ("eve", "sales.orders", "unit", "3"),
+    ]
+
+    async def seeded(self, app: str) -> None:
+        """Migrate to the version before the access schema, and give the two schemas their old grant tables."""
+        await goose("console", app, "up-to", "21")
+        async with await AsyncConnection.connect(
+            scratch_url(app), autocommit=True
+        ) as connection:
+            await connection.execute(
+                b"CREATE SCHEMA default__legacy; CREATE SCHEMA sales__orders"
+            )
+            for statement in self.SEED.decode().split(";"):
+                await connection.execute(statement.encode())
+
+    async def test_every_grant_with_a_unit_moves_to_its_scope_and_the_others_stay_behind(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """A row without a unit has no meaning in the new table, so the copy drops it, and the old table keeps it."""
+        app, _ = scratch_databases
+        await self.seeded(app)
+
+        assert (await goose("console", app, "up")).returncode == 0
+
+        async with await AsyncConnection.connect(scratch_url(app)) as connection:
+            moved = await (
+                await connection.execute(
+                    b"SELECT subject, scope::text, unit_type, unit_id FROM access.policy ORDER BY 1, 2"
+                )
+            ).fetchall()
+            logged = await (
+                await connection.execute(b"SELECT count(*) FROM access.log")
+            ).fetchone()
+            kept = await (
+                await connection.execute(
+                    b"SELECT count(*) FROM default__legacy.access_policy"
+                )
+            ).fetchone()
+
+        assert moved == self.GRANTS
+        assert logged == (0,)
+        assert kept == (4,)
+
+    async def test_the_down_part_drops_the_new_schema_and_keeps_the_old_tables(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """A rollback leaves the grants of the old tables as they were."""
+        app, _ = scratch_databases
+        await self.seeded(app)
+        await goose("console", app, "up")
+
+        assert (await goose("console", app, "down-to", "21")).returncode == 0
+
+        async with await AsyncConnection.connect(scratch_url(app)) as connection:
+            gone = await (
+                await connection.execute(b"SELECT to_regnamespace('access')")
+            ).fetchone()
+            old = await (
+                await connection.execute(
+                    b"SELECT count(*) FROM default__legacy.access_policy"
+                )
+            ).fetchone()
+
+        assert gone == (None,)
+        assert old == (4,)
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(GOOSE is None, reason="goose is not installed")
+class TestFunctionNames:
+    """The migration that drops the functions with the names of an older release."""
+
+    async def test_the_old_names_go_and_the_others_stay(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """Drop `dl_changes_<table>` and `<table>_aggregate` in a schema of the console, and nothing else."""
+        app, _ = scratch_databases
+        await goose("console", app, "up-to", "22")
+        async with await AsyncConnection.connect(
+            scratch_url(app), autocommit=True
+        ) as connection:
+            await connection.execute(
+                b"INSERT INTO console.schemas (project, short_name) VALUES ('default', 'x');"
+            )
+            for statement in (
+                b"CREATE SCHEMA default__x",
+                b"CREATE SCHEMA other",
+                b"CREATE FUNCTION default__x.dl_changes_t(bigint, bigint) RETURNS int LANGUAGE sql AS 'SELECT 1'",
+                b"CREATE FUNCTION default__x.t_aggregate() RETURNS int LANGUAGE sql AS 'SELECT 1'",
+                b"CREATE FUNCTION default__x.t_fn() RETURNS int LANGUAGE sql AS 'SELECT 1'",
+                b"CREATE FUNCTION other.t_aggregate() RETURNS int LANGUAGE sql AS 'SELECT 1'",
+            ):
+                await connection.execute(statement)
+
+        assert (await goose("console", app, "up")).returncode == 0
+
+        async with await AsyncConnection.connect(scratch_url(app)) as connection:
+            cursor = await connection.execute(
+                b"SELECT n.nspname || '.' || p.proname FROM pg_proc AS p"
+                b" JOIN pg_namespace AS n ON p.pronamespace = n.oid"
+                b" WHERE n.nspname IN ('default__x', 'other') ORDER BY 1"
+            )
+            assert await cursor.fetchall() == [
+                ("default__x.t_fn",),
+                ("other.t_aggregate",),
+            ]
 
 
 class TestMigrationFiles:

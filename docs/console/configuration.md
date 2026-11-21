@@ -17,8 +17,8 @@ Every row records `updated_at` and `updated_by`. The database sets both. The nam
 
 Constraints replace a validation step:
 
-- A project name uses lowercase letters and digits. The project `default` always exists. A project with schemas can't be deleted.
-- A schema has one project. Its `name` is the physical name that the sync, the proxy, S3 and the roles use: `<project>_<short_name>`, or `<short_name>` in `default`.
+- A project name uses lowercase letters and digits. The project `default` always exists. A project with schemas can't be deleted. A new name follows [the name rules](../terraform.md#names).
+- A schema has one project. Its `name` is the physical name that the sync, the proxy and the roles use: `<project>__<short_name>`, also in `default`. The files of a schema in S3 keep the folder of its old name.
 - A physical name uses lowercase letters, digits and underscores, and it starts with a letter. It has at most 56 characters, so that the role name `schema_<name>` fits in 63. Two schemas can't share one.
 - A schema can't change its project or its short name. Delete it and add it again to rename it.
 - A table name is unique in the whole configuration, and unique in its schema by its last part.
@@ -28,7 +28,7 @@ Constraints replace a validation step:
 
 The engine checks the rules of a source, such as the form of a table name, when a sync run starts.
 
-Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema, its `access_policy` and its views exist. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
+Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema exists and how many views it has. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
 
 ## Remove a table or a schema
 
@@ -38,7 +38,7 @@ Deleting a row in `tables` or `schemas` destroys the data of that table or schem
 
 **A schema.** A trigger on `schemas` queues the workflow `provision_schemas` when none waits. The queue runs one workflow at a time, so a change during a sync run gets the next sync run. The sync worker creates a Job from the suspended `provision` CronJob ([Initialization](../operations/initialization.md#run-a-job-on-demand)). The Job makes the database match the configuration. Every sync run does the same at its start, so a lost event heals.
 
-- **Add:** the Job creates the PostgreSQL schema with `access_policy` and `access_log`, adds it to `pgrst.db_schemas` and tells PostgREST to reload. It takes seconds.
+- **Add:** the Job creates the role that reads the metadata, then the PostgreSQL schema, adds it to `pgrst.db_schemas` and tells PostgREST to reload. It takes seconds.
 - **Remove:** the Job stops serving the schema and purges the files in S3. It drops the metadata schema in the catalog database. It deletes the state, the errors and the scope of its tables. It drops the schema of the database last, so the next sync run finds an unfinished removal. Every step can run again.
 
 ## The configuration endpoint
@@ -58,5 +58,5 @@ A trigger on `schemas`, `tables` and `rls` queues a `reload_proxy` workflow afte
 <!-- nav:start -->
 ---
 
-[Previous: Control a run and a schedule](./runs.md) | [Next: Changes](./changes.md) | [Index](./index.md) | [Home](../index.md)
+[Previous: Control a run and a schedule](./runs.md) | [Next: Projects](./projects.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

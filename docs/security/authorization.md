@@ -21,28 +21,28 @@ flowchart TD
 
 ## Schema condition
 
-The token must list the requested schema:
+The token must list the requested schema as `project.schema`:
 
 ```json
-"schemas": ["test"]
+"schemas": ["default.test"]
 ```
 
-The client must select the same schema:
+The client names the same project and schema in the path:
 
 ```http
-Accept-Profile: test
+GET /default/test/participants
 ```
 
-The schema name `*` stands for every schema. Use it only for a debugging account in staging. The token then reads and changes every schema, and it also reads every row, as the next section describes.
+The entry `*` stands for every schema. Use it only for a debugging account in staging. The token then reads and changes every schema, and it also reads every row, as the next section describes.
 
 ```json
 "schemas": ["*"]
 ```
 
-The element `<schema>:*` reaches one schema and reads every row of it. A token with it needs no access policy row for that schema, and it reaches no other schema.
+The element `<project>.<schema>:*` reaches one schema and reads every row of it. A token with it needs no grant for that schema, and it reaches no other schema.
 
 ```json
-"schemas": ["test:*"]
+"schemas": ["default.test:*"]
 ```
 
 ## Row condition
@@ -64,7 +64,7 @@ OR unit_type/unit_id matches the row
 
 A token whose `schemas` claim has `*`, or `<schema>:*` for the schema of the table, skips this condition and reads every row.
 
-A subject with the grant `unit_type = '*'` and `unit_id = '*'` in the `access_policy` of the schema reads every row of the tables of that schema too. The grant covers one subject and one schema. Revoking it deletes the row, like any other grant.
+A subject with the grant `unit_type = '*'` and `unit_id = '*'` in `access.policy` reads every row of the tables that the scope of the grant covers. The scope is `*`, a project, a schema or a table. Revoking the grant deletes the row, like any other grant.
 
 ### A list column
 
@@ -105,12 +105,12 @@ Create one confidential client for the service that manages the access policy, a
 ```json
 {
   "role": "dp_policy",
-  "schemas": ["test"],
+  "schemas": ["default.test"],
   "preferred_username": "test_policy"
 }
 ```
 
-The token reads and writes `<schema>.access_policy` for the schemas in its claim. `dp_policy` has only the four policy permissions: `read_policy`, `create_policy`, `edit_policy` and `delete_policy`. Deleting a row revokes the grant. The database records the change in `test.access_log`.
+The token reads and writes `access.policy` for the scopes that its claim reaches. `dp_policy` has the four policy permissions `read_policy`, `create_policy`, `edit_policy` and `delete_policy`, and `read_config`. `read_config` shows the token the schemas and tables of its claim, and `sync_config()`, so a service can list its own scopes. The token can't change the configuration. Deleting a row revokes the grant. The database records the change in `access.log`.
 
 <!-- nav:start -->
 ---

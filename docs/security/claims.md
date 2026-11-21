@@ -5,7 +5,7 @@ This page lists the claims that a token needs. A normal end-user token for the e
 ```json
 {
   "role": "dp_api",
-  "schemas": ["test"],
+  "schemas": ["default.test"],
   "preferred_username": "test_user_1"
 }
 ```

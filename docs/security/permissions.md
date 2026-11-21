@@ -7,7 +7,7 @@ The `configure-db` job loads the file into the `rbac` schema. The pre-request fu
 | Permission | What it opens |
 | --- | --- |
 | `read_sync` | The views `runs`, `tasks`, `steps`, `logs`, `errors`, `queues`, `schedules`, `health`, `synced`, and `overview`. |
-| `read_config` | The tables `schemas`, `tables`, and `rls`, and `sync_config()`. |
+| `read_config` | The tables `schemas`, `tables`, and `rls`, the view `catalog`, and `sync_config()`. A role with it also gets the Config tab of the console. |
 | `create_config` | Insert on the three tables. |
 | `edit_config` | Update on the three tables. |
 | `delete_config` | Delete on the three tables. |
@@ -17,8 +17,8 @@ The `configure-db` job loads the file into the `rbac` schema. The pre-request fu
 | `read_files` | `table_files()`, the Parquet files for the query tab. |
 | `read_api` | The synced views of the data API. |
 | `read_ducklake` | The change feed of the catalog. |
-| `read_policy` | Read `<schema>.access_policy`. |
-| `create_policy`, `edit_policy`, `delete_policy` | Insert, update, and delete in `<schema>.access_policy`. |
+| `read_policy` | Read `access.policy` and `access.log`, in the scopes that the claims reach. |
+| `create_policy`, `edit_policy`, `delete_policy` | Insert, update, and delete in `access.policy`, in the scopes that the claims reach. |
 
 A role that edits needs the matching read permission, because an update reads the row first. The roles in `rbac.toml` include it.
 
@@ -30,7 +30,7 @@ The database checks a permission with a row policy or with a check at the start 
 
 A delete that the row policy hides removes nothing and answers 200 with an empty list.
 
-Every role except `dp_admin` sees only the schemas in the `schemas` claim and in the `projects` claim, and a token without them sees nothing. `dp_admin` has `grant_all` and reaches every schema and project, whatever the claims say, but the access policy still decides its rows. The `projects` claim names projects. When a request starts, `rbac.load()` expands each entry into the schemas that the project has: `<schema>` for `<project>`, and `<schema>:*` for `<project>:*`. A token with a project can add a schema in it, even though the schema doesn't exist yet. The wildcard `*` names every project. The database enforces this, not the console:
+Every role except `dp_admin` sees only the schemas in the `schemas` claim and in the `projects` claim, and a token without them sees nothing. `dp_admin` has `grant_all` and reaches every schema and project, whatever the claims say, but the access policy still decides its rows. The `projects` claim names projects. When a request starts, `rbac.load()` expands each entry into the schemas that the project has: `<schema>` for `<project>`, and `<schema>:*` for `<project>:*`. A token with a project can add a schema in it, even though the schema doesn't exist yet. The wildcard `*` names every project and every row, as it does in `schemas`. The database enforces this, not the console:
 
 - Row-level security filters `schemas`, `tables` and `rls` by the schema of each row. A role with `create_config` writes a row only for a schema in its claim, and the claim can name a schema that doesn't exist yet.
 - The views `tasks`, `logs`, `errors`, `health`, `synced` and `overview` show the rows of the schemas in the claim. A log line without a schema is hidden.

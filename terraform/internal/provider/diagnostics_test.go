@@ -77,13 +77,13 @@ func TestAddAPIError(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			var diagnostics diag.Diagnostics
 
-			addAPIError(&diagnostics, "Couldn't delete the schema", tt.permission, tt.err)
+			addAPIError(&diagnostics, "Couldn't delete the schema", testCase.permission, testCase.err)
 
-			want := []diagnostic{{summary: "Couldn't delete the schema", detail: tt.want}}
+			want := []diagnostic{{summary: "Couldn't delete the schema", detail: testCase.want}}
 			if got := diagnosticsOf(diagnostics); !reflect.DeepEqual(got, want) {
 				t.Errorf("diagnostics = %+v, want %+v", got, want)
 			}
@@ -110,10 +110,10 @@ func TestCheckReadConfig(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := diagnosticsOf(checkReadConfig("ci", tt.permissions)); !reflect.DeepEqual(got, tt.diags) {
-				t.Errorf("diagnostics = %+v, want %+v", got, tt.diags)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := diagnosticsOf(checkReadConfig("ci", testCase.permissions)); !reflect.DeepEqual(got, testCase.diags) {
+				t.Errorf("diagnostics = %+v, want %+v", got, testCase.diags)
 			}
 		})
 	}

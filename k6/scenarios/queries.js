@@ -2,7 +2,7 @@
 import http from "k6/http";
 import { sleep } from "k6";
 import {
-    API_URL,
+    DATA_URL,
     authHeaders,
     cacheHeader,
     clearProxyCache,
@@ -32,7 +32,7 @@ function jsonb() {
     let filterBody = null;
 
     for (let attempt = 0; attempt < 3; attempt++) {
-        const response = http.get(`${API_URL}/${FULL_TABLE}?metadata->>status=not.is.null&limit=1`, {
+        const response = http.get(`${DATA_URL}/${FULL_TABLE}?metadata->>status=not.is.null&limit=1`, {
             headers: authHeaders(token),
             tags: { name: "json_path_filter" },
         });

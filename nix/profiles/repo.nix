@@ -33,6 +33,15 @@ in
             && (type == null || lib.elemAt parts 2 == type)
           ) (lib.attrNames config.tasks);
 
+        gitDirectory =
+          let
+            pointer = "${config.devenv.root}/.git";
+          in
+          if builtins.readFileType pointer == "directory" then
+            ".git"
+          else
+            lib.removeSuffix "\n" (lib.removePrefix "gitdir: " (builtins.readFile pointer));
+
         docsFiles = utils.mkGlobs "docs" [
           "js"
           "json"
@@ -189,8 +198,9 @@ in
             description = "Check the code and the last commit subjects against the style rules that a pattern can check.";
             exec = "nu scripts/rules.nu";
             execIfModified = utils.mkInputs [
-              ".git/logs/HEAD"
+              "${gitDirectory}/logs/HEAD"
               "scripts/rules.nu"
+              "terraform/internal/provider/names.go"
               "scripts/**/*.nu"
               "helm/files/scripts/**/*.nu"
               "console/notebooks/*.nu"

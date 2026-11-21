@@ -87,6 +87,25 @@ tests:
           value: data-proxy-swagger-ui-scripts
         template: configmap-swagger-ui.yaml
 
+  - it: calls the path form of the selected schema and sets no profile header
+    set:
+      swaggerUi.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["initializer.js"]
+          pattern: "selectedSchema.replace\\('__', '/'\\)"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-swagger-ui-scripts
+        template: configmap-swagger-ui.yaml
+      - notMatchRegex:
+          path: data["initializer.js"]
+          pattern: "Accept-Profile|Content-Profile"
+        documentSelector:
+          path: metadata.name
+          value: data-proxy-swagger-ui-scripts
+        template: configmap-swagger-ui.yaml
+
   - it: mounts the schema list as a directory, so that a change reaches the pod
     set:
       swaggerUi.enabled: true

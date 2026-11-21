@@ -38,8 +38,8 @@ class TestPermissions:
             ),
             pytest.param(
                 "dp_policy",
-                ["read_policy", "create_policy"],
-                ["read_sync"],
+                ["read_policy", "create_policy", "read_config"],
+                ["read_sync", "create_config", "edit_config", "start_sync"],
                 id="policy",
             ),
             pytest.param(
@@ -60,7 +60,7 @@ class TestPermissions:
         self, console_api: Postgres, role: str, has: list[str], lacks: list[str]
     ) -> None:
         """Show the console the actions that it may offer."""
-        await as_token(console_api, role, ["sales"])
+        await as_token(console_api, role, ["default__sales"])
 
         granted = await scalar(console_api, "SELECT console.permissions()")
 
@@ -84,31 +84,35 @@ class TestViewsAreScopedBySchema:
     ) -> None:
         """Hide a run of another schema, and show the schemas of the run that the token reaches."""
         await two_schemas(console_api)
-        await start(console_api, ["sales"])
-        await start(console_api, ["hr"])
-        await as_token(console_api, "dp_console", ["sales"], database_role=True)
+        await start(console_api, ["default__sales"])
+        await start(console_api, ["default__hr"])
+        await as_token(
+            console_api, "dp_console", ["default__sales"], database_role=True
+        )
 
         rows = await values(console_api, "SELECT schemas FROM console.runs")
 
-        assert rows == [["sales"]]
+        assert rows == [["default__sales"]]
 
     async def test_a_run_shows_only_the_schemas_that_the_token_reaches(
         self, console_api: Postgres
     ) -> None:
         """Do not tell a user the other schemas of a run that covers several."""
         await two_schemas(console_api)
-        await start(console_api, ["sales", "hr"])
-        await as_token(console_api, "dp_console", ["hr"], database_role=True)
+        await start(console_api, ["default__sales", "default__hr"])
+        await as_token(console_api, "dp_console", ["default__hr"], database_role=True)
 
-        assert await values(console_api, "SELECT schemas FROM console.runs") == [["hr"]]
+        assert await values(console_api, "SELECT schemas FROM console.runs") == [
+            ["default__hr"]
+        ]
 
     async def test_no_run_is_visible_without_the_permission_to_read_them(
         self, console_api: Postgres
     ) -> None:
         """A client of the data API sees no run, even of its own schema."""
         await two_schemas(console_api)
-        await start(console_api, ["sales"])
-        await as_token(console_api, "dp_api", ["sales"], database_role=True)
+        await start(console_api, ["default__sales"])
+        await as_token(console_api, "dp_api", ["default__sales"], database_role=True)
 
         assert await values(console_api, "SELECT id FROM console.runs") == []
 
@@ -120,13 +124,15 @@ class TestViewsAreScopedBySchema:
         await console_api.connection.execute(
             """
             INSERT INTO data_proxy.errors (reason, fields) VALUES
-                ('in sales by schema', '{"schema": "sales"}'),
+                ('in sales by schema', '{"schema": "default__sales"}'),
                 ('in sales by table', '{"table": "p.d.orders"}'),
                 ('in hr by table', '{"table": "p.d.staff"}'),
                 ('nowhere', '{}')
             """
         )
-        await as_token(console_api, "dp_console", ["sales"], database_role=True)
+        await as_token(
+            console_api, "dp_console", ["default__sales"], database_role=True
+        )
 
         reasons = await values(
             console_api, "SELECT reason FROM console.errors ORDER BY reason"
@@ -138,14 +144,22 @@ class TestViewsAreScopedBySchema:
         ("role", "schemas", "expected"),
         [
             pytest.param(
-                "dp_console", ["sales"], ["sales"], id="console-of-one-schema"
+                "dp_console",
+                ["default__sales"],
+                ["default__sales"],
+                id="console-of-one-schema",
             ),
             pytest.param(
-                "dp_admin", ["sales", "hr"], ["hr", "sales"], id="admin-of-both"
+                "dp_admin",
+                ["default__sales", "default__hr"],
+                ["default__hr", "default__sales"],
+                id="admin-of-both",
             ),
             pytest.param("dp_console", ["other"], [], id="console-of-another-schema"),
-            pytest.param("dp_api", ["sales"], [], id="no-config-permission"),
-            pytest.param("dp_admin", ["*"], ["hr", "sales"], id="every-schema"),
+            pytest.param("dp_api", ["default__sales"], [], id="no-config-permission"),
+            pytest.param(
+                "dp_admin", ["*"], ["default__hr", "default__sales"], id="every-schema"
+            ),
         ],
     )
     async def test_the_configuration_is_the_one_of_the_schemas_of_the_token(
@@ -173,9 +187,13 @@ class TestViewsAreScopedBySchema:
     @pytest.mark.parametrize(
         ("role", "schemas", "refused"),
         [
-            pytest.param("dp_api", ["sales"], True, id="no-create-permission"),
-            pytest.param("dp_console", ["hr"], True, id="schema-outside-the-claim"),
-            pytest.param("dp_console", ["sales"], False, id="schema-of-the-claim"),
+            pytest.param("dp_api", ["default__sales"], True, id="no-create-permission"),
+            pytest.param(
+                "dp_console", ["default__hr"], True, id="schema-outside-the-claim"
+            ),
+            pytest.param(
+                "dp_console", ["default__sales"], False, id="schema-of-the-claim"
+            ),
         ],
     )
     async def test_a_token_adds_a_schema_only_inside_its_claim(
@@ -185,7 +203,7 @@ class TestViewsAreScopedBySchema:
         await as_token(console_api, role, schemas, database_role=True)
 
         state = await refusal(
-            console_api, "INSERT INTO console.schemas (name) VALUES ('sales')"
+            console_api, "INSERT INTO console.schemas (name) VALUES ('default__sales')"
         )
 
         assert state == (INSUFFICIENT if refused else None)
@@ -195,30 +213,40 @@ class TestViewsAreScopedBySchema:
     ) -> None:
         """Show each schedule with its schema, and hide the schedules of the other schemas."""
         await two_schemas(console_api)
-        await add_schedule(console_api, "sync-sales")
-        await add_schedule(console_api, "sync-hr")
+        await add_schedule(console_api, "sync-default__sales")
+        await add_schedule(console_api, "sync-default__hr")
         await add_schedule(console_api, "sync")
-        await as_token(console_api, "dp_console", ["sales"], database_role=True)
+        await as_token(
+            console_api, "dp_console", ["default__sales"], database_role=True
+        )
 
         cursor = await console_api.connection.execute(
             b"SELECT name, schema FROM console.schedules ORDER BY name"
         )
 
-        assert await cursor.fetchall() == [("sync-sales", "sales")]
+        assert await cursor.fetchall() == [("sync-default__sales", "default__sales")]
 
-    async def test_health_tells_a_schema_without_its_access_policy_from_one_that_has_it(
+    async def test_health_tells_a_schema_that_does_not_exist_from_one_that_does(
         self, console_api: Postgres
     ) -> None:
-        """Say that a schema is provisioned only when its schema and its access policy exist."""
-        await add_schema(console_api, "sales", claim="cpf")
-        await add_schema(console_api, "hr", claim="cpf", provisioned=False)
-        await as_token(console_api, "dp_admin", ["sales", "hr"], database_role=True)
-
-        cursor = await console_api.connection.execute(
-            b"SELECT name, schema_exists, access_policy FROM console.health ORDER BY name"
+        """Say that a schema is provisioned when its schema exists in the database."""
+        await add_schema(console_api, "default__sales", claim="cpf")
+        await add_schema(console_api, "default__hr", claim="cpf", provisioned=False)
+        await as_token(
+            console_api,
+            "dp_admin",
+            ["default__sales", "default__hr"],
+            database_role=True,
         )
 
-        assert await cursor.fetchall() == [("hr", False, False), ("sales", True, True)]
+        cursor = await console_api.connection.execute(
+            b"SELECT name, schema_exists FROM console.health ORDER BY name"
+        )
+
+        assert await cursor.fetchall() == [
+            ("default__hr", False),
+            ("default__sales", True),
+        ]
 
 
 @pytest.mark.postgres
@@ -230,9 +258,13 @@ class TestStartSync:
     ) -> None:
         """Queue run_sync for the schemas that the user asked for."""
         await two_schemas(console_api)
-        await as_token(console_api, "dp_admin", ["sales", "hr"], user="lia")
+        await as_token(
+            console_api, "dp_admin", ["default__sales", "default__hr"], user="lia"
+        )
 
-        run = await scalar(console_api, "SELECT console.start_sync(%s, %s)", ["hr"], [])
+        run = await scalar(
+            console_api, "SELECT console.start_sync(%s, %s)", ["default__hr"], []
+        )
 
         cursor = await console_api.connection.execute(
             b"SELECT name, queue_name, status, authenticated_user FROM dbos.workflow_status WHERE workflow_uuid = %s",
@@ -243,45 +275,59 @@ class TestStartSync:
             console_api,
             "SELECT schema_name FROM data_proxy.scope WHERE run_id = %s",
             run,
-        ) == ["hr"]
+        ) == ["default__hr"]
 
     async def test_a_run_with_no_scope_covers_every_schema_of_the_token(
         self, console_api: Postgres
     ) -> None:
         """Default to the schemas that the token reaches, in order."""
         await two_schemas(console_api)
-        await as_token(console_api, "dp_admin", ["sales", "hr"])
+        await as_token(console_api, "dp_admin", ["default__sales", "default__hr"])
 
         scope = await scalar(console_api, "SELECT console.start_scope('{}', '{}')")
 
-        assert scope == ["hr", "sales"]
+        assert scope == ["default__hr", "default__sales"]
 
     async def test_tables_alone_give_the_schemas_that_they_belong_to(
         self, console_api: Postgres
     ) -> None:
         """Start the schemas of the tables that the user chose."""
         await two_schemas(console_api)
-        await as_token(console_api, "dp_admin", ["sales", "hr"])
+        await as_token(console_api, "dp_admin", ["default__sales", "default__hr"])
 
         scope = await scalar(
             console_api, "SELECT console.start_scope('{}', %s)", ["p.d.staff"]
         )
 
-        assert scope == ["hr"]
+        assert scope == ["default__hr"]
 
     @pytest.mark.parametrize(
         ("role", "schemas", "asked", "tables"),
         [
-            pytest.param("dp_api", ["sales"], ["sales"], [], id="no-start-permission"),
             pytest.param(
-                "dp_console", ["sales"], ["hr"], [], id="schema-outside-the-claim"
-            ),
-            pytest.param(
-                "dp_console", ["sales"], [], ["p.d.staff"], id="table-outside-the-claim"
+                "dp_api",
+                ["default__sales"],
+                ["default__sales"],
+                [],
+                id="no-start-permission",
             ),
             pytest.param(
                 "dp_console",
-                ["sales"],
+                ["default__sales"],
+                ["default__hr"],
+                [],
+                id="schema-outside-the-claim",
+            ),
+            pytest.param(
+                "dp_console",
+                ["default__sales"],
+                [],
+                ["p.d.staff"],
+                id="table-outside-the-claim",
+            ),
+            pytest.param(
+                "dp_console",
+                ["default__sales"],
                 [],
                 ["p.d.nothing"],
                 id="table-that-does-not-exist",
@@ -322,8 +368,8 @@ class TestStartSync:
         self, console_api: Postgres
     ) -> None:
         """Tell the user to wait, with a conflict, for a schema with no access policy yet."""
-        await add_schema(console_api, "sales", claim="cpf", provisioned=False)
-        await as_token(console_api, "dp_admin", ["sales"])
+        await add_schema(console_api, "default__sales", claim="cpf", provisioned=False)
+        await as_token(console_api, "dp_admin", ["default__sales"])
 
         state = await refusal(console_api, "SELECT console.start_sync('{}', '{}')")
 
@@ -371,7 +417,7 @@ class TestRunControl:
     ) -> None:
         """Hand the action to the control queue, with the run id as its argument."""
         await two_schemas(console_api)
-        run = await start(console_api, ["sales"])
+        run = await start(console_api, ["default__sales"])
         await set_status(console_api, run, status)
 
         await console_api.connection.execute(
@@ -398,7 +444,7 @@ class TestRunControl:
     ) -> None:
         """Refuse an action that the status of the run does not allow."""
         await two_schemas(console_api)
-        run = await start(console_api, ["sales"])
+        run = await start(console_api, ["default__sales"])
         await set_status(console_api, run, status)
 
         assert (
@@ -409,9 +455,15 @@ class TestRunControl:
     @pytest.mark.parametrize(
         ("role", "schemas", "expected"),
         [
-            pytest.param("dp_api", ["sales"], INSUFFICIENT, id="no-control-permission"),
-            pytest.param("dp_console", ["hr"], NOT_FOUND, id="run-of-another-schema"),
-            pytest.param("dp_console", ["sales"], None, id="run-of-the-schema"),
+            pytest.param(
+                "dp_api", ["default__sales"], INSUFFICIENT, id="no-control-permission"
+            ),
+            pytest.param(
+                "dp_console", ["default__hr"], NOT_FOUND, id="run-of-another-schema"
+            ),
+            pytest.param(
+                "dp_console", ["default__sales"], None, id="run-of-the-schema"
+            ),
         ],
     )
     async def test_the_token_controls_only_the_runs_of_its_schemas(
@@ -423,7 +475,7 @@ class TestRunControl:
     ) -> None:
         """Answer not found for a run that the token cannot see, and insufficient privilege without the right."""
         await two_schemas(console_api)
-        run = await start(console_api, ["sales"])
+        run = await start(console_api, ["default__sales"])
         await as_token(console_api, role, schemas)
 
         assert (
@@ -435,7 +487,7 @@ class TestRunControl:
     ) -> None:
         """Do not tell a missing run from a run that the token cannot see."""
         await two_schemas(console_api)
-        await as_token(console_api, "dp_admin", ["sales"])
+        await as_token(console_api, "dp_admin", ["default__sales"])
 
         assert (
             await refusal(console_api, "SELECT console.cancel_run('ghost')")
@@ -447,7 +499,7 @@ class TestRunControl:
     ) -> None:
         """Copy the scope of a finished run to a new run."""
         await two_schemas(console_api)
-        run = await start(console_api, ["sales", "hr"])
+        run = await start(console_api, ["default__sales", "default__hr"])
         await set_status(console_api, run, "ERROR")
 
         again = await scalar(console_api, "SELECT console.retry_run(%s)", run)
@@ -457,16 +509,16 @@ class TestRunControl:
             console_api,
             "SELECT schema_name FROM data_proxy.scope WHERE run_id = %s ORDER BY 1",
             again,
-        ) == ["hr", "sales"]
+        ) == ["default__hr", "default__sales"]
 
     async def test_run_again_keeps_only_the_schemas_that_the_token_reaches(
         self, console_api: Postgres
     ) -> None:
         """Do not widen the scope of a run for a user who sees part of it."""
         await two_schemas(console_api)
-        run = await start(console_api, ["sales", "hr"])
+        run = await start(console_api, ["default__sales", "default__hr"])
         await set_status(console_api, run, "SUCCESS")
-        await as_token(console_api, "dp_console", ["sales"])
+        await as_token(console_api, "dp_console", ["default__sales"])
 
         again = await scalar(console_api, "SELECT console.retry_run(%s)", run)
 
@@ -474,14 +526,14 @@ class TestRunControl:
             console_api,
             "SELECT schema_name FROM data_proxy.scope WHERE run_id = %s",
             again,
-        ) == ["sales"]
+        ) == ["default__sales"]
 
     async def test_run_again_needs_a_run_that_has_finished(
         self, console_api: Postgres
     ) -> None:
         """Refuse to start a second copy of a run that is still queued."""
         await two_schemas(console_api)
-        run = await start(console_api, ["sales"])
+        run = await start(console_api, ["default__sales"])
 
         assert (
             await refusal(console_api, "SELECT console.retry_run(%s)", run) == CONFLICT
@@ -496,14 +548,17 @@ class TestScheduleControl:
         ("function", "arguments", "action"),
         [
             pytest.param(
-                "pause_schedule", "'sync-sales'", "pause_schedule", id="pause"
+                "pause_schedule", "'sync-default__sales'", "pause_schedule", id="pause"
             ),
             pytest.param(
-                "resume_schedule", "'sync-sales'", "resume_schedule", id="resume"
+                "resume_schedule",
+                "'sync-default__sales'",
+                "resume_schedule",
+                id="resume",
             ),
             pytest.param(
                 "set_schedule",
-                "'sync-sales', '30 3 * * 1'",
+                "'sync-default__sales', '30 3 * * 1'",
                 "set_schedule",
                 id="change-the-cron",
             ),
@@ -514,8 +569,8 @@ class TestScheduleControl:
     ) -> None:
         """Hand the action to the control queue."""
         await two_schemas(console_api)
-        await add_schedule(console_api, "sync-sales")
-        await as_token(console_api, "dp_admin", ["sales"])
+        await add_schedule(console_api, "sync-default__sales")
+        await as_token(console_api, "dp_admin", ["default__sales"])
 
         await console_api.connection.execute(
             f"SELECT console.{function}({arguments})".encode()
@@ -531,19 +586,23 @@ class TestScheduleControl:
         ("role", "schemas", "expected"),
         [
             pytest.param(
-                "dp_console", ["sales"], None, id="the-schema-of-the-schedule"
+                "dp_console", ["default__sales"], None, id="the-schema-of-the-schedule"
             ),
             pytest.param("dp_console", ["*"], None, id="every-schema-by-star"),
-            pytest.param("dp_console", ["hr"], NOT_FOUND, id="another-schema"),
-            pytest.param("dp_api", ["sales"], INSUFFICIENT, id="no-control-permission"),
-            pytest.param("dp_admin", ["hr"], None, id="grant_all-reaches-any-schema"),
+            pytest.param("dp_console", ["default__hr"], NOT_FOUND, id="another-schema"),
+            pytest.param(
+                "dp_api", ["default__sales"], INSUFFICIENT, id="no-control-permission"
+            ),
+            pytest.param(
+                "dp_admin", ["default__hr"], None, id="grant_all-reaches-any-schema"
+            ),
         ],
     )
     @pytest.mark.parametrize(
         "statement",
         [
-            "SELECT console.pause_schedule('sync-sales')",
-            "SELECT console.set_schedule('sync-sales', '30 3 * * 1')",
+            "SELECT console.pause_schedule('sync-default__sales')",
+            "SELECT console.set_schedule('sync-default__sales', '30 3 * * 1')",
         ],
     )
     async def test_needs_the_schema_of_the_schedule_and_the_permission_to_control(
@@ -556,7 +615,7 @@ class TestScheduleControl:
     ) -> None:
         """Hide the schedule from a token for another schema, and refuse a token without control_sync."""
         await two_schemas(console_api)
-        await add_schedule(console_api, "sync-sales")
+        await add_schedule(console_api, "sync-default__sales")
         await as_token(console_api, role, schemas)
 
         assert await refusal(console_api, statement) == expected
@@ -597,12 +656,14 @@ class TestScheduleControl:
     ) -> None:
         """Answer a bad request, and queue nothing."""
         await two_schemas(console_api)
-        await add_schedule(console_api, "sync-sales")
-        await as_token(console_api, "dp_admin", ["sales"])
+        await add_schedule(console_api, "sync-default__sales")
+        await as_token(console_api, "dp_admin", ["default__sales"])
 
         assert (
             await refusal(
-                console_api, "SELECT console.set_schedule('sync-sales', %s)", cron
+                console_api,
+                "SELECT console.set_schedule('sync-default__sales', %s)",
+                cron,
             )
             == BAD_REQUEST
         )
@@ -624,11 +685,12 @@ class TestTableFiles:
     ) -> None:
         """Pass the part of the table name after the last dot to the function of the schema."""
         await two_schemas(console_api)
-        await add_files_function(console_api, "sales")
-        await as_token(console_api, "dp_admin", ["sales"])
+        await add_files_function(console_api, "default__sales")
+        await as_token(console_api, "dp_admin", ["default__sales"])
 
         paths = await values(
-            console_api, "SELECT path FROM console.table_files('sales', 'p.d.orders')"
+            console_api,
+            "SELECT path FROM console.table_files('default__sales', 'p.d.orders')",
         )
 
         assert paths == ["orders.parquet"]
@@ -637,19 +699,23 @@ class TestTableFiles:
         ("role", "schemas", "schema", "table"),
         [
             pytest.param(
-                "dp_console", ["sales"], "sales", "p.d.orders", id="no-files-permission"
+                "dp_console",
+                ["default__sales"],
+                "default__sales",
+                "p.d.orders",
+                id="no-files-permission",
             ),
             pytest.param(
                 "dp_admin",
-                ["sales"],
-                "sales",
+                ["default__sales"],
+                "default__sales",
                 "p.d.staff",
                 id="table-of-another-schema",
             ),
             pytest.param(
                 "dp_admin",
-                ["sales"],
-                "sales",
+                ["default__sales"],
+                "default__sales",
                 "p.d.ghost",
                 id="table-that-does-not-exist",
             ),
@@ -665,7 +731,7 @@ class TestTableFiles:
     ) -> None:
         """Answer insufficient privilege, with one answer for a table that is not there and one that is forbidden."""
         await two_schemas(console_api)
-        await add_files_function(console_api, "sales")
+        await add_files_function(console_api, "default__sales")
         await as_token(console_api, role, schemas)
 
         state = await refusal(
@@ -679,14 +745,15 @@ class TestTableFiles:
     ) -> None:
         """Say that the files of an encrypted schema cannot be read in a notebook."""
         await two_schemas(console_api)
-        await add_files_function(console_api, "sales")
+        await add_files_function(console_api, "default__sales")
         await console_api.connection.execute(
-            "UPDATE console.schemas SET encrypted = TRUE WHERE name = 'sales'"
+            "UPDATE console.schemas SET encrypted = TRUE WHERE name = 'default__sales'"
         )
-        await as_token(console_api, "dp_admin", ["sales"])
+        await as_token(console_api, "dp_admin", ["default__sales"])
 
         state = await refusal(
-            console_api, "SELECT * FROM console.table_files('sales', 'p.d.orders')"
+            console_api,
+            "SELECT * FROM console.table_files('default__sales', 'p.d.orders')",
         )
 
         assert state == CONFLICT

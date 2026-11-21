@@ -5,6 +5,7 @@ local Redis = require("proxy.redis")
 local cache = require("proxy.cache")
 local constants = require("proxy.constants")
 local limiter = require("proxy.limiter")
+local log = require("proxy.log")
 local postgrest = require("proxy.postgrest")
 local request = require("proxy.request")
 local response = require("proxy.response")
@@ -59,10 +60,24 @@ end
 ---@return nil
 function handler.handle(loaded_config, config)
 	local ngx_request = read_nginx_request(config)
-	if request.asks_for_console(ngx_request.headers_in) then
+	if request.asks_for_internal_profile(ngx_request.headers_in) then
 		ngx.header["Content-Type"] = "application/json"
 		return ngx_request:respond(ngx.HTTP_FORBIDDEN, constants.http.forbidden_body)
 	end
+
+	local routed = request.route(ngx_request.uri, loaded_config.schemas)
+	if routed == nil then
+		log.note(ngx.WARN, "schema-unknown", {
+			method = ngx_request.method,
+			path = ngx_request.uri,
+			sub = request.jwt_identity(ngx_request.headers_in.Authorization).sub,
+		})
+		ngx.header["Content-Type"] = "application/json"
+		return ngx_request:respond(ngx.HTTP_NOT_FOUND, constants.http.unknown_schema_body)
+	end
+	ngx_request.uri = routed.path
+	ngx_request.headers_in["Accept-Profile"] = routed.profile
+	ngx_request.headers_in["Content-Profile"] = routed.profile
 
 	local store = Redis(config)
 	if constants.http.read_methods[ngx_request.method] then
@@ -76,7 +91,6 @@ function handler.handle(loaded_config, config)
 		return limiter.run(inflight, config.max_inflight, function() return postgrest.query(context) end)
 	end
 	local result = cache.fetch(context, cache_key, ask_postgrest, store, Lock)
-	if cache.changes_policy(context, result.response) then store:bump_generation() end
 
 	response.send(ngx_request, context, result)
 end

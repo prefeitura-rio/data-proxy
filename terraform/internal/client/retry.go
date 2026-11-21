@@ -21,7 +21,7 @@ var DefaultBackoff = Backoff{Initial: 100 * time.Millisecond, Max: time.Second, 
 // primary wrote a moment ago. It returns the first other result, the last ErrNoRow after the timeout, or the error
 // of the context. It doesn't retry ErrNotFound, which doesn't change with time.
 func RetryNoRow(ctx context.Context, backoff Backoff, read func(context.Context) error) error {
-	return retryNoRow(ctx, backoff, time.Now, sleep, read)
+	return retryNoRow(ctx, backoff, time.Now, waitFor, read)
 }
 
 // retryNoRow is RetryNoRow with a clock and a wait that a test replaces.
@@ -57,8 +57,7 @@ func retryNoRow(
 	}
 }
 
-// sleep waits for the duration, or returns the error of the context when it ends first.
-func sleep(ctx context.Context, duration time.Duration) error {
+func waitFor(ctx context.Context, duration time.Duration) error {
 	timer := time.NewTimer(duration)
 	defer timer.Stop()
 

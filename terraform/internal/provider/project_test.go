@@ -13,20 +13,17 @@ import (
 	"terraform-provider-data-proxy/internal/client"
 )
 
-// projectRowJSON is the row that the test server gives for the project sales.
 const projectRowJSON = `{"name":"sales","updated_at":"2026-01-01T00:00:00Z","updated_by":"terraform"}`
 
-// newTestProject returns the resource with a client that the steps drive, and no wait between reads.
 func newTestProject(t *testing.T, steps []step) resource.Resource {
 	t.Helper()
 
-	res := newProjectResource()
-	res.(*projectResource).backoff = client.Backoff{}
+	testProject := newProjectResource()
+	testProject.(*projectResource).backoff = client.Backoff{}
 
-	return configured(t, res, newStepClient(t, steps))
+	return configured(t, testProject, newStepClient(t, steps))
 }
 
-// summaries returns the summary of each diagnostic.
 func summaries(diagnostics []diagnostic) []string {
 	list := make([]string, 0, len(diagnostics))
 	for _, item := range diagnostics {
@@ -61,20 +58,20 @@ func TestProjectCreate(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := newTestProject(t, tt.steps)
-			s := resourceSchema(t, res)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			testProject := newTestProject(t, testCase.steps)
+			s := resourceSchema(t, testProject)
 			plan := planOf(t, s, projectModel{Name: types.StringValue("sales"), ID: types.StringUnknown(), UpdatedAt: types.StringUnknown(), UpdatedBy: types.StringUnknown()})
 			resp := resource.CreateResponse{State: nullState(s)}
 
-			res.Create(context.Background(), resource.CreateRequest{Plan: plan}, &resp)
+			testProject.Create(context.Background(), resource.CreateRequest{Plan: plan}, &resp)
 
 			got := diagnosticsOf(resp.Diagnostics)
 
-			if tt.wantSummary != "" {
-				if len(got) != 1 || got[0].summary != tt.wantSummary || !strings.Contains(got[0].detail, tt.wantDetail) {
-					t.Fatalf("diagnostics = %+v, want %q with %q", got, tt.wantSummary, tt.wantDetail)
+			if testCase.wantSummary != "" {
+				if len(got) != 1 || got[0].summary != testCase.wantSummary || !strings.Contains(got[0].detail, testCase.wantDetail) {
+					t.Fatalf("diagnostics = %+v, want %q with %q", got, testCase.wantSummary, testCase.wantDetail)
 				}
 
 				return
@@ -111,23 +108,23 @@ func TestProjectRead(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := newTestProject(t, tt.steps)
-			s := resourceSchema(t, res)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			testProject := newTestProject(t, testCase.steps)
+			s := resourceSchema(t, testProject)
 			state := stateOf(t, s, projectModel{ID: types.StringValue("sales"), Name: types.StringValue("sales"), UpdatedAt: types.StringValue("old"), UpdatedBy: types.StringValue("old")})
 			resp := resource.ReadResponse{State: state}
 
-			res.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
+			testProject.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
 
 			got := diagnosticsOf(resp.Diagnostics)
 
 			switch {
-			case tt.wantSummary != "":
-				if len(got) != 1 || got[0].summary != tt.wantSummary {
-					t.Fatalf("diagnostics = %+v, want %q", got, tt.wantSummary)
+			case testCase.wantSummary != "":
+				if len(got) != 1 || got[0].summary != testCase.wantSummary {
+					t.Fatalf("diagnostics = %+v, want %q", got, testCase.wantSummary)
 				}
-			case tt.wantRemoved:
+			case testCase.wantRemoved:
 				if !resp.State.Raw.IsNull() {
 					t.Errorf("state = %v, want it removed", resp.State.Raw)
 				}
@@ -160,18 +157,18 @@ func TestProjectDelete(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := newTestProject(t, tt.steps)
-			s := resourceSchema(t, res)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			testProject := newTestProject(t, testCase.steps)
+			s := resourceSchema(t, testProject)
 			state := stateOf(t, s, projectModel{ID: types.StringValue("sales"), Name: types.StringValue("sales"), UpdatedAt: types.StringValue("t"), UpdatedBy: types.StringValue("u")})
 			resp := resource.DeleteResponse{State: state}
 
-			res.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
+			testProject.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
 
 			got := diagnosticsOf(resp.Diagnostics)
 
-			if tt.wantSummary == "" {
+			if testCase.wantSummary == "" {
 				if len(got) != 0 {
 					t.Fatalf("diagnostics = %+v, want none", got)
 				}
@@ -179,8 +176,8 @@ func TestProjectDelete(t *testing.T) {
 				return
 			}
 
-			if len(got) != 1 || got[0].summary != tt.wantSummary || !strings.Contains(got[0].detail, tt.wantDetail) {
-				t.Fatalf("diagnostics = %+v, want %q with %q", got, tt.wantSummary, tt.wantDetail)
+			if len(got) != 1 || got[0].summary != testCase.wantSummary || !strings.Contains(got[0].detail, testCase.wantDetail) {
+				t.Fatalf("diagnostics = %+v, want %q with %q", got, testCase.wantSummary, testCase.wantDetail)
 			}
 		})
 	}
@@ -196,20 +193,20 @@ func TestProjectImportReadsByName(t *testing.T) {
 		{name: "a name with a dash", id: "id-carioca"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			res := newTestProject(t, nil)
 			s := resourceSchema(t, res)
 			resp := resource.ImportStateResponse{State: nullState(s)}
 
-			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: tt.id}, &resp)
+			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: testCase.id}, &resp)
 
 			var state projectModel
 
 			resp.State.Get(context.Background(), &state)
 
-			if state.Name.ValueString() != tt.id {
-				t.Errorf("name = %q, want %q", state.Name.ValueString(), tt.id)
+			if state.Name.ValueString() != testCase.id {
+				t.Errorf("name = %q, want %q", state.Name.ValueString(), testCase.id)
 			}
 		})
 	}
@@ -223,8 +220,8 @@ func TestProjectUpdateNeverRuns(t *testing.T) {
 		{name: "an empty request"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			res := newTestProject(t, nil)
 			resp := resource.UpdateResponse{}
 
@@ -298,7 +295,7 @@ func TestAccProjectResourceRefusesToDeleteAProjectWithSchemas(t *testing.T) {
 						t.Fatalf("testAccClient: %v", err)
 					}
 
-					if err := apiClient.DeleteSchema(context.Background(), name+"_orders"); err != nil {
+					if err := apiClient.DeleteSchema(context.Background(), name+"__orders"); err != nil {
 						t.Fatalf("delete the schema outside Terraform: %v", err)
 					}
 				},

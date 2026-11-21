@@ -342,14 +342,15 @@ export function runSqlJob(k8s, label, statement, databaseVariable = "PG_DATABASE
 }
 
 /**
- * Clears the proxy cache with a short-lived Valkey Job.
+ * Clears the proxy cache with a short-lived Valkey Job. The Job fails when the cache is not empty after the flush, so
+ * the next read of a scenario always starts from a miss.
  * @param {Kubernetes} k8s
  */
 export function clearProxyCache(k8s) {
     runCommandJob(
         k8s,
         "clear-proxy-cache",
-        'valkey-cli -h "$VALKEY_HOST" -p "$VALKEY_PORT" -a "$VALKEY_PASSWORD" --no-auth-warning -n "$PROXY_CACHE_REDIS_DB" FLUSHDB',
+        'cli() { valkey-cli -h "$VALKEY_HOST" -p "$VALKEY_PORT" -a "$VALKEY_PASSWORD" --no-auth-warning -n "$PROXY_CACHE_REDIS_DB" "$@"; }; cli FLUSHDB && test "$(cli DBSIZE)" = "0"',
         {
             image: "docker.io/valkey/valkey:8-alpine",
             env: [

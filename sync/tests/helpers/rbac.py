@@ -18,8 +18,10 @@ from tests.constants import (
     REQUEST_ROLES,
     SIGNER,
 )
+from tests.fixtures.console import as_token
 from tests.fixtures.types import Postgres
 from tests.helpers.core import helm_sql, scalar
+from tests.helpers.migrations import ROLES, migration_sql
 
 
 class RbacRole(BaseModel):
@@ -239,3 +241,44 @@ def stored_roles_sync(
     ).fetchall()
 
     return [(str(name), list(permissions)) for name, permissions in rows]
+
+
+async def relations_with(pg: Postgres, privilege: str, *, any_column: bool) -> set[str]:
+    """Return the console tables on which the role of the tokens holds a privilege, on a column or on the table."""
+    check = "has_any_column_privilege" if any_column else "has_table_privilege"
+    cursor = await pg.connection.execute(
+        f"""
+        SELECT c.relname
+        FROM pg_class AS c
+        INNER JOIN pg_namespace AS n ON c.relnamespace = n.oid
+        WHERE n.nspname = 'console' AND c.relkind IN ('r', 'p')
+            AND {check}('dp_api', c.oid, %s)
+        """.encode(),
+        (privilege,),
+    )
+
+    return {name for (name,) in await cursor.fetchall()}
+
+
+def signer_keys() -> str:
+    """Return the migration that makes the table of sealed keys, for the signer login of the tests."""
+    return migration_sql(
+        "ducklake",
+        "00002_signer_keys.sql",
+        env={**ROLES, "AUTH_SIGNER_ROLE": SIGNER},
+    )
+
+
+async def seed_grants(pg: Postgres, scopes: list[str]) -> None:
+    """Give the subject ana one grant of the unit cpf 1 at each scope, as the owner of the table."""
+    for scope in scopes:
+        await pg.connection.execute(
+            "INSERT INTO access.policy VALUES ('ana', %s::ltree, 'cpf', '1')", (scope,)
+        )
+
+
+async def act_as(
+    pg: Postgres, role: str, schemas: list[str], projects: list[str]
+) -> None:
+    """Act as a token with the database role of the requests, so that the row policies apply."""
+    await as_token(pg, role, schemas, projects=projects, database_role=True)

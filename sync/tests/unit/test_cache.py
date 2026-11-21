@@ -20,7 +20,6 @@ class TestBumpCacheGenerations:
 
         assert events == [
             f"open:{cache_db}",
-            f"incr:{cache_db}:cache:generation:",
             f"incr:{cache_db}:cache:generation:hr",
             f"incr:{cache_db}:cache:generation:sales",
             f"close:{cache_db}",
@@ -36,12 +35,12 @@ class TestBumpCacheGenerations:
 
         assert events.count("incr:1:cache:generation:sales") == 1
 
-    async def test_counts_up_the_key_of_a_request_without_a_profile_even_with_no_schema(
+    async def test_counts_up_no_key_when_no_schema_ran(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The default schema has the key with the empty name."""
+        """Every request names a schema, so no key has an empty name."""
         events = stub_cache_redis(monkeypatch, 1)
 
         await bump_cache_generations([])
 
-        assert "incr:1:cache:generation:" in events
+        assert events == ["open:1", "close:1"]

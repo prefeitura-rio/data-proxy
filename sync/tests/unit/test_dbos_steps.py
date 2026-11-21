@@ -365,40 +365,22 @@ class TestExtractTaskCancellation:
 class TestStepMetrics:
     """The step that does the work counts it, once, when the work ends."""
 
-    @pytest.fixture
-    def counter(self, monkeypatch: pytest.MonkeyPatch) -> dict[str, Counted]:
-        """Replace the counters of the steps, and the connections that the steps open."""
-        counters = {
-            name: Counted()
-            for name in ("dump_tasks_total", "publish_tables_total", "seed_runs_total")
-        }
-        for name, counted in counters.items():
-            monkeypatch.setattr(steps.metrics, name, counted)
-
-        @asynccontextmanager
-        async def connect(*_: object) -> AsyncGenerator[object]:
-            yield object()
-
-        monkeypatch.setattr(DuckDB, "connect", connect)
-        monkeypatch.setattr(Postgres, "connect", connect)
-        return counters
-
     @pytest.mark.asyncio
     async def test_counts_a_dump_when_it_succeeds(
-        self, monkeypatch: pytest.MonkeyPatch, counter: dict[str, Counted]
+        self, monkeypatch: pytest.MonkeyPatch, step_counters: dict[str, Counted]
     ) -> None:
         """Count the dump after the extraction, so a retry counts once."""
         monkeypatch.setattr(steps, "run_extraction", AsyncMock())
 
         await workflow_body(steps.extract_task)(dump_task(table="p.d.t"))
 
-        assert counter["dump_tasks_total"].adds == [
+        assert step_counters["dump_tasks_total"].adds == [
             (1, {"table": "p.d.t", "schema": "app", "status": "success"})
         ]
 
     @pytest.mark.asyncio
     async def test_counts_nothing_for_a_failed_attempt(
-        self, monkeypatch: pytest.MonkeyPatch, counter: dict[str, Counted]
+        self, monkeypatch: pytest.MonkeyPatch, step_counters: dict[str, Counted]
     ) -> None:
         """The failure is counted by the step that records it, not by each attempt."""
         monkeypatch.setattr(
@@ -408,24 +390,24 @@ class TestStepMetrics:
         with pytest.raises(RuntimeError, match=exactly("boom")):
             await workflow_body(steps.extract_task)(dump_task())
 
-        assert counter["dump_tasks_total"].adds == []
+        assert step_counters["dump_tasks_total"].adds == []
 
     @pytest.mark.asyncio
     async def test_counts_a_dump_that_failed(
-        self, monkeypatch: pytest.MonkeyPatch, counter: dict[str, Counted]
+        self, monkeypatch: pytest.MonkeyPatch, step_counters: dict[str, Counted]
     ) -> None:
         """Count the failure where the step records it."""
         monkeypatch.setattr(steps, "emit_error", AsyncMock())
 
         await workflow_body(steps.record_dump_failure)(dump_task(table="p.d.t"), "boom")
 
-        assert counter["dump_tasks_total"].adds == [
+        assert step_counters["dump_tasks_total"].adds == [
             (1, {"table": "p.d.t", "schema": "app", "status": "error"})
         ]
 
     @pytest.mark.asyncio
     async def test_counts_a_seed_for_each_schema_plan(
-        self, monkeypatch: pytest.MonkeyPatch, counter: dict[str, Counted]
+        self, monkeypatch: pytest.MonkeyPatch, step_counters: dict[str, Counted]
     ) -> None:
         """One count for each plan that the seed reconciled."""
         monkeypatch.setattr(steps, "reconcile_views", AsyncMock(return_value=False))
@@ -434,14 +416,14 @@ class TestStepMetrics:
             [SyncPlan(schema_name="app"), SyncPlan(schema_name="one")], DOCUMENT
         )
 
-        assert counter["seed_runs_total"].adds == [
+        assert step_counters["seed_runs_total"].adds == [
             (1, {"schema": "app", "status": "success"}),
             (1, {"schema": "one", "status": "success"}),
         ]
 
     @pytest.mark.asyncio
     async def test_counts_the_tables_that_published_and_the_ones_that_did_not(
-        self, monkeypatch: pytest.MonkeyPatch, counter: dict[str, Counted]
+        self, monkeypatch: pytest.MonkeyPatch, step_counters: dict[str, Counted]
     ) -> None:
         """Two tables in the plan and one published give one success and one error."""
         plan = SyncPlan(
@@ -454,7 +436,7 @@ class TestStepMetrics:
 
         await workflow_body(steps.commit_ducklake_snapshot)(plan, set(), DOCUMENT)
 
-        assert counter["publish_tables_total"].adds == [
+        assert step_counters["publish_tables_total"].adds == [
             (1, {"schema": "app", "status": "success"}),
             (1, {"schema": "app", "status": "error"}),
         ]

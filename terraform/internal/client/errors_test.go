@@ -28,12 +28,12 @@ func TestKindOf(t *testing.T) {
 		{name: "a 500 with an unknown code", status: http.StatusInternalServerError, code: "XX000"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := kindOf(tt.status, tt.code)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := kindOf(testCase.status, testCase.code)
 
-			if (tt.want == nil && got != nil) || (tt.want != nil && !errors.Is(got, tt.want)) {
-				t.Errorf("kindOf(%d, %q) = %v, want %v", tt.status, tt.code, got, tt.want)
+			if (testCase.want == nil && got != nil) || (testCase.want != nil && !errors.Is(got, testCase.want)) {
+				t.Errorf("kindOf(%d, %q) = %v, want %v", testCase.status, testCase.code, got, testCase.want)
 			}
 		})
 	}
@@ -96,20 +96,20 @@ func TestParseError(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := parseError(tt.status, []byte(tt.raw))
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := parseError(testCase.status, []byte(testCase.raw))
 
-			if got.Status != tt.want.Status || got.Code != tt.want.Code || got.Message != tt.want.Message ||
-				got.Details != tt.want.Details || got.Hint != tt.want.Hint {
-				t.Errorf("parseError() = %+v, want %+v", *got, tt.want)
+			if got.Status != testCase.want.Status || got.Code != testCase.want.Code || got.Message != testCase.want.Message ||
+				got.Details != testCase.want.Details || got.Hint != testCase.want.Hint {
+				t.Errorf("parseError() = %+v, want %+v", *got, testCase.want)
 			}
 
-			if !errors.Is(got, tt.kind) && tt.kind != nil {
-				t.Errorf("errors.Is(%v, %v) = false, want true", got, tt.kind)
+			if !errors.Is(got, testCase.kind) && testCase.kind != nil {
+				t.Errorf("errors.Is(%v, %v) = false, want true", got, testCase.kind)
 			}
 
-			if tt.kind == nil && got.Unwrap() != nil {
+			if testCase.kind == nil && got.Unwrap() != nil {
 				t.Errorf("Unwrap() = %v, want no kind", got.Unwrap())
 			}
 		})
@@ -133,10 +133,10 @@ func TestErrorText(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.err.Error(); got != tt.want {
-				t.Errorf("Error() = %q, want %q", got, tt.want)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := testCase.err.Error(); got != testCase.want {
+				t.Errorf("Error() = %q, want %q", got, testCase.want)
 			}
 		})
 	}

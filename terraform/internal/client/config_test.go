@@ -9,7 +9,6 @@ import (
 	"testing"
 )
 
-// ptr returns a pointer to the value.
 func ptr[T any](value T) *T {
 	return &value
 }
@@ -44,8 +43,10 @@ func TestConfigOperations(t *testing.T) {
 		{
 			name:  "create a project",
 			steps: []step{{method: "POST", uri: "/projects", contentProfile: "console", body: `{"name":"sales"}`, status: 201, response: "[" + projectRow + "]"}},
-			run:   func(ctx context.Context, c *Client) (any, error) { return c.CreateProject(ctx, "sales") },
-			want:  wantProject,
+			run: func(ctx context.Context, c *Client) (any, error) {
+				return c.CreateProject(ctx, "sales")
+			},
+			want: wantProject,
 		},
 		{
 			name:  "get a project",
@@ -56,7 +57,9 @@ func TestConfigOperations(t *testing.T) {
 		{
 			name:  "delete a project",
 			steps: []step{{method: "DELETE", uri: "/projects?name=eq.sales", contentProfile: "console", response: "[]"}},
-			run:   func(ctx context.Context, c *Client) (any, error) { return nil, c.DeleteProject(ctx, "sales") },
+			run: func(ctx context.Context, c *Client) (any, error) {
+				return nil, c.DeleteProject(ctx, "sales")
+			},
 		},
 		{
 			name: "create a schema from a project and a short name",
@@ -73,14 +76,18 @@ func TestConfigOperations(t *testing.T) {
 		{
 			name:  "get a schema by its physical name",
 			steps: []step{{method: "GET", uri: "/schemas?name=eq.sales_orders", response: "[" + schemaRow + "]"}},
-			run:   func(ctx context.Context, c *Client) (any, error) { return c.GetSchema(ctx, "sales_orders") },
-			want:  wantSchema,
+			run: func(ctx context.Context, c *Client) (any, error) {
+				return c.GetSchema(ctx, "sales_orders")
+			},
+			want: wantSchema,
 		},
 		{
 			name:  "get a schema by its parts",
 			steps: []step{{method: "GET", uri: "/schemas?project=eq.sales&short_name=eq.orders", response: "[" + schemaRow + "]"}},
-			run:   func(ctx context.Context, c *Client) (any, error) { return c.GetSchemaByParts(ctx, "sales", "orders") },
-			want:  wantSchema,
+			run: func(ctx context.Context, c *Client) (any, error) {
+				return c.GetSchemaByParts(ctx, "sales", "orders")
+			},
+			want: wantSchema,
 		},
 		{
 			name: "update a schema and clear its settings",
@@ -97,7 +104,9 @@ func TestConfigOperations(t *testing.T) {
 		{
 			name:  "delete a schema",
 			steps: []step{{method: "DELETE", uri: "/schemas?name=eq.sales_orders", response: "[]"}},
-			run:   func(ctx context.Context, c *Client) (any, error) { return nil, c.DeleteSchema(ctx, "sales_orders") },
+			run: func(ctx context.Context, c *Client) (any, error) {
+				return nil, c.DeleteSchema(ctx, "sales_orders")
+			},
 		},
 		{
 			name: "create a table",
@@ -117,8 +126,10 @@ func TestConfigOperations(t *testing.T) {
 		{
 			name:  "get a table",
 			steps: []step{{method: "GET", uri: "/tables?name=eq.sales.orders", response: "[" + tableRow + "]"}},
-			run:   func(ctx context.Context, c *Client) (any, error) { return c.GetTable(ctx, "sales.orders") },
-			want:  wantTable,
+			run: func(ctx context.Context, c *Client) (any, error) {
+				return c.GetTable(ctx, "sales.orders")
+			},
+			want: wantTable,
 		},
 		{
 			name: "update a table and clear its cache time",
@@ -135,7 +146,9 @@ func TestConfigOperations(t *testing.T) {
 		{
 			name:  "delete a table",
 			steps: []step{{method: "DELETE", uri: "/tables?name=eq.sales.orders", response: "[]"}},
-			run:   func(ctx context.Context, c *Client) (any, error) { return nil, c.DeleteTable(ctx, "sales.orders") },
+			run: func(ctx context.Context, c *Client) (any, error) {
+				return nil, c.DeleteTable(ctx, "sales.orders")
+			},
 		},
 		{
 			name: "list the row policies with the conditions of each rule",
@@ -146,7 +159,9 @@ func TestConfigOperations(t *testing.T) {
 					`{"conditions":[{"column":"region_id","unit_type":"region"},{"column":"unit_id","unit_type":"unit"}]}]},` +
 					`{"table_name":"other.table","groups":[{"conditions":[{"column":"x","unit_type":"y"}]}]}]`,
 			}},
-			run: func(ctx context.Context, c *Client) (any, error) { return c.ListRLS(ctx, "sales.orders") },
+			run: func(ctx context.Context, c *Client) (any, error) {
+				return c.ListRLS(ctx, "sales.orders")
+			},
 			want: []RLSRule{
 				{Conditions: []RLSCondition{{ColumnName: "area", UnitType: "area"}}},
 				{Conditions: []RLSCondition{
@@ -195,10 +210,12 @@ func TestConfigOperations(t *testing.T) {
 			name: "read the health of a schema",
 			steps: []step{{
 				method: "GET", uri: "/health?name=eq.sales_orders", acceptProfile: "console",
-				response: `[{"name":"sales_orders","schema_exists":true,"access_policy":true,"view_count":3}]`,
+				response: `[{"name":"sales_orders","schema_exists":true,"view_count":3}]`,
 			}},
-			run:  func(ctx context.Context, c *Client) (any, error) { return c.GetHealth(ctx, "sales_orders") },
-			want: Health{Name: "sales_orders", SchemaExists: true, AccessPolicy: true, ViewCount: 3},
+			run: func(ctx context.Context, c *Client) (any, error) {
+				return c.GetHealth(ctx, "sales_orders")
+			},
+			want: Health{Name: "sales_orders", SchemaExists: true, ViewCount: 3},
 		},
 		{
 			name: "read the sync state of a table",
@@ -206,7 +223,9 @@ func TestConfigOperations(t *testing.T) {
 				method: "GET", uri: "/synced?name=eq.sales.orders",
 				response: `[{"schema":"sales_orders","name":"sales.orders","synced":true,"signature":"abc","partition_count":2}]`,
 			}},
-			run:  func(ctx context.Context, c *Client) (any, error) { return c.GetSyncState(ctx, "sales.orders") },
+			run: func(ctx context.Context, c *Client) (any, error) {
+				return c.GetSyncState(ctx, "sales.orders")
+			},
 			want: TableSyncState{Schema: "sales_orders", Name: "sales.orders", Synced: true, Signature: ptr("abc"), PartitionCount: 2},
 		},
 		{
@@ -215,7 +234,9 @@ func TestConfigOperations(t *testing.T) {
 				method: "GET", uri: "/config_history?order=changed_at.desc&limit=5&schema_name=eq.sales_orders",
 				response: `[{"changed_at":"t","changed_by":null,"action":"insert","object":"tables","schema_name":"sales_orders","key":"sales.orders","old_row":null,"new_row":{"name":"sales.orders"}}]`,
 			}},
-			run: func(ctx context.Context, c *Client) (any, error) { return c.ListHistory(ctx, "sales_orders", 5) },
+			run: func(ctx context.Context, c *Client) (any, error) {
+				return c.ListHistory(ctx, "sales_orders", 5)
+			},
 			want: []HistoryEntry{{
 				ChangedAt: "t", Action: "insert", Object: "tables", SchemaName: "sales_orders", Key: "sales.orders",
 				OldRow: json.RawMessage("null"), NewRow: json.RawMessage(`{"name":"sales.orders"}`),
@@ -241,17 +262,17 @@ func TestConfigOperations(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := newStepClient(t, tt.steps)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c := newStepClient(t, testCase.steps)
 
-			got, err := tt.run(context.Background(), c)
+			got, err := testCase.run(context.Background(), c)
 			if err != nil {
 				t.Fatalf("call: %v", err)
 			}
 
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("result = %#v, want %#v", got, tt.want)
+			if !reflect.DeepEqual(got, testCase.want) {
+				t.Errorf("result = %#v, want %#v", got, testCase.want)
 			}
 		})
 	}
@@ -266,9 +287,12 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 		wantText string
 	}{
 		{
-			name:     "a project that does not exist",
-			steps:    []step{{response: "[]"}},
-			run:      func(ctx context.Context, c *Client) error { _, err := c.GetProject(ctx, "sales"); return err },
+			name:  "a project that does not exist",
+			steps: []step{{response: "[]"}},
+			run: func(ctx context.Context, c *Client) error {
+				_, err := c.GetProject(ctx, "sales")
+				return err
+			},
 			wantKind: ErrNoRow,
 		},
 		{
@@ -278,21 +302,30 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 			wantKind: ErrInvalid,
 		},
 		{
-			name:     "a schema that already exists",
-			steps:    []step{{status: 409, response: `{"code":"23505","message":"duplicate key"}`}},
-			run:      func(ctx context.Context, c *Client) error { _, err := c.CreateSchema(ctx, SchemaInput{}); return err },
+			name:  "a schema that already exists",
+			steps: []step{{status: 409, response: `{"code":"23505","message":"duplicate key"}`}},
+			run: func(ctx context.Context, c *Client) error {
+				_, err := c.CreateSchema(ctx, SchemaInput{})
+				return err
+			},
 			wantKind: ErrConflict,
 		},
 		{
-			name:     "a write that the token may not do",
-			steps:    []step{{status: 403, response: `{"code":"42501","message":"new row violates row-level security policy"}`}},
-			run:      func(ctx context.Context, c *Client) error { _, err := c.CreateTable(ctx, TableInput{}); return err },
+			name:  "a write that the token may not do",
+			steps: []step{{status: 403, response: `{"code":"42501","message":"new row violates row-level security policy"}`}},
+			run: func(ctx context.Context, c *Client) error {
+				_, err := c.CreateTable(ctx, TableInput{})
+				return err
+			},
 			wantKind: ErrForbidden,
 		},
 		{
-			name:     "a write that gives back no row",
-			steps:    []step{{status: 201, response: "[]"}},
-			run:      func(ctx context.Context, c *Client) error { _, err := c.CreateProject(ctx, "sales"); return err },
+			name:  "a write that gives back no row",
+			steps: []step{{status: 201, response: "[]"}},
+			run: func(ctx context.Context, c *Client) error {
+				_, err := c.CreateProject(ctx, "sales")
+				return err
+			},
 			wantText: "the write to projects gave back 0 rows, want one",
 		},
 		{
@@ -329,21 +362,21 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := newStepClient(t, tt.steps)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c := newStepClient(t, testCase.steps)
 
-			err := tt.run(context.Background(), c)
+			err := testCase.run(context.Background(), c)
 			if err == nil {
 				t.Fatal("error = nil, want an error")
 			}
 
-			if tt.wantKind != nil && !errors.Is(err, tt.wantKind) {
-				t.Errorf("error = %v, want one that wraps %v", err, tt.wantKind)
+			if testCase.wantKind != nil && !errors.Is(err, testCase.wantKind) {
+				t.Errorf("error = %v, want one that wraps %v", err, testCase.wantKind)
 			}
 
-			if tt.wantText != "" && !strings.Contains(err.Error(), tt.wantText) {
-				t.Errorf("error = %q, want it to contain %q", err, tt.wantText)
+			if testCase.wantText != "" && !strings.Contains(err.Error(), testCase.wantText) {
+				t.Errorf("error = %q, want it to contain %q", err, testCase.wantText)
 			}
 		})
 	}

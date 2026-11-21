@@ -36,15 +36,15 @@ func TestLookupMetadata(t *testing.T) {
 		{name: "another provider name", provider: "dp", suffix: "schema_health", want: "dp_schema_health"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			source := &lookup[struct{}]{suffix: tt.suffix}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			source := &lookup[struct{}]{suffix: testCase.suffix}
 			var resp datasource.MetadataResponse
 
-			source.Metadata(context.Background(), datasource.MetadataRequest{ProviderTypeName: tt.provider}, &resp)
+			source.Metadata(context.Background(), datasource.MetadataRequest{ProviderTypeName: testCase.provider}, &resp)
 
-			if resp.TypeName != tt.want {
-				t.Errorf("TypeName = %q, want %q", resp.TypeName, tt.want)
+			if resp.TypeName != testCase.want {
+				t.Errorf("TypeName = %q, want %q", resp.TypeName, testCase.want)
 			}
 		})
 	}
@@ -62,12 +62,12 @@ func TestLookupConfigValidators(t *testing.T) {
 		{name: "two", validators: []datasource.ConfigValidator{noValidator{}, noValidator{}}, want: 2},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			source := &lookup[struct{}]{validators: tt.validators}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			source := &lookup[struct{}]{validators: testCase.validators}
 
-			if got := len(source.ConfigValidators(context.Background())); got != tt.want {
-				t.Errorf("len(ConfigValidators()) = %d, want %d", got, tt.want)
+			if got := len(source.ConfigValidators(context.Background())); got != testCase.want {
+				t.Errorf("len(ConfigValidators()) = %d, want %d", got, testCase.want)
 			}
 		})
 	}
@@ -83,9 +83,9 @@ func TestLookupReadWithoutAClient(t *testing.T) {
 		{name: "a table", suffix: "table"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			source := &lookup[struct{}]{suffix: tt.suffix, attributes: map[string]schema.Attribute{}}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			source := &lookup[struct{}]{suffix: testCase.suffix, attributes: map[string]schema.Attribute{}}
 			s := dataSourceSchema(t, source)
 			raw := tftypes.NewValue(s.Type().TerraformType(context.Background()), nil)
 			resp := datasource.ReadResponse{State: tfsdk.State{Schema: s, Raw: raw}}

@@ -41,7 +41,7 @@ sync:
 
 - PostgREST reads the PostgreSQL role from the JSON Web Token (JWT) `role` claim.
 - The `schemas` claim of the token must contain `test`.
-- The database matches the `preferred_username` claim with `access_policy.subject`.
+- The database matches the `preferred_username` claim with `access.policy.subject`.
 - A row is visible only when its unit columns match an active access policy row.
 
 <!-- nav:start -->

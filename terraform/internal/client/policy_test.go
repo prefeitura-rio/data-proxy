@@ -8,69 +8,50 @@ import (
 	"time"
 )
 
-func TestAccessPolicyOperations(t *testing.T) {
+func TestGrantOperations(t *testing.T) {
 	tests := []struct {
-		name   string
-		policy AccessPolicy
-		uri    string
+		name  string
+		grant Grant
+		uri   string
+		body  string
+		row   string
 	}{
 		{
-			name:   "a policy with a unit",
-			policy: AccessPolicy{Subject: "reader@example.org", UnitType: ptr("unit"), UnitID: ptr("42")},
-			uri:    "/access_policy?subject=eq.reader%40example.org&unit_type=eq.unit&unit_id=eq.42",
+			name:  "a grant on a schema",
+			grant: Grant{Scope: "sales.orders", Subject: "reader@example.org", UnitType: "unit", UnitID: "42"},
+			uri:   "/policy?scope=eq.sales.orders&subject=eq.reader%40example.org&unit_type=eq.unit&unit_id=eq.42",
+			body:  `{"scope":"sales.orders","subject":"reader@example.org","unit_type":"unit","unit_id":"42"}`,
+			row:   `{"scope":"sales.orders","subject":"reader@example.org","unit_type":"unit","unit_id":"42"}`,
 		},
 		{
-			name:   "a policy without a unit matches the NULLs",
-			policy: AccessPolicy{Subject: "svc"},
-			uri:    "/access_policy?subject=eq.svc&unit_type=is.null&unit_id=is.null",
+			name:  "the scope * is the empty path",
+			grant: Grant{Scope: "*", Subject: "svc", UnitType: "*", UnitID: "*"},
+			uri:   "/policy?scope=eq.&subject=eq.svc&unit_type=eq.%2A&unit_id=eq.%2A",
+			body:  `{"scope":"","subject":"svc","unit_type":"*","unit_id":"*"}`,
+			row:   `{"scope":"","subject":"svc","unit_type":"*","unit_id":"*"}`,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			row := `{"subject":"` + tt.policy.Subject + `","unit_type":null,"unit_id":null}`
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			c := newStepClient(t, []step{
-				{method: "POST", uri: "/access_policy", contentProfile: "sales_orders", status: 201, response: "[]"},
-				{method: "GET", uri: tt.uri, acceptProfile: "sales_orders", response: "[" + row + "]"},
-				{method: "DELETE", uri: tt.uri, contentProfile: "sales_orders", response: "[]"},
+				{method: "POST", uri: "/policy", contentProfile: "access", body: testCase.body, status: 201, response: "[]"},
+				{method: "GET", uri: testCase.uri, acceptProfile: "access", response: "[" + testCase.row + "]"},
+				{method: "DELETE", uri: testCase.uri, contentProfile: "access", response: "[]"},
 			})
 			ctx := context.Background()
 
-			if err := c.CreateAccessPolicy(ctx, "sales_orders", tt.policy); err != nil {
-				t.Fatalf("CreateAccessPolicy: %v", err)
+			if err := c.CreateGrant(ctx, testCase.grant); err != nil {
+				t.Fatalf("CreateGrant: %v", err)
 			}
 
-			rows, err := c.ListAccessPolicy(ctx, "sales_orders", tt.policy)
-			if err != nil || len(rows) != 1 || rows[0].Subject != tt.policy.Subject {
-				t.Fatalf("ListAccessPolicy = %+v, %v, want the one row", rows, err)
+			rows, err := c.ListGrants(ctx, testCase.grant)
+			if err != nil || len(rows) != 1 || rows[0] != testCase.grant {
+				t.Fatalf("ListGrants = %+v, %v, want the one grant %+v", rows, err, testCase.grant)
 			}
 
-			if err := c.DeleteAccessPolicy(ctx, "sales_orders", tt.policy); err != nil {
-				t.Fatalf("DeleteAccessPolicy: %v", err)
-			}
-		})
-	}
-}
-
-// TestCreateAccessPolicySendsNullUnits checks that an empty unit becomes JSON null, and a set unit keeps its value.
-func TestCreateAccessPolicySendsNullUnits(t *testing.T) {
-	unit, id := "unit", "7"
-
-	tests := []struct {
-		name   string
-		policy AccessPolicy
-		body   string
-	}{
-		{name: "no unit", policy: AccessPolicy{Subject: "svc"}, body: `{"subject":"svc","unit_type":null,"unit_id":null}`},
-		{name: "a unit", policy: AccessPolicy{Subject: "svc", UnitType: &unit, UnitID: &id}, body: `{"subject":"svc","unit_type":"unit","unit_id":"7"}`},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := newStepClient(t, []step{{method: "POST", uri: "/access_policy", status: 201, response: "[]", body: tt.body}})
-
-			if err := c.CreateAccessPolicy(context.Background(), "sales_orders", tt.policy); err != nil {
-				t.Fatalf("CreateAccessPolicy: %v", err)
+			if err := c.DeleteGrant(ctx, testCase.grant); err != nil {
+				t.Fatalf("DeleteGrant: %v", err)
 			}
 		})
 	}
@@ -92,33 +73,31 @@ func TestIsNotProvisioned(t *testing.T) {
 		{name: "no error", err: nil, want: false},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := IsNotProvisioned(tt.err); got != tt.want {
-				t.Errorf("IsNotProvisioned(%v) = %t, want %t", tt.err, got, tt.want)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := IsNotProvisioned(testCase.err); got != testCase.want {
+				t.Errorf("IsNotProvisioned(%v) = %t, want %t", testCase.err, got, testCase.want)
 			}
 		})
 	}
 }
 
-// noWait is a wait that returns at once and counts its calls.
 type noWait struct {
 	calls int
 	err   error
 }
 
-// wait counts the call and returns the error that the test set.
-func (n *noWait) wait(context.Context, time.Duration) error {
-	n.calls++
+func (nw *noWait) wait(context.Context, time.Duration) error {
+	nw.calls++
 
-	return n.err
+	return nw.err
 }
 
 // The answers of the health view and the error of a schema that PostgREST does not know yet.
 const (
 	healthMissing = `[]`
-	healthPartial = `[{"name":"s","schema_exists":true,"access_policy":false,"view_count":0}]`
-	healthReady   = `[{"name":"s","schema_exists":true,"access_policy":true,"view_count":0}]`
+	healthPartial = `[{"name":"s","schema_exists":false,"view_count":0}]`
+	healthReady   = `[{"name":"s","schema_exists":true,"view_count":0}]`
 	notProvided   = `{"code":"PGRST106","message":"The schema must be one of the following"}`
 )
 
@@ -134,18 +113,18 @@ func TestWaitProvisioned(t *testing.T) {
 			name: "ready at once",
 			steps: []step{
 				{uri: "/health?name=eq.s", response: healthReady},
-				{uri: "/access_policy?limit=0", acceptProfile: "s", response: "[]"},
+				{uri: "/", acceptProfile: "s", response: "{}"},
 			},
 		},
 		{
-			name: "waits for the row, then the table, then the profile",
+			name: "waits for the row, the schema, then the profile",
 			steps: []step{
 				{uri: "/health?name=eq.s", response: healthMissing},
 				{uri: "/health?name=eq.s", response: healthPartial},
 				{uri: "/health?name=eq.s", response: healthReady},
-				{uri: "/access_policy?limit=0", status: 406, response: notProvided},
+				{uri: "/", status: 406, response: notProvided},
 				{uri: "/health?name=eq.s", response: healthReady},
-				{uri: "/access_policy?limit=0", response: "[]"},
+				{uri: "/", response: "{}"},
 			},
 			wantWaits: 3,
 		},
@@ -164,23 +143,23 @@ func TestWaitProvisioned(t *testing.T) {
 			name: "stops on a refused read of the table",
 			steps: []step{
 				{uri: "/health?name=eq.s", response: healthReady},
-				{uri: "/access_policy?limit=0", status: 403, response: `{"code":"42501","message":"denied"}`},
+				{uri: "/", status: 403, response: `{"code":"42501","message":"denied"}`},
 			},
 			wantErr: "HTTP 403",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := newStepClient(t, tt.steps)
-			wait := tt.wait
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c := newStepClient(t, testCase.steps)
+			wait := testCase.wait
 
 			err := c.waitProvisioned(context.Background(), "s", wait.wait)
 
-			checkWait(t, err, tt.wantErr)
+			checkWait(t, err, testCase.wantErr)
 
-			if tt.wantErr == "" && wait.calls != tt.wantWaits {
-				t.Errorf("waits = %d, want %d", wait.calls, tt.wantWaits)
+			if testCase.wantErr == "" && wait.calls != testCase.wantWaits {
+				t.Errorf("waits = %d, want %d", wait.calls, testCase.wantWaits)
 			}
 		})
 	}
@@ -217,23 +196,22 @@ func TestWaitDeprovisioned(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := newStepClient(t, tt.steps)
-			wait := tt.wait
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c := newStepClient(t, testCase.steps)
+			wait := testCase.wait
 
 			err := c.waitDeprovisioned(context.Background(), "s", wait.wait)
 
-			checkWait(t, err, tt.wantErr)
+			checkWait(t, err, testCase.wantErr)
 
-			if tt.wantErr == "" && wait.calls != tt.wantWaits {
-				t.Errorf("waits = %d, want %d", wait.calls, tt.wantWaits)
+			if testCase.wantErr == "" && wait.calls != testCase.wantWaits {
+				t.Errorf("waits = %d, want %d", wait.calls, testCase.wantWaits)
 			}
 		})
 	}
 }
 
-// checkWait compares the error of a wait with the text that the test wants, and no text means no error.
 func checkWait(t *testing.T, err error, want string) {
 	t.Helper()
 
@@ -242,44 +220,5 @@ func checkWait(t *testing.T, err error, want string) {
 		t.Fatalf("error = %v, want none", err)
 	case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
 		t.Fatalf("error = %v, want one with %q", err, want)
-	}
-}
-
-func TestCreateAccessPolicyWhenProvisioned(t *testing.T) {
-	tests := []struct {
-		name      string
-		steps     []step
-		wait      noWait
-		wantWaits int
-		wantErr   string
-	}{
-		{name: "adds the row at once", steps: []step{{status: 201}}},
-		{
-			name:      "tries again until the schema is provisioned",
-			steps:     []step{{status: 406, response: notProvided}, {status: 404, response: `{"code":"PGRST205","message":"not found"}`}, {status: 201}},
-			wantWaits: 2,
-		},
-		{
-			name:    "stops when the context ends",
-			steps:   []step{{status: 406, response: notProvided}},
-			wait:    noWait{err: context.DeadlineExceeded},
-			wantErr: "wait for the schema s to be provisioned",
-		},
-		{name: "stops on an error that is not about provisioning", steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}}, wantErr: "HTTP 403"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := newStepClient(t, tt.steps)
-			wait := tt.wait
-
-			err := c.createAccessPolicyWhenProvisioned(context.Background(), "s", AccessPolicy{Subject: "svc"}, wait.wait)
-
-			checkWait(t, err, tt.wantErr)
-
-			if tt.wantErr == "" && wait.calls != tt.wantWaits {
-				t.Errorf("waits = %d, want %d", wait.calls, tt.wantWaits)
-			}
-		})
 	}
 }

@@ -124,13 +124,13 @@ check("request.aggregate_path", function(case) return request.aggregate_path(cas
 		name = "gives the function of the table for an aggregate",
 		input = { method = "GET", uri = "/people", headers_in = {} },
 		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
-		expected = "/rpc/people_aggregate",
+		expected = "/rpc/people_agg",
 	},
 	{
 		name = "gives the function for an Accept header of JSON",
 		input = { method = "GET", uri = "/people", headers_in = { Accept = "application/json; charset=utf-8" } },
 		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
-		expected = "/rpc/people_aggregate",
+		expected = "/rpc/people_agg",
 	},
 	{
 		name = "gives nothing without a filter",
@@ -178,7 +178,7 @@ check("request.aggregate_path", function(case) return request.aggregate_path(cas
 		name = "gives nothing for a path that is not a table name",
 		input = { method = "GET", uri = "/rpc", headers_in = {} },
 		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
-		expected = "/rpc/rpc_aggregate",
+		expected = "/rpc/rpc_agg",
 	},
 	{
 		name = "gives nothing when the name of the function is longer than PostgreSQL keeps",
@@ -188,9 +188,9 @@ check("request.aggregate_path", function(case) return request.aggregate_path(cas
 	},
 	{
 		name = "gives the function for the longest name that fits",
-		input = { method = "GET", uri = "/" .. string.rep("a", 53), headers_in = {} },
+		input = { method = "GET", uri = "/" .. string.rep("a", 59), headers_in = {} },
 		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
-		expected = "/rpc/" .. string.rep("a", 53) .. "_aggregate",
+		expected = "/rpc/" .. string.rep("a", 59) .. "_agg",
 	},
 })
 
@@ -276,7 +276,7 @@ describe("request.count_plan", function()
 
 	it(
 		"sends the count to the aggregate function of the table",
-		function() assert.same("/rpc/people_aggregate", plan.path) end
+		function() assert.same("/rpc/people_agg", plan.path) end
 	)
 
 	it("counts with the filter of the page and no limit, order or columns", function()
@@ -338,11 +338,13 @@ describe("request.make_headers", function()
 	end)
 end)
 
-check("request.asks_for_console", function(case) return request.asks_for_console(case.headers) end, {
+check("request.asks_for_internal_profile", function(case) return request.asks_for_internal_profile(case.headers) end, {
 	{ name = "lets a request without a profile pass", headers = {}, expected = false },
 	{ name = "lets a data schema pass", headers = { ["Accept-Profile"] = "alpha" }, expected = false },
 	{ name = "refuses the console profile on a read", headers = { ["Accept-Profile"] = "console" }, expected = true },
 	{ name = "refuses the console profile on a write", headers = { ["Content-Profile"] = "console" }, expected = true },
+	{ name = "refuses the access profile on a read", headers = { ["Accept-Profile"] = "access" }, expected = true },
+	{ name = "refuses the access profile on a write", headers = { ["Content-Profile"] = "access" }, expected = true },
 })
 
 check("request.jwt_identity", function(case) return request.jwt_identity(case.header) end, {
@@ -429,7 +431,7 @@ check("request.make_context", function(case) return context_of(case.input)[case.
 		name = "sets the aggregate path for an aggregate query",
 		input = { method = "GET", uri = "/people", args = "select=a,n:b.sum()", headers_in = {} },
 		field = "aggregate_path",
-		expected = "/rpc/people_aggregate",
+		expected = "/rpc/people_agg",
 	},
 	{
 		name = "sets no aggregate path for a query without an aggregate",
@@ -701,3 +703,74 @@ describe("request.cache_key", function()
 		assert.equal(64, #key)
 	end)
 end)
+
+local SCHEMAS = { sales__orders = true, default__legacy = true }
+
+check("request.route", function(case) return request.route(case.uri, case.known or SCHEMAS) end, {
+	{
+		name = "gives the profile and the path of a table",
+		uri = "/sales/orders/people",
+		expected = { profile = "sales__orders", path = "/people" },
+	},
+	{
+		name = "keeps the rest of the path, and an RPC path with it",
+		uri = "/sales/orders/rpc/people_agg",
+		expected = { profile = "sales__orders", path = "/rpc/people_agg" },
+	},
+	{
+		name = "gives the root path for a schema alone",
+		uri = "/sales/orders",
+		expected = { profile = "sales__orders", path = "/" },
+	},
+	{
+		name = "gives the root path for a schema with a slash",
+		uri = "/sales/orders/",
+		expected = { profile = "sales__orders", path = "/" },
+	},
+	{
+		name = "names the project default like any other",
+		uri = "/default/legacy/people",
+		expected = { profile = "default__legacy", path = "/people" },
+	},
+	{
+		name = "gives nil for a schema that the configuration does not list",
+		uri = "/sales/other/people",
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nil for a project that the configuration does not list",
+		uri = "/hr/orders/people",
+		expected = helpers.NULL,
+	},
+	{ name = "gives nil for a path with one segment", uri = "/people", expected = helpers.NULL },
+	{ name = "gives nil for the root", uri = "/", expected = helpers.NULL },
+	{
+		name = "gives nil for a reserved project, also when a schema has its name",
+		uri = "/console/orders/people",
+		known = { console__orders = true },
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nil for the project access",
+		uri = "/access/policy/people",
+		known = { access__policy = true },
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nil for a schema name that is cut by a character that is not part of it",
+		uri = "/sales/orders-x/people",
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nil when the configuration lists no schema",
+		uri = "/sales/orders/people",
+		known = {},
+		expected = helpers.NULL,
+	},
+	{
+		name = "gives nil for a physical name in the first segment",
+		uri = "/sales__orders/people",
+		known = { sales__orders = true },
+		expected = helpers.NULL,
+	},
+})

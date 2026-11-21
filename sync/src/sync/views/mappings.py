@@ -1,5 +1,6 @@
 """Column and mapping helpers for source view generation."""
 
+import re
 from typing import TYPE_CHECKING, Final
 
 from psycopg.sql import Identifier, Literal
@@ -9,13 +10,18 @@ from sync.constants import (
     DUCKDB_VIEW_PREFIX,
     MAX_IDENTIFIER_BYTES,
 )
+from sync.ducklake import data_path
 from sync.executor import Executor
 from sync.models import PartitionedTable, RlsRule, TableConfig, UnitMapping
 from sync.schema import schema as app_schema
 from sync.settings import settings
 from sync.sources.registry import sources
 from sync.templates import render_template
-from sync.utils import json_digest
+from sync.types import DescribeRow
+from sync.utils import (
+    changes_function_name,
+    json_digest,
+)
 
 if TYPE_CHECKING:
     from psycopg.rows import TupleRow
@@ -152,15 +158,20 @@ def is_sortable(duckdb_type: str) -> bool:
     return duckdb_type.upper() in {"BIGINT", "INTEGER", "INT", "DATE", "BOOLEAN"}
 
 
-def changes_function_name(table: TableConfig) -> str:
-    """Return the name of the change-feed function of one table, as PostgreSQL stores it.
+LTREE_LABEL = re.compile(r"[A-Za-z0-9_-]+")
 
-    PostgreSQL cuts an identifier at 63 bytes without an error. The reconcile compares this name with
-    the stored one, so it must cut the same way.
+
+def scope_path(schema: str, table: str | None = None) -> str:
+    """Return the ltree path of a schema or of one of its tables, as `<project>.<schema>[.<table>]`.
+
+    A name that ltree can't hold as a label gives the path of the schema, so a grant on the schema still covers
+    the table and no grant can name the table alone.
     """
-    return f"dl_changes_{table.table_name}".encode()[:MAX_IDENTIFIER_BYTES].decode(
-        errors="ignore"
-    )
+    path = schema.replace("__", ".", 1)
+    if table is not None and LTREE_LABEL.fullmatch(table) is not None:
+        return f"{path}.{table}"
+
+    return path
 
 
 def aggregate_function_name(table_name: str) -> str | None:
@@ -182,6 +193,7 @@ def return_type_for(duckdb_type: str) -> str:
     """Return the PostgreSQL type for one DuckDB column."""
     if is_nested_or_json(duckdb_type):
         return "text"
+
     return pg_scalar_type(duckdb_type)
 
 
@@ -220,7 +232,7 @@ async def column_types_from_duckdb(
         rows = await executor.query(
             "postgres/describe_source",
             mapping={"source": source.scan(table.name)},
-            expect=tuple[str, str],
+            expect=DescribeRow,
         )
         return [(row[0], row[1]) for row in rows]
     finally:
@@ -242,7 +254,7 @@ def ducklake_function_mapping(
         "duckdb_view": f"dl_{schema}_{table_name}",
         "source": f'"dl_{schema}".{quoted_identifier(table_name)}',
         "metadata_schema": schema,
-        "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
+        "data_path": data_path(schema),
     }
 
 
@@ -366,6 +378,7 @@ def table_function_mapping(
     return {
         "schema": Identifier(schema),
         "schema_literal": Literal(schema),
+        "scope_path": Literal(scope_path(schema, table_name)),
         "app_schema": app_schema(),
         "function": Identifier(f"{table_name}_fn"),
         "dl_function": Identifier(f"{table_name}_dl_fn"),
@@ -407,13 +420,14 @@ def table_changes_function_mapping(
     return {
         "schema": Identifier(schema),
         "schema_literal": Literal(schema),
-        "function": Identifier(changes_function_name(table)),
+        "scope_path": Literal(scope_path(schema, table.table_name)),
+        "function": Identifier(changes_function_name(table.table_name)),
         "table_name": table.table_name,
         "duckdb_view": f"dl_changes_{schema}_{table.table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim_name}",
         "rls_mappings": rls_mapping_entries(rls, columns),
         "metadata_schema": schema,
-        "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
+        "data_path": data_path(schema),
         "user_role": Identifier(settings.AUTH_USER_ROLE),
     }

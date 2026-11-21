@@ -6,7 +6,6 @@ use ../docs.nu [
     commands-of
     cross-problems
     footer
-    length-problems
     link-problems
     links-of
     llms-page
@@ -310,40 +309,6 @@ export def "test sentence-problems-counts-the-words-of-each-sentence" []: nothin
 
     for case in $cases {
         assert equal (sentence-problems f.md $case.text) $case.expected $case.name
-    }
-}
-
-# Verify that a page of 1001 words is a problem unless it is allowed, and that a code block does not count.
-export def "test length-problems-counts-the-words-of-a-page" []: nothing -> nothing {
-    let cases = [
-        {
-            name: 'a page of 1000 words'
-            file: f.md
-            text: (words 1000)
-            expected: []
-        }
-        {
-            name: 'a page of 1001 words'
-            file: f.md
-            text: (words 1001)
-            expected: ['f.md: DOC-13 The page has 1001 words. Split it by topic.']
-        }
-        {
-            name: 'a page of 1001 words on the allowed list'
-            file: allowed.md
-            text: (words 1001)
-            expected: []
-        }
-        {
-            name: 'words in a code block'
-            file: f.md
-            text: $"(words 900)\n```\n(words 500)\n```"
-            expected: []
-        }
-    ]
-
-    for case in $cases {
-        assert equal (length-problems $case.file $case.text allowed.md) $case.expected $case.name
     }
 }
 

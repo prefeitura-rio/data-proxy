@@ -201,9 +201,3 @@ describe("redis.generations keys", function()
 		function() assert.same({ "policy:generation", "cache:generation:" }, keys_for(string.rep("a", 64))) end
 	)
 end)
-
-check("redis.bump_generation", generation_call, {
-	{ name = "counts up with incr", operation = "bump_generation", incr_reply = 8, expected = true },
-	{ name = "reports a failed incr", operation = "bump_generation", incr_error = "READONLY", expected = false },
-	{ name = "reports a failed connection", operation = "bump_generation", open_error = "refused", expected = false },
-})

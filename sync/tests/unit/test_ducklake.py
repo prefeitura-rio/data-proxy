@@ -41,7 +41,7 @@ from sync.sources.partitions import (
     TimeRangeSelection,
 )
 from sync.templates import render_template
-from sync.types import DatabaseRow, DuckDBParams
+from sync.types import DatabaseRow, DescribeRow, DuckDBParams
 from sync.utils import RemovalLimitError
 from tests.constants import PARQUET, TEST_SQL_DIR
 from tests.helpers.core import exactly
@@ -300,7 +300,7 @@ class TestDucklakeEvolveSchema:
         rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).query(
             "duckdb/describe_table",
             mapping={"table": Identifier("people")},
-            expect=tuple[str, str],
+            expect=DescribeRow,
         )
         columns = {row[0]: row[1] for row in rows}
         assert set(columns) == {"cpf", "active", "score"}

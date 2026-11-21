@@ -14,18 +14,16 @@ import (
 	"time"
 )
 
-// staticToken is a TokenSource that returns a fixed token and error.
 type staticToken struct {
 	token string
 	err   error
 }
 
 // Token returns the token and the error that the test set.
-func (s staticToken) Token(context.Context) (string, error) {
-	return s.token, s.err
+func (t staticToken) Token(context.Context) (string, error) {
+	return t.token, t.err
 }
 
-// captured is what the test server saw of one request.
 type captured struct {
 	method  string
 	uri     string
@@ -65,7 +63,6 @@ func newServer(t *testing.T, status int, response string) (*Client, *[]captured)
 	return c, &requests
 }
 
-// row is the shape of the rows that the test server returns.
 type row struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
@@ -195,11 +192,11 @@ func TestRequests(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			c, requests := newServer(t, http.StatusOK, `[]`)
 
-			if err := tt.call(context.Background(), c); err != nil {
+			if err := testCase.call(context.Background(), c); err != nil {
 				t.Fatalf("call: %v", err)
 			}
 
@@ -209,20 +206,20 @@ func TestRequests(t *testing.T) {
 
 			got := (*requests)[0]
 
-			if got.method != tt.method {
-				t.Errorf("method = %q, want %q", got.method, tt.method)
+			if got.method != testCase.method {
+				t.Errorf("method = %q, want %q", got.method, testCase.method)
 			}
 
-			if got.uri != tt.uri {
-				t.Errorf("uri = %q, want %q", got.uri, tt.uri)
+			if got.uri != testCase.uri {
+				t.Errorf("uri = %q, want %q", got.uri, testCase.uri)
 			}
 
-			if got.body != tt.body {
-				t.Errorf("body = %q, want %q", got.body, tt.body)
+			if got.body != testCase.body {
+				t.Errorf("body = %q, want %q", got.body, testCase.body)
 			}
 
-			want := map[string]string{"Authorization": "Bearer jwt-123", "Accept": "application/json", "Content-Type": tt.contentType}
-			for name, value := range tt.headers {
+			want := map[string]string{"Authorization": "Bearer jwt-123", "Accept": "application/json", "Content-Type": testCase.contentType}
+			for name, value := range testCase.headers {
 				want[name] = value
 			}
 
@@ -232,7 +229,7 @@ func TestRequests(t *testing.T) {
 				}
 			}
 
-			for _, name := range tt.absent {
+			for _, name := range testCase.absent {
 				if values, ok := got.headers[name]; ok {
 					t.Errorf("header %s = %q, want none", name, values)
 				}
@@ -254,9 +251,9 @@ func TestDecodesTheResponse(t *testing.T) {
 		{name: "no row", status: http.StatusCreated, response: `[]`, want: []row{}},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, _ := newServer(t, tt.status, tt.response)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c, _ := newServer(t, testCase.status, testCase.response)
 
 			var rows []row
 
@@ -264,8 +261,8 @@ func TestDecodesTheResponse(t *testing.T) {
 				t.Fatalf("Insert: %v", err)
 			}
 
-			if !reflect.DeepEqual(rows, tt.want) {
-				t.Errorf("rows = %v, want %v", rows, tt.want)
+			if !reflect.DeepEqual(rows, testCase.want) {
+				t.Errorf("rows = %v, want %v", rows, testCase.want)
 			}
 		})
 	}
@@ -282,9 +279,9 @@ func TestAcceptsAnEmptyResponse(t *testing.T) {
 		{name: "a 200 with no body", status: http.StatusOK},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, _ := newServer(t, tt.status, tt.response)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c, _ := newServer(t, testCase.status, testCase.response)
 
 			var rows []row
 
@@ -326,30 +323,30 @@ func TestPermissions(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, _ := newServer(t, tt.status, tt.response)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c, _ := newServer(t, testCase.status, testCase.response)
 
 			got, err := c.Permissions(context.Background())
 
-			if tt.wantErr == "" {
+			if testCase.wantErr == "" {
 				if err != nil {
 					t.Fatalf("Permissions: %v", err)
 				}
 
-				if !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("permissions = %q, want %q", got, tt.want)
+				if !reflect.DeepEqual(got, testCase.want) {
+					t.Errorf("permissions = %q, want %q", got, testCase.want)
 				}
 
 				return
 			}
 
-			if err == nil || err.Error() != tt.wantErr {
-				t.Fatalf("error = %v, want %q", err, tt.wantErr)
+			if err == nil || err.Error() != testCase.wantErr {
+				t.Fatalf("error = %v, want %q", err, testCase.wantErr)
 			}
 
-			if tt.kind != nil && !errors.Is(err, tt.kind) {
-				t.Errorf("errors.Is(err, %v) = false, want true", tt.kind)
+			if testCase.kind != nil && !errors.Is(err, testCase.kind) {
+				t.Errorf("errors.Is(err, %v) = false, want true", testCase.kind)
 			}
 
 			if got != nil {
@@ -372,32 +369,32 @@ func TestGetOne(t *testing.T) {
 		{name: "two rows", response: `[{"id":1},{"id":2}]`, wantErr: "2 rows of projects match the filters, want one"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, _ := newServer(t, http.StatusOK, tt.response)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c, _ := newServer(t, http.StatusOK, testCase.response)
 
 			var got row
 
 			err := c.GetOne(context.Background(), ConsoleProfile, "projects", []Filter{Eq("id", "3")}, &got)
 
-			if tt.wantErr == "" {
+			if testCase.wantErr == "" {
 				if err != nil {
 					t.Fatalf("GetOne: %v", err)
 				}
 
-				if got != tt.want {
-					t.Errorf("row = %v, want %v", got, tt.want)
+				if got != testCase.want {
+					t.Errorf("row = %v, want %v", got, testCase.want)
 				}
 
 				return
 			}
 
-			if err == nil || err.Error() != tt.wantErr {
-				t.Fatalf("error = %v, want %q", err, tt.wantErr)
+			if err == nil || err.Error() != testCase.wantErr {
+				t.Fatalf("error = %v, want %q", err, testCase.wantErr)
 			}
 
-			if errors.Is(err, ErrNoRow) != tt.noRow {
-				t.Errorf("errors.Is(err, ErrNoRow) = %t, want %t", !tt.noRow, tt.noRow)
+			if errors.Is(err, ErrNoRow) != testCase.noRow {
+				t.Errorf("errors.Is(err, ErrNoRow) = %t, want %t", !testCase.noRow, testCase.noRow)
 			}
 
 			if errors.Is(err, ErrNotFound) {
@@ -422,28 +419,38 @@ func TestRefusesBeforeTheRequest(t *testing.T) {
 			wantErr: "patch projects: give at least one filter",
 		},
 		{
-			name:    "delete without a filter",
-			call:    func(ctx context.Context, c *Client) error { return c.Delete(ctx, ConsoleProfile, "projects", nil, nil) },
+			name: "delete without a filter",
+			call: func(ctx context.Context, c *Client) error {
+				return c.Delete(ctx, ConsoleProfile, "projects", nil, nil)
+			},
 			wantErr: "delete from projects: give at least one filter",
 		},
 		{
-			name:    "empty profile",
-			call:    func(ctx context.Context, c *Client) error { return c.Get(ctx, "", "projects", nil, nil) },
+			name: "empty profile",
+			call: func(ctx context.Context, c *Client) error {
+				return c.Get(ctx, "", "projects", nil, nil)
+			},
 			wantErr: "the profile is empty",
 		},
 		{
-			name:    "empty table",
-			call:    func(ctx context.Context, c *Client) error { return c.Get(ctx, ConsoleProfile, "", nil, nil) },
+			name: "empty table",
+			call: func(ctx context.Context, c *Client) error {
+				return c.Get(ctx, ConsoleProfile, "", nil, nil)
+			},
 			wantErr: "the table name is empty",
 		},
 		{
-			name:    "empty function",
-			call:    func(ctx context.Context, c *Client) error { return c.RPC(ctx, ConsoleProfile, "", nil, nil) },
+			name: "empty function",
+			call: func(ctx context.Context, c *Client) error {
+				return c.RPC(ctx, ConsoleProfile, "", nil, nil)
+			},
 			wantErr: "the function name is empty",
 		},
 		{
-			name:    "empty function of a get rpc",
-			call:    func(ctx context.Context, c *Client) error { return c.GetRPC(ctx, ConsoleProfile, "", nil) },
+			name: "empty function of a get rpc",
+			call: func(ctx context.Context, c *Client) error {
+				return c.GetRPC(ctx, ConsoleProfile, "", nil)
+			},
 			wantErr: "the function name is empty",
 		},
 		{
@@ -475,21 +482,25 @@ func TestRefusesBeforeTheRequest(t *testing.T) {
 			wantErr: `filter 0 of projects: PostgREST reads "select" as a parameter, not as a column`,
 		},
 		{
-			name:    "token error",
-			tokens:  staticToken{err: errors.New("token endpoint down")},
-			call:    func(ctx context.Context, c *Client) error { return c.Get(ctx, ConsoleProfile, "projects", nil, nil) },
+			name:   "token error",
+			tokens: staticToken{err: errors.New("token endpoint down")},
+			call: func(ctx context.Context, c *Client) error {
+				return c.Get(ctx, ConsoleProfile, "projects", nil, nil)
+			},
 			wantErr: "get the token: token endpoint down",
 		},
 		{
-			name:    "empty token",
-			tokens:  staticToken{},
-			call:    func(ctx context.Context, c *Client) error { return c.Get(ctx, ConsoleProfile, "projects", nil, nil) },
+			name:   "empty token",
+			tokens: staticToken{},
+			call: func(ctx context.Context, c *Client) error {
+				return c.Get(ctx, ConsoleProfile, "projects", nil, nil)
+			},
 			wantErr: "the token source returned an empty token",
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			var calls atomic.Int32
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -498,7 +509,7 @@ func TestRefusesBeforeTheRequest(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
-			tokens := tt.tokens
+			tokens := testCase.tokens
 			if tokens == nil {
 				tokens = staticToken{token: "jwt-123"}
 			}
@@ -508,9 +519,9 @@ func TestRefusesBeforeTheRequest(t *testing.T) {
 				t.Fatalf("New: %v", err)
 			}
 
-			err = tt.call(context.Background(), c)
-			if err == nil || err.Error() != tt.wantErr {
-				t.Fatalf("error = %v, want %q", err, tt.wantErr)
+			err = testCase.call(context.Background(), c)
+			if err == nil || err.Error() != testCase.wantErr {
+				t.Fatalf("error = %v, want %q", err, testCase.wantErr)
 			}
 
 			if calls.Load() != 0 {
@@ -538,11 +549,11 @@ func TestNew(t *testing.T) {
 		{name: "http to a remote host", endpoint: "http://data-proxy.example.com", tokens: staticToken{}, wantErr: `endpoint "http://data-proxy.example.com": use https, or http for a loopback host`},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, err := New(tt.endpoint, tt.tokens, nil)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c, err := New(testCase.endpoint, testCase.tokens, nil)
 
-			if tt.wantErr == "" {
+			if testCase.wantErr == "" {
 				if err != nil {
 					t.Fatalf("New: %v", err)
 				}
@@ -554,8 +565,8 @@ func TestNew(t *testing.T) {
 				return
 			}
 
-			if err == nil || err.Error() != tt.wantErr {
-				t.Fatalf("error = %v, want %q", err, tt.wantErr)
+			if err == nil || err.Error() != testCase.wantErr {
+				t.Fatalf("error = %v, want %q", err, testCase.wantErr)
 			}
 		})
 	}
@@ -661,9 +672,9 @@ func TestErrorResponses(t *testing.T) {
 
 	kinds := []error{ErrConflict, ErrInvalid, ErrForbidden, ErrUnauthorized, ErrNotFound, ErrNoRow}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c, _ := newServer(t, tt.status, tt.response)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c, _ := newServer(t, testCase.status, testCase.response)
 
 			err := c.Get(context.Background(), ConsoleProfile, "projects", nil, nil)
 
@@ -672,17 +683,17 @@ func TestErrorResponses(t *testing.T) {
 				t.Fatalf("error = %v, want *Error", err)
 			}
 
-			if got.Status != tt.want.Status || got.Code != tt.want.Code || got.Message != tt.want.Message ||
-				got.Details != tt.want.Details || got.Hint != tt.want.Hint {
-				t.Errorf("error = %+v, want %+v", *got, tt.want)
+			if got.Status != testCase.want.Status || got.Code != testCase.want.Code || got.Message != testCase.want.Message ||
+				got.Details != testCase.want.Details || got.Hint != testCase.want.Hint {
+				t.Errorf("error = %+v, want %+v", *got, testCase.want)
 			}
 
-			if got.Error() != tt.text {
-				t.Errorf("text = %q, want %q", got.Error(), tt.text)
+			if got.Error() != testCase.text {
+				t.Errorf("text = %q, want %q", got.Error(), testCase.text)
 			}
 
 			for _, kind := range kinds {
-				want := errors.Is(kind, tt.kind)
+				want := errors.Is(kind, testCase.kind)
 
 				if got := errors.Is(err, kind); got != want {
 					t.Errorf("errors.Is(err, %v) = %t, want %t", kind, got, want)
@@ -745,12 +756,12 @@ func TestGetFailsOnATruncatedAnswer(t *testing.T) {
 		{name: "a partial answer with a total", status: http.StatusPartialContent, contentRange: "0-999/1500", wantErr: true},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
-				w.Header().Set("Content-Range", tt.contentRange)
-				w.WriteHeader(tt.status)
+				w.Header().Set("Content-Range", testCase.contentRange)
+				w.WriteHeader(testCase.status)
 
 				if _, err := w.Write([]byte(`[{"id":1},{"id":2}]`)); err != nil {
 					t.Errorf("write the response: %v", err)
@@ -767,7 +778,7 @@ func TestGetFailsOnATruncatedAnswer(t *testing.T) {
 
 			err = c.Get(context.Background(), ConsoleProfile, "projects", nil, &rows)
 
-			if !tt.wantErr {
+			if !testCase.wantErr {
 				if err != nil {
 					t.Fatalf("Get: %v", err)
 				}
@@ -779,8 +790,8 @@ func TestGetFailsOnATruncatedAnswer(t *testing.T) {
 				t.Fatalf("error = %v, want one that wraps ErrTruncated", err)
 			}
 
-			if !strings.Contains(err.Error(), tt.contentRange) || !strings.Contains(err.Error(), "maxRows") {
-				t.Errorf("error = %q, want the Content-Range %q and the setting maxRows", err, tt.contentRange)
+			if !strings.Contains(err.Error(), testCase.contentRange) || !strings.Contains(err.Error(), "maxRows") {
+				t.Errorf("error = %q, want the Content-Range %q and the setting maxRows", err, testCase.contentRange)
 			}
 		})
 	}
@@ -797,13 +808,13 @@ func TestGetLimitsTheSizeOfTheAnswer(t *testing.T) {
 		{name: "above the limit", padding: maxBody - len(`[{"id":1}]`) + 1, wantErr: true},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 
 				// The spaces between the rows are valid JSON, so the body decodes when the client reads all of it.
-				if _, err := w.Write([]byte("[" + strings.Repeat(" ", tt.padding) + `{"id":1}]`)); err != nil {
+				if _, err := w.Write([]byte("[" + strings.Repeat(" ", testCase.padding) + `{"id":1}]`)); err != nil {
 					t.Errorf("write the response: %v", err)
 				}
 			}))
@@ -818,7 +829,7 @@ func TestGetLimitsTheSizeOfTheAnswer(t *testing.T) {
 
 			err = c.Get(context.Background(), ConsoleProfile, "projects", nil, &rows)
 
-			if !tt.wantErr {
+			if !testCase.wantErr {
 				if err != nil || len(rows) != 1 {
 					t.Fatalf("Get = %v with %d rows, want one row and no error", err, len(rows))
 				}

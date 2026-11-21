@@ -321,6 +321,41 @@ export def migration-problems [sums: string, files: table<file: string, hash: st
     [...$changed ...$added ...$missing]
 }
 
+# Return the reserved project names that a source lists, from the text of the file.
+def reserved-names [text: string, list: string, name: string]: nothing -> list<string> {
+    $text
+    | parse --regex $list
+    | get --optional body
+    | default []
+    | each {|body| $body | parse --regex $name | get name }
+    | flatten
+    | sort
+}
+
+# Return a problem for each reserved project name that one of the three lists lacks: the console, the Terraform provider and the proxy.
+export def reserved-project-problems [console: string, provider: string, proxy: string]: nothing -> list<string> {
+    let lists = [
+        [file names];
+        [console/ui/src/lib/projects.ts (reserved-names $console '(?s)RESERVED_PROJECTS = \[(?<body>[^\]]*)\]' "'(?<name>\\w+)'")]
+        [terraform/internal/provider/names.go (reserved-names $provider '(?s)reservedProjects = \[\]string\{(?<body>[^}]*)\}' '"(?<name>\w+)"')]
+        [proxy/src/proxy/constants.lua (reserved-names $proxy '(?s)reserved_projects = \{(?<body>.*?)\n\t\}' '(?<name>\w+) = true')]
+    ]
+
+    let every = $lists | get names | flatten | uniq
+
+    $lists
+    | each {|list|
+        if ($list.names | is-empty) {
+            [$'($list.file): GEN-06 The file lists no reserved project name.']
+        } else {
+            $every
+            | where $it not-in $list.names
+            | each {|name| $'($list.file): GEN-06 The list of reserved project names lacks ($name).' }
+        }
+    }
+    | flatten
+}
+
 # Return the files of the migrations with the hash of each one.
 def migration-files []: nothing -> table<file: string, hash: string> {
     glob $'($MIGRATIONS)/*/*.sql'
@@ -416,6 +451,7 @@ def main []: nothing -> nothing {
     | flatten
 
     let migrations = migration-problems (read-text $SUMS) (migration-files)
+    let reserved = reserved-project-problems (read-text console/ui/src/lib/projects.ts) (read-text terraform/internal/provider/names.go) (read-text proxy/src/proxy/constants.lua)
     let commits = commit-problems ...(git log --max-count=50 --format=%s | lines)
     let found = [
         ...$files
@@ -424,6 +460,7 @@ def main []: nothing -> nothing {
         ...$headers
         ...$helpers
         ...$migrations
+        ...$reserved
         ...$commits
     ]
 

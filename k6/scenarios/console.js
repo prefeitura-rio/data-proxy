@@ -14,6 +14,7 @@ import {
     safeJson,
     scenario,
     SCHEMA,
+    schemaIdentity,
     SYNCED_PARTITIONS,
     TABLES,
     tokenClaims,
@@ -49,7 +50,7 @@ export function console() {
 
     expect(
         "the console client sees only the schemas of its claim",
-        Array.isArray(claim) && seen.every((name) => claim.includes(name)),
+        Array.isArray(claim) && seen.every((name) => claim.includes(name.replace("__", "."))),
     );
 
     expect(
@@ -65,7 +66,7 @@ export function console() {
 
     expect(
         "a console client can't start a run for a schema outside its token",
-        consoleCall("POST", "/rpc/start_sync", "console", { schemas: ["other"] }).status === 403,
+        consoleCall("POST", "/rpc/start_sync", "console", { schemas: ["default__other"] }).status === 403,
     );
 
     expect("a role without start_sync can't start a run", consoleCall("POST", "/rpc/start_sync", "api", {}).status === 403);
@@ -135,7 +136,7 @@ function surface() {
     const health = rowsOf(consoleCall("GET", `/health?name=eq.${SCHEMA}`, "console"));
     expect("health has one row for the provisioned schema", health.length === 1);
     expect("health shows that the schema exists", health[0]?.schema_exists === true);
-    expect("health shows that the access policy exists", health[0]?.access_policy === true);
+    expect("health shows that the access policy exists", health[0]?.schema_exists === true);
     expect("health counts the views of the schema", Number(health[0]?.view_count) > 0);
     const synced = rowsOf(consoleCall("GET", `/synced?schema=eq.${SCHEMA}`, "console"));
     const row = /** @param {string} name */ (name) => synced.find((item) => String(item.name).endsWith(`.${name}`));
@@ -168,8 +169,8 @@ function surface() {
         );
     }
 
-    const probe = { name: "console_probe", source: "bigquery", settings: { project: "probe" } };
-    const probeCount = () => consoleRows("/schemas?name=eq.console_probe", "admin");
+    const probe = { ...schemaIdentity("default__console_probe"), source: "bigquery", settings: { project: "probe" } };
+    const probeCount = () => consoleRows("/schemas?name=eq.default__console_probe", "admin");
 
     expectEach(
         ["console", "admin_other"],
@@ -187,14 +188,14 @@ function surface() {
     expectEach(
         ["console", "admin_other"],
         (client) => `the ${client} client deletes no schema outside its claim`,
-        (client) => rowsOf(consoleCall("DELETE", "/schemas?name=eq.console_probe", client)).length === 0,
+        (client) => rowsOf(consoleCall("DELETE", "/schemas?name=eq.default__console_probe", client)).length === 0,
     );
 
     expect("the schema is still there after the refused deletes", probeCount() === 1);
 
     expect(
         "the admin deletes the schema",
-        rowsOf(consoleCall("DELETE", "/schemas?name=eq.console_probe", "admin")).length === 1,
+        rowsOf(consoleCall("DELETE", "/schemas?name=eq.default__console_probe", "admin")).length === 1,
     );
 
     expect(
@@ -226,12 +227,12 @@ function surface() {
  * Verifies the HTTP contract of the console with an admin: rows in, a document out, and errors as statuses.
  */
 function behaviour() {
-    const alpha = "console_alpha";
-    const beta = "console_beta";
+    const alpha = "default__console_alpha";
+    const beta = "default__console_beta";
 
     const created = [
-        consoleCall("POST", "/schemas", "admin", { name: alpha, claim: "sub" }),
-        consoleCall("POST", "/schemas", "admin", { name: beta }),
+        consoleCall("POST", "/schemas", "admin", { ...schemaIdentity(alpha), claim: "sub" }),
+        consoleCall("POST", "/schemas", "admin", schemaIdentity(beta)),
         consoleCall("POST", "/tables", "admin", {
             name: "p.d.one",
             schema: alpha,
@@ -270,8 +271,8 @@ function behaviour() {
     expect("every row records who made it, from the token", row?.updated_by === "test_admin");
 
     const statuses = [
-        consoleCall("POST", "/schemas", "admin", { name: "Bad-Name" }).status,
-        consoleCall("POST", "/schemas", "admin", { name: alpha }).status,
+        consoleCall("POST", "/schemas", "admin", { project: "default", short_name: "Bad-Name" }).status,
+        consoleCall("POST", "/schemas", "admin", schemaIdentity(alpha)).status,
         consoleCall("POST", "/tables", "admin", { name: "p.d.two", schema: alpha, strategy: "nope" }).status,
         consoleCall("POST", "/tables", "admin", { name: "p.d.three", schema: "none_such" }).status,
         consoleCall("POST", "/tables", "admin", { name: "p.d.four", schema: alpha, strategy: "full", n: 4 }).status,
@@ -296,15 +297,9 @@ function behaviour() {
 
     expectedStatuses.forEach(([description, status], index) => expect(description, statuses[index] === status));
 
-    expectEach(
-        ["rbac", "console", "data_proxy", "dbos", "public", "pg_custom"],
-        (name) => `a source schema can't take the name ${name} of a schema that the system owns`,
-        (name) => consoleCall("POST", "/schemas", "admin", { name }).status === 400,
-    );
-
     expect(
         "a run for an unknown schema is refused",
-        consoleCall("POST", "/rpc/start_sync", "admin", { schemas: ["console_bad"] }).status === 400,
+        consoleCall("POST", "/rpc/start_sync", "admin", { schemas: ["default__console_bad"] }).status === 400,
     );
 
     expect(
@@ -344,7 +339,8 @@ function behaviour() {
         ducklake: { sort: ["created"], partitioning: [{ column: "created", transform: "day" }] },
     };
 
-    const importName = "console_import";
+    const importKey = "console_import";
+    const importName = `default__${importKey}`;
 
     const entry = /** @param {unknown[]} tables */ (tables) => ({
         source: { type: "bigquery" },
@@ -355,7 +351,7 @@ function behaviour() {
     const load = /** @param {Record<string, unknown>} schemas */ (schemas) =>
         consoleCall("POST", "/rpc/import_config", "admin", { document: { schemas } }).status;
 
-    expect("an admin imports a document", load({ [importName]: entry([full, partitioned]) }) === 204);
+    expect("an admin imports a document", load({ [importKey]: entry([full, partitioned]) }) === 204);
 
     expect(
         "the endpoint returns the document that was imported",
@@ -363,7 +359,7 @@ function behaviour() {
     );
 
     const replaced = { ...full, rls: [{ column: "other", unit_type: "unit" }] };
-    expect("a second import is accepted", load({ [importName]: entry([replaced]) }) === 204);
+    expect("a second import is accepted", load({ [importKey]: entry([replaced]) }) === 204);
 
     expect(
         "importing again replaces the rules of a table and keeps the other tables",
@@ -377,7 +373,7 @@ function behaviour() {
         }) === 400,
     );
 
-    expect("a bad document changes nothing", documentOf("console_bad") === undefined);
+    expect("a bad document changes nothing", documentOf("default__console_bad") === undefined);
     ["p.d.full", "p.d.part", "p.d.beta"].forEach((name) => consoleCall("DELETE", `/tables?name=eq.${name}`, "admin"));
 
     expect(

@@ -8,7 +8,9 @@
 ---@field http HttpConstants HTTP methods, statuses, media types and the 502 answer.
 ---@field internal_profile string The schema profile that only the cluster may use. The proxy refuses it.
 ---@field disabled_endpoints string[] Path prefixes that are never cached, unless sync.json replaces them.
----@field policy_endpoints string[] Path prefixes of the access policy. A write there makes cached answers stale.
+---@field internal_profiles table<string, boolean> The profiles that only the cluster may use.
+---@field reserved_projects table<string, boolean> The first path segments that are never a project.
+---@field schema_separator string The text between the project and the schema in the name of a schema of the database.
 ---@field log LogConstants Log messages and fields.
 ---@field redis RedisConstants Redis connection limits.
 ---@field postgrest PostgrestConstants Limits for the calls to PostgREST.
@@ -38,7 +40,8 @@
 ---@field reload_failed_body string JSON body of the answer if the reload fails.
 ---@field unavailable_status integer
 ---@field overloaded_body string Body of the 503 answer. The proxy sends it if too many requests wait for PostgREST.
----@field forbidden_body string Body of the 403 answer, for a request that asks for the console profile.
+---@field forbidden_body string Body of the 403 answer, for a request that asks for an internal profile.
+---@field unknown_schema_body string Body of the 404 answer, for a path that names no known project and schema.
 ---@field overloaded_status integer
 ---@field overloaded_reason string The reason that limiter.run gives if it rejects a task.
 ---@field retry_after_seconds string Value of the Retry-After header of the 503 answer.

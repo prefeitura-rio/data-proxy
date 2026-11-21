@@ -17,11 +17,12 @@ import {
     waitForRun,
     waitUntil,
     NEW_SCHEMA_SOURCE,
+    schemaIdentity,
 } from "../lib/index.js";
 
 const { expect, requirePrecondition } = scenario("cleanup");
 
-const SCHEMA = "e2e_cleanup";
+const SCHEMA = "default__e2e_cleanup";
 const PROVISION_TIMEOUT_SECONDS = 90;
 const RUN_TIMEOUT_SECONDS = 600;
 const CLEANUP_TIMEOUT_SECONDS = 120;
@@ -43,7 +44,7 @@ export function cleanup(k8s) {
 
     try {
         const created = [
-            consoleCall("POST", "/schemas", "admin", { name: SCHEMA, claim: "preferred_username" }),
+            consoleCall("POST", "/schemas", "admin", { ...schemaIdentity(SCHEMA), claim: "preferred_username" }),
             consoleCall("POST", "/tables", "admin", { name: NEW_SCHEMA_SOURCE, schema: SCHEMA, strategy: "full" }),
         ];
 
@@ -55,7 +56,7 @@ export function cleanup(k8s) {
             "provision creates the schema",
             waitUntil(
                 PROVISION_TIMEOUT_SECONDS,
-                () => rowsOf(consoleCall("GET", `/health?name=eq.${SCHEMA}`, "admin"))[0]?.access_policy === true,
+                () => rowsOf(consoleCall("GET", `/health?name=eq.${SCHEMA}`, "admin"))[0]?.schema_exists === true,
                 "provision to create the schema",
             ),
         );
@@ -99,7 +100,7 @@ export function cleanup(k8s) {
         expect(
             "the schema itself stays",
             consoleCall("GET", `/schemas?name=eq.${SCHEMA}`, "admin").status === 200 &&
-                postgrestCall(SCHEMA, "GET", "/access_policy", "admin").status === 200,
+                postgrestCall("access", "GET", "/policy", "admin").status === 200,
         );
     } finally {
         removeSchemaFromConsole(SCHEMA, NEW_SCHEMA_SOURCE, SUBJECT);

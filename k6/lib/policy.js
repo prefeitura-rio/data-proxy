@@ -1,12 +1,12 @@
 import http from "k6/http";
 import { sleep } from "k6";
 import {
-    API_URL,
     FULL_TABLE,
     HOST,
     POLICY_CLIENT_ID,
     POLICY_REPLICATION_POLL_INTERVAL_SECONDS,
     POLICY_REPLICATION_TIMEOUT_SECONDS,
+    POSTGREST_URL,
     SCHEMA,
 } from "./env.js";
 import { proxyGet, rowsOf } from "./http.js";
@@ -15,6 +15,9 @@ import { scenario } from "./check.js";
 import { rememberRequest } from "./log.js";
 
 const setup = scenario("setup");
+
+/** The scope of the grants of the test schema: `default.test`. */
+export const SCOPE = SCHEMA.replace("__", ".");
 
 export const ACCESS_POLICY_ROWS = [
     {
@@ -48,9 +51,8 @@ export function seedAccessPolicy(rows = ACCESS_POLICY_ROWS) {
 
     const headers = {
         Authorization: `Bearer ${token}`,
-        Host: HOST,
-        "Accept-Profile": SCHEMA,
-        "Content-Profile": SCHEMA,
+        "Accept-Profile": "access",
+        "Content-Profile": "access",
         "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates",
     };
@@ -58,7 +60,7 @@ export function seedAccessPolicy(rows = ACCESS_POLICY_ROWS) {
     let status = 0;
 
     for (let attempt = 0; attempt < 3; attempt++) {
-        const response = http.post(`${API_URL}/access_policy`, JSON.stringify(rows), {
+        const response = http.post(`${POSTGREST_URL}/policy`, JSON.stringify(rows.map((row) => ({ scope: SCOPE, ...row }))), {
             headers,
             tags: { name: "seed_access_policy" },
             responseCallback: http.expectedStatuses(201, 409),
@@ -97,7 +99,7 @@ export function waitForAccessPolicyReplication(token) {
 }
 
 /**
- * Changes the access policy through the proxy with the policy writer, and returns the status.
+ * Changes the access policy through PostgREST with the policy writer, and returns the status. The data proxy never serves the schema access.
  * @param {"POST" | "DELETE"} method
  * @param {string} query
  * @param {unknown} [rows]
@@ -108,15 +110,16 @@ export function changeAccessPolicy(method, query, rows) {
         headers: {
             Authorization: `Bearer ${fetchToken(POLICY_CLIENT_ID)}`,
             Host: HOST,
-            "Accept-Profile": SCHEMA,
-            "Content-Profile": SCHEMA,
+            "Accept-Profile": "access",
+            "Content-Profile": "access",
             "Content-Type": "application/json",
         },
         tags: { name: "change_access_policy" },
     };
 
-    const url = `${API_URL}/access_policy${query}`;
-    const response = method === "POST" ? http.post(url, JSON.stringify(rows), params) : http.del(url, null, params);
+    const url = `${POSTGREST_URL}/policy${query}`;
+    const body = Array.isArray(rows) ? rows.map((row) => ({ scope: SCOPE, ...row })) : rows;
+    const response = method === "POST" ? http.post(url, JSON.stringify(body), params) : http.del(url, null, params);
 
     return rememberRequest(response).status;
 }

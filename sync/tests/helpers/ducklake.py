@@ -11,6 +11,7 @@ from sync.settings import settings
 from sync.templates import render_template
 from sync.types import (
     DatabaseRow,
+    DescribeRow,
     DuckDBParams,
 )
 from tests.constants import (
@@ -60,7 +61,7 @@ async def ducklake_columns(duckdb: DuckDB, table: str) -> set[str]:
     rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).query(
         "duckdb/describe_table",
         mapping={"table": Identifier(table)},
-        expect=tuple[str, str],
+        expect=DescribeRow,
     )
     return {row[0] for row in rows}
 

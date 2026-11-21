@@ -55,18 +55,19 @@ The `k3d` test realm has one client, `idp`, that's set up like this recipe:
 
 The `idp` scenario of the end-to-end suite reads their tokens and uses them on the data API and on the console. The other test clients carry a fixed `role` claim.
 
-Use that token and the target schema profile:
+Use that token and the profile `access`. Send the request to the address of PostgREST, because the data proxy refuses the profile `access`:
 
 ```bash
 curl --request POST \
   --header "Authorization: Bearer ${POLICY_WRITER_TOKEN}" \
   --header "Content-Type: application/json" \
-  --header "Accept-Profile: test" \
+  --header "Accept-Profile: access" \
+  --header "Content-Profile: access" \
   --header "Prefer: resolution=merge-duplicates" \
   --data '[
-    {"subject": "test_user_1", "unit_type": "region", "unit_id": "region_1"}
+    {"scope": "default.test", "subject": "test_user_1", "unit_type": "region", "unit_id": "region_1"}
   ]' \
-  "${BASE_URL}/access_policy"
+  "${POSTGREST_URL}/policy"
 ```
 
 The access policy subject must equal the configured identity claim in the end-user JSON Web Token (JWT).
@@ -88,10 +89,11 @@ The gateway, PostgREST and the proxy need the same three claims from any provide
 | Claim | Value | How to add it |
 | --- | --- | --- |
 | `role` | One role of `rbac.toml`, as text. | Keycloak: a mapper that sets a fixed claim on a service client, or a *User Client Role* mapper for users. Auth0: an Action that sets a custom claim. `Entra ID`: an app role, with a claims mapping policy that renames it. |
-| `schemas` | A list of schema names, or one name as text. | A user attribute with several values, or a fixed list on a service client. An empty list reads nothing. The name `*` stands for every schema and every row. Give it only to a debugging account. The element `<schema>:*` names one schema and reads every row of it. |
+| `schemas` | A list of schemas as `project.schema`, or one as text. | A user attribute with several values, or a fixed list on a service client. An empty list reads nothing. The entry `*` stands for every schema and every row. Give it only to a debugging account. The element `project.schema:*` names one schema and reads every row of it. A name without a dot reaches no schema. |
+| `projects` | Optional. A list of project names, or one name as text. | The same ways as `schemas`. The name `sales` gives every schema of the project, and `sales:*` also every row of them. The name `*` stands for every project and every row, so give it only to a debugging account. |
 | `preferred_username` | The subject of the access policy. | The default claim of most providers. If yours doesn't set it, the access policy subject must be the `sub` value. |
 
-The token must also carry the audience that the gateway expects. Get a token with `nu scripts/token.nu --issuer <issuer> --client-id <client> --client-secret <secret>`, and decode its payload. Check that `role`, `schemas` and `preferred_username` are there, and that `aud` and `iss` match your values. Then call `/<table>?limit=1`. A token with an unknown role gets 400 or 403, and a token without a role reads nothing.
+The token must also carry the audience that the gateway expects. Get a token with `nu scripts/token.nu --issuer <issuer> --client-id <client> --client-secret <secret>`, and decode its payload. Check that `role`, `schemas` and `preferred_username` are there, and that `aud` and `iss` match your values. Then call `/<project>/<schema>/<table>?limit=1`. A token with an unknown role gets 400 or 403, and a token without a role reads nothing.
 
 A claim that names a role that isn't in `rbac.toml` never gains rights. PostgREST can switch only to the roles that the serving login is a member of. `verify-rbac` makes sure that this list is the list of the file.
 

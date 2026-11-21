@@ -13,7 +13,6 @@ import (
 	"terraform-provider-data-proxy/internal/client"
 )
 
-// projectDataModel maps the data_proxy_project data source.
 type projectDataModel struct {
 	ID        types.String `tfsdk:"id"`
 	Name      types.String `tfsdk:"name"`
@@ -21,7 +20,6 @@ type projectDataModel struct {
 	UpdatedBy types.String `tfsdk:"updated_by"`
 }
 
-// schemaDataModel maps the data_proxy_schema data source.
 type schemaDataModel struct {
 	ID        types.String `tfsdk:"id"`
 	Project   types.String `tfsdk:"project"`
@@ -35,22 +33,18 @@ type schemaDataModel struct {
 	UpdatedBy types.String `tfsdk:"updated_by"`
 }
 
-// documentModel maps a data source that gives a JSON document.
 type documentModel struct {
 	ID       types.String `tfsdk:"id"`
 	Document types.String `tfsdk:"document"`
 }
 
-// healthModel maps the data_proxy_schema_health data source.
 type healthModel struct {
 	ID           types.String `tfsdk:"id"`
 	Name         types.String `tfsdk:"name"`
 	SchemaExists types.Bool   `tfsdk:"schema_exists"`
-	AccessPolicy types.Bool   `tfsdk:"access_policy"`
 	ViewCount    types.Int64  `tfsdk:"view_count"`
 }
 
-// syncStateModel maps the data_proxy_table_sync_state data source.
 type syncStateModel struct {
 	ID             types.String `tfsdk:"id"`
 	Name           types.String `tfsdk:"name"`
@@ -60,7 +54,6 @@ type syncStateModel struct {
 	PartitionCount types.Int64  `tfsdk:"partition_count"`
 }
 
-// historyEntryModel maps one change of the data_proxy_config_history data source.
 type historyEntryModel struct {
 	ChangedAt  types.String `tfsdk:"changed_at"`
 	ChangedBy  types.String `tfsdk:"changed_by"`
@@ -72,7 +65,6 @@ type historyEntryModel struct {
 	NewRow     types.String `tfsdk:"new_row"`
 }
 
-// historyModel maps the data_proxy_config_history data source.
 type historyModel struct {
 	ID      types.String        `tfsdk:"id"`
 	Schema  types.String        `tfsdk:"schema"`
@@ -80,20 +72,16 @@ type historyModel struct {
 	Entries []historyEntryModel `tfsdk:"entries"`
 }
 
-// defaultHistoryLimit is the number of changes that the history data source reads when it gets no limit.
 const defaultHistoryLimit = 100
 
-// computedString declares a text that the provider fills.
 func computedString(description string) schema.StringAttribute {
 	return schema.StringAttribute{Description: description, Computed: true}
 }
 
-// requiredString declares a text that the configuration gives.
 func requiredString(description string) schema.StringAttribute {
 	return schema.StringAttribute{Description: description, Required: true}
 }
 
-// updatedAttributes declares the two computed attributes that every configuration row has.
 func updatedAttributes(attributes map[string]schema.Attribute) map[string]schema.Attribute {
 	attributes["updated_at"] = computedString("When the row last changed.")
 	attributes["updated_by"] = computedString("Who last changed the row.")
@@ -101,7 +89,6 @@ func updatedAttributes(attributes map[string]schema.Attribute) map[string]schema
 	return attributes
 }
 
-// newProjectDataSource returns the data_proxy_project data source.
 func newProjectDataSource() datasource.DataSource {
 	return &lookup[projectDataModel]{
 		suffix:      "project",
@@ -129,7 +116,6 @@ func newProjectDataSource() datasource.DataSource {
 	}
 }
 
-// newSchemaDataSource returns the data_proxy_schema data source.
 func newSchemaDataSource() datasource.DataSource {
 	return &lookup[schemaDataModel]{
 		suffix:      "schema",
@@ -186,7 +172,6 @@ func newSchemaDataSource() datasource.DataSource {
 	}
 }
 
-// newTableDataSource returns the data_proxy_table data source.
 func newTableDataSource() datasource.DataSource {
 	return &lookup[tableModel]{
 		suffix:      "table",
@@ -239,7 +224,6 @@ func newTableDataSource() datasource.DataSource {
 	}
 }
 
-// newExportConfigDataSource returns the data_proxy_export_config data source.
 func newExportConfigDataSource() datasource.DataSource {
 	return documentSource("export_config", "Exports the configuration as a JSON document grouped by project, which includes the empty projects.",
 		func(ctx context.Context, apiClient *client.Client) ([]byte, error) {
@@ -247,13 +231,11 @@ func newExportConfigDataSource() datasource.DataSource {
 		})
 }
 
-// newSyncConfigDataSource returns the data_proxy_sync_config data source.
 func newSyncConfigDataSource() datasource.DataSource {
 	return documentSource("sync_config", "Reads the flat configuration that the sync engine reads, with the physical schema names as keys.",
 		func(ctx context.Context, apiClient *client.Client) ([]byte, error) { return apiClient.SyncConfig(ctx) })
 }
 
-// documentSource builds a data source that stores a JSON document from the API in the attribute `document`.
 func documentSource(suffix, description string, fetch func(context.Context, *client.Client) ([]byte, error)) datasource.DataSource {
 	return &lookup[documentModel]{
 		suffix:      suffix,
@@ -276,17 +258,15 @@ func documentSource(suffix, description string, fetch func(context.Context, *cli
 	}
 }
 
-// newSchemaHealthDataSource returns the data_proxy_schema_health data source.
 func newSchemaHealthDataSource() datasource.DataSource {
 	return &lookup[healthModel]{
 		suffix:      "schema_health",
-		description: "Reads whether the sync has created the PostgreSQL schema and its access policy table.",
+		description: "Reads whether the sync has created the PostgreSQL schema.",
 		permission:  "read_config",
 		attributes: map[string]schema.Attribute{
 			"id":            computedString("The physical name of the schema."),
 			"name":          requiredString("The physical name of the schema."),
 			"schema_exists": schema.BoolAttribute{Description: "Whether the PostgreSQL schema exists.", Computed: true},
-			"access_policy": schema.BoolAttribute{Description: "Whether the schema has its access policy table.", Computed: true},
 			"view_count":    schema.Int64Attribute{Description: "The number of views in the schema. It grows after the first sync.", Computed: true},
 		},
 		read: func(ctx context.Context, apiClient *client.Client, model *healthModel) error {
@@ -299,7 +279,6 @@ func newSchemaHealthDataSource() datasource.DataSource {
 				ID:           types.StringValue(row.Name),
 				Name:         types.StringValue(row.Name),
 				SchemaExists: types.BoolValue(row.SchemaExists),
-				AccessPolicy: types.BoolValue(row.AccessPolicy),
 				ViewCount:    types.Int64Value(int64(row.ViewCount)),
 			}
 
@@ -308,7 +287,6 @@ func newSchemaHealthDataSource() datasource.DataSource {
 	}
 }
 
-// newTableSyncStateDataSource returns the data_proxy_table_sync_state data source.
 func newTableSyncStateDataSource() datasource.DataSource {
 	return &lookup[syncStateModel]{
 		suffix:      "table_sync_state",
@@ -342,7 +320,6 @@ func newTableSyncStateDataSource() datasource.DataSource {
 	}
 }
 
-// newConfigHistoryDataSource returns the data_proxy_config_history data source.
 func newConfigHistoryDataSource() datasource.DataSource {
 	return &lookup[historyModel]{
 		suffix:      "config_history",

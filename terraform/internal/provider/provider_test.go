@@ -44,18 +44,18 @@ func TestMetadata(t *testing.T) {
 		{name: "a development build", version: "dev", wantType: "data_proxy", wantVersion: "dev"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			var resp provider.MetadataResponse
 
-			New(tt.version)().Metadata(context.Background(), provider.MetadataRequest{}, &resp)
+			New(testCase.version)().Metadata(context.Background(), provider.MetadataRequest{}, &resp)
 
-			if resp.TypeName != tt.wantType {
-				t.Errorf("TypeName = %q, want %q", resp.TypeName, tt.wantType)
+			if resp.TypeName != testCase.wantType {
+				t.Errorf("TypeName = %q, want %q", resp.TypeName, testCase.wantType)
 			}
 
-			if resp.Version != tt.wantVersion {
-				t.Errorf("Version = %q, want %q", resp.Version, tt.wantVersion)
+			if resp.Version != testCase.wantVersion {
+				t.Errorf("Version = %q, want %q", resp.Version, testCase.wantVersion)
 			}
 		})
 	}
@@ -111,7 +111,7 @@ func TestSchemaServedOverProtocol(t *testing.T) {
 		}
 	}
 
-	wantResources := []string{"data_proxy_access_policy", "data_proxy_project", "data_proxy_schema", "data_proxy_table"}
+	wantResources := []string{"data_proxy_grant", "data_proxy_project", "data_proxy_schema", "data_proxy_table"}
 	wantSources := []string{
 		"data_proxy_config_history", "data_proxy_export_config", "data_proxy_permissions", "data_proxy_project",
 		"data_proxy_schema", "data_proxy_schema_health", "data_proxy_sync_config", "data_proxy_table",
@@ -133,7 +133,6 @@ func TestSchemaServedOverProtocol(t *testing.T) {
 	}
 }
 
-// model builds a provider block. A nil string leaves the attribute out, and nil scopes leave the list out.
 func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) providerModel {
 	text := func(value *string) types.String {
 		if value == nil {
@@ -163,26 +162,23 @@ func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) 
 	}
 }
 
-// ptr returns a pointer to the value.
 func ptr[T any](value T) *T {
 	return &value
 }
 
-// diagnostic is the part of a diagnostic that a test compares.
 type diagnostic struct {
 	path    string
 	summary string
 	detail  string
 }
 
-// diagnosticsOf keeps the path, the summary and the detail of each diagnostic.
 func diagnosticsOf(diagnostics diag.Diagnostics) []diagnostic {
 	var got []diagnostic
 
-	for _, d := range diagnostics {
-		item := diagnostic{summary: d.Summary(), detail: d.Detail()}
+	for _, entry := range diagnostics {
+		item := diagnostic{summary: entry.Summary(), detail: entry.Detail()}
 
-		if withPath, ok := d.(diag.DiagnosticWithPath); ok {
+		if withPath, ok := entry.(diag.DiagnosticWithPath); ok {
 			item.path = withPath.Path().String()
 		}
 
@@ -192,7 +188,6 @@ func diagnosticsOf(diagnostics diag.Diagnostics) []diagnostic {
 	return got
 }
 
-// fullEnv is an environment that sets every attribute of the provider.
 var fullEnv = map[string]string{
 	EnvEndpoint:     "https://env.example.com",
 	EnvTokenURL:     "https://id.env.example.com/token",
@@ -349,18 +344,18 @@ func TestReadSettings(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			getenv := func(name string) string { return tt.env[name] }
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			getenv := func(name string) string { return testCase.env[name] }
 
-			got, diagnostics := readSettings(context.Background(), tt.model, getenv)
+			got, diagnostics := readSettings(context.Background(), testCase.model, getenv)
 
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("settings = %+v, want %+v", got, tt.want)
+			if !reflect.DeepEqual(got, testCase.want) {
+				t.Errorf("settings = %+v, want %+v", got, testCase.want)
 			}
 
-			if gotDiags := diagnosticsOf(diagnostics); !reflect.DeepEqual(gotDiags, tt.diags) {
-				t.Errorf("diagnostics = %+v, want %+v", gotDiags, tt.diags)
+			if gotDiags := diagnosticsOf(diagnostics); !reflect.DeepEqual(gotDiags, testCase.diags) {
+				t.Errorf("diagnostics = %+v, want %+v", gotDiags, testCase.diags)
 			}
 		})
 	}
@@ -379,25 +374,24 @@ func TestSplitScopes(t *testing.T) {
 		{name: "commas, spaces and empty items", value: " openid, ,profile\n email ", want: []string{"openid", "profile", "email"}},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := splitScopes(tt.value); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("splitScopes(%q) = %q, want %q", tt.value, got, tt.want)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := splitScopes(testCase.value); !reflect.DeepEqual(got, testCase.want) {
+				t.Errorf("splitScopes(%q) = %q, want %q", testCase.value, got, testCase.want)
 			}
 		})
 	}
 }
 
-// configure runs Configure on a provider block with the given attributes. The other attributes are null.
 func configure(t *testing.T, attributes map[string]tftypes.Value) provider.ConfigureResponse {
 	t.Helper()
 
 	ctx := context.Background()
-	p := New("test")()
+	dataProxy := New("test")()
 
 	var schemaResp provider.SchemaResponse
 
-	p.Schema(ctx, provider.SchemaRequest{}, &schemaResp)
+	dataProxy.Schema(ctx, provider.SchemaRequest{}, &schemaResp)
 
 	objectType, ok := schemaResp.Schema.Type().TerraformType(ctx).(tftypes.Object)
 	if !ok {
@@ -415,12 +409,11 @@ func configure(t *testing.T, attributes map[string]tftypes.Value) provider.Confi
 
 	var resp provider.ConfigureResponse
 
-	p.Configure(ctx, req, &resp)
+	dataProxy.Configure(ctx, req, &resp)
 
 	return resp
 }
 
-// apiRequest is what the fake API saw of one request.
 type apiRequest struct {
 	method         string
 	uri            string
@@ -429,7 +422,6 @@ type apiRequest struct {
 	authorization  string
 }
 
-// fakeAPI holds the addresses of a fake identity provider and a fake PostgREST API, and the requests that the API saw.
 type fakeAPI struct {
 	tokenURL string
 	endpoint string
@@ -588,14 +580,14 @@ func TestConfigure(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tokenStatus := tt.tokenStatus
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			tokenStatus := testCase.tokenStatus
 			if tokenStatus == 0 {
 				tokenStatus = http.StatusOK
 			}
 
-			api := newFakeAPI(t, tokenStatus, tt.status, tt.body)
+			api := newFakeAPI(t, tokenStatus, testCase.status, testCase.body)
 
 			env := map[string]string{}
 			attributes := map[string]tftypes.Value{
@@ -606,7 +598,7 @@ func TestConfigure(t *testing.T) {
 				"scopes":        tftypes.NewValue(tftypes.List{ElementType: tftypes.String}, []tftypes.Value{text("openid")}),
 			}
 
-			if tt.env {
+			if testCase.env {
 				attributes = map[string]tftypes.Value{}
 				env = map[string]string{
 					EnvEndpoint:     api.endpoint,
@@ -617,8 +609,8 @@ func TestConfigure(t *testing.T) {
 				}
 			}
 
-			if tt.change != nil {
-				tt.change(attributes)
+			if testCase.change != nil {
+				testCase.change(attributes)
 			}
 
 			for _, name := range []string{EnvEndpoint, EnvTokenURL, EnvClientID, EnvClientSecret, EnvScopes} {
@@ -628,16 +620,16 @@ func TestConfigure(t *testing.T) {
 			resp := configure(t, attributes)
 
 			var want []diagnostic
-			if tt.diags != nil {
-				want = tt.diags(api)
+			if testCase.diags != nil {
+				want = testCase.diags(api)
 			}
 
 			if got := diagnosticsOf(resp.Diagnostics); !reflect.DeepEqual(got, want) {
 				t.Fatalf("diagnostics = %+v, want %+v", got, want)
 			}
 
-			if len(*api.requests) != tt.requests {
-				t.Fatalf("the API got %d requests, want %d", len(*api.requests), tt.requests)
+			if len(*api.requests) != testCase.requests {
+				t.Fatalf("the API got %d requests, want %d", len(*api.requests), testCase.requests)
 			}
 
 			for _, request := range *api.requests {
@@ -755,11 +747,11 @@ func TestTestAccName(t *testing.T) {
 
 	first, second := testAccName(), testAccName()
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			for _, name := range []string{first, second} {
-				if !tt.pattern.MatchString(name) {
-					t.Errorf("testAccName() = %q, want a match of %s", name, tt.pattern)
+				if !testCase.pattern.MatchString(name) {
+					t.Errorf("testAccName() = %q, want a match of %s", name, testCase.pattern)
 				}
 			}
 		})
@@ -843,17 +835,17 @@ func TestTestAccCleanup(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tokenStatus := tt.tokenStatus
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			tokenStatus := testCase.tokenStatus
 			if tokenStatus == 0 {
 				tokenStatus = http.StatusOK
 			}
 
-			api := newFakeAPI(t, tokenStatus, tt.status, tt.body)
+			api := newFakeAPI(t, tokenStatus, testCase.status, testCase.body)
 
 			acceptance := ""
-			if tt.acceptance {
+			if testCase.acceptance {
 				acceptance = "1"
 			}
 
@@ -869,7 +861,7 @@ func TestTestAccCleanup(t *testing.T) {
 			testAccCleanup(recorder, "schemas", client.Eq("name", "tfaccabc"))
 
 			wantCleanups := 0
-			if tt.acceptance {
+			if testCase.acceptance {
 				wantCleanups = 1
 			}
 
@@ -885,13 +877,13 @@ func TestTestAccCleanup(t *testing.T) {
 				cleanup()
 			}
 
-			if !reflect.DeepEqual(*api.requests, tt.requests) {
-				t.Errorf("requests = %+v, want %+v", *api.requests, tt.requests)
+			if !reflect.DeepEqual(*api.requests, testCase.requests) {
+				t.Errorf("requests = %+v, want %+v", *api.requests, testCase.requests)
 			}
 
 			var wantErrors []string
-			if tt.errors != nil {
-				wantErrors = tt.errors(api)
+			if testCase.errors != nil {
+				wantErrors = testCase.errors(api)
 			}
 
 			if !reflect.DeepEqual(recorder.errors, wantErrors) {
@@ -902,7 +894,7 @@ func TestTestAccCleanup(t *testing.T) {
 }
 
 // testAccProvisionedSchema is a schema that the console stack provisions at start, so its access policy table exists.
-const testAccProvisionedSchema = "test"
+const testAccProvisionedSchema = "default__test"
 
 // projectConfig returns the configuration of a project.
 func projectConfig(name string) string {

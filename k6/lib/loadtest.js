@@ -134,7 +134,7 @@ export function waitForLocalTables(token) {
                 const response = setupGet(`${POSTGREST_URL}/${table}?limit=1`, {
                     headers: {
                         Authorization: `Bearer ${token}`,
-                        "Accept-Profile": "test",
+                        "Accept-Profile": "default__test",
                     },
                     tags: { name: `load_setup:${table}` },
                 });
@@ -158,7 +158,7 @@ export function waitForLocalTables(token) {
  * @returns {string[]}
  */
 export function fallbackDates(token) {
-    const headers = { Authorization: `Bearer ${token}`, "Accept-Profile": "test" };
+    const headers = { Authorization: `Bearer ${token}`, "Accept-Profile": "default__test" };
 
     const snapshot = setupGet(`${POSTGREST_URL}/rpc/dl_latest_snapshot`, {
         headers,
@@ -206,7 +206,7 @@ export function fallbackDates(token) {
  */
 export function visibleIds(token) {
     const response = setupGet(`${POSTGREST_URL}/big_table?select=id&limit=1000`, {
-        headers: { Authorization: `Bearer ${token}`, "Accept-Profile": "test" },
+        headers: { Authorization: `Bearer ${token}`, "Accept-Profile": "default__test" },
         tags: { name: "load_setup:ids" },
     });
 
@@ -226,7 +226,7 @@ export function visibleIds(token) {
  * @returns {string[]}
  */
 export function readableSnapshots(token) {
-    const headers = { Authorization: `Bearer ${token}`, "Accept-Profile": "test" };
+    const headers = { Authorization: `Bearer ${token}`, "Accept-Profile": "default__test" };
 
     const latest = setupGet(`${POSTGREST_URL}/rpc/dl_latest_snapshot`, {
         headers,

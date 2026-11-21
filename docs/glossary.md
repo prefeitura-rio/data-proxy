@@ -6,7 +6,7 @@ This page defines the terms that the other pages use. Each term has one meaning 
 
 | Term | Meaning |
 | --- | --- |
-| Access policy | The table `<schema>.access_policy`. Each row names a subject, a unit type and a unit id, and it says which rows that subject may read. |
+| Access policy | The table `access.policy`. Each row names a scope, a subject, a unit type and a unit id, and it says which rows that subject may read. |
 | Adapter | The code that reads one kind of source. BigQuery is the only adapter today. |
 | Batch | The contiguous changed partitions of one table that a single dump task extracts with one query and one file. `sync.dumpBatchBytes` limits its size. |
 | Catalog | The DuckLake metadata of one schema. It lives in the `ducklake` database, in a metadata schema with the name of the schema. |
@@ -53,9 +53,9 @@ This page defines the terms that the other pages use. Each term has one meaning 
 
 The word schema has three meanings. A page uses the full phrase if the meaning isn't clear.
 
-- **PostgreSQL schema:** a namespace in the database. PostgREST serves each source schema as a profile, which a request selects with `Accept-Profile`.
-- **Project:** a group of schemas, with its own name. A schema name is unique in its project. The `projects` claim gives access to every schema of a project.
-- **Physical name:** the name of a schema in the database, the API, S3 and the roles. It's `<project>_<short name>`, or the short name in the project `default`.
+- **PostgreSQL schema:** a namespace in the database. PostgREST serves each source schema as a profile. The proxy chooses the profile from the first two segments of the path.
+- **Project:** a group of schemas, with its own name. A short schema name is unique in its project, and the physical name is unique in the database. The `projects` claim gives access to every schema of a project.
+- **Physical name:** the name of a schema in the database and the roles. It's `<project>__<short name>`, also in the project `default`. The path of the API names the project and the schema as `/<project>/<schema>`.
 - **Configured schema:** an entry under `schemas` in `sync.json`. It has one source, one PostgreSQL schema and one catalog.
 - **JSON schema:** a document that checks the shape of data, such as the `config` schema of the proxy.
 

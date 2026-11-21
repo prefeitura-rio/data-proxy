@@ -58,10 +58,10 @@ func TestSchemaDataSource(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := newStepClient(t, []step{{method: "GET", uri: tt.uri, response: "[" + schemaRowJSON + "]"}})
-			config := tt.config
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c := newStepClient(t, []step{{method: "GET", uri: testCase.uri, response: "[" + schemaRowJSON + "]"}})
+			config := testCase.config
 			config.ID, config.Source, config.Settings, config.Claim = types.StringNull(), types.StringNull(), types.StringNull(), types.StringNull()
 			config.Encrypted, config.UpdatedAt, config.UpdatedBy = types.BoolNull(), types.StringNull(), types.StringNull()
 
@@ -132,11 +132,11 @@ func TestDocumentDataSources(t *testing.T) {
 		{name: "sync_config", source: newSyncConfigDataSource, uri: "/rpc/sync_config", response: `{"schemas":{}}`},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := newStepClient(t, []step{{method: "GET", uri: tt.uri, profile: "console", response: tt.response}})
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c := newStepClient(t, []step{{method: "GET", uri: testCase.uri, profile: "console", response: testCase.response}})
 
-			resp, got := readDataSource(t, tt.source(), c, documentModel{ID: types.StringNull(), Document: types.StringNull()})
+			resp, got := readDataSource(t, testCase.source(), c, documentModel{ID: types.StringNull(), Document: types.StringNull()})
 
 			if len(got) != 0 {
 				t.Fatalf("diagnostics = %+v, want none", got)
@@ -146,18 +146,18 @@ func TestDocumentDataSources(t *testing.T) {
 
 			resp.State.Get(context.Background(), &state)
 
-			if state.ID.ValueString() != tt.name || state.Document.ValueString() != tt.response {
-				t.Errorf("state = %+v, want the document %s", state, tt.response)
+			if state.ID.ValueString() != testCase.name || state.Document.ValueString() != testCase.response {
+				t.Errorf("state = %+v, want the document %s", state, testCase.response)
 			}
 		})
 	}
 }
 
 func TestSchemaHealthDataSource(t *testing.T) {
-	c := newStepClient(t, []step{{uri: "/health?name=eq.sales_orders", response: `[{"name":"sales_orders","schema_exists":true,"access_policy":false,"view_count":4}]`}})
+	c := newStepClient(t, []step{{uri: "/health?name=eq.sales_orders", response: `[{"name":"sales_orders","schema_exists":true,"view_count":4}]`}})
 
 	resp, got := readDataSource(t, newSchemaHealthDataSource(), c, healthModel{
-		ID: types.StringNull(), Name: types.StringValue("sales_orders"), SchemaExists: types.BoolNull(), AccessPolicy: types.BoolNull(), ViewCount: types.Int64Null(),
+		ID: types.StringNull(), Name: types.StringValue("sales_orders"), SchemaExists: types.BoolNull(), ViewCount: types.Int64Null(),
 	})
 
 	if len(got) != 0 {
@@ -168,7 +168,7 @@ func TestSchemaHealthDataSource(t *testing.T) {
 
 	resp.State.Get(context.Background(), &state)
 
-	if !state.SchemaExists.ValueBool() || state.AccessPolicy.ValueBool() || state.ViewCount.ValueInt64() != 4 {
+	if !state.SchemaExists.ValueBool() || state.ViewCount.ValueInt64() != 4 {
 		t.Errorf("state = %+v, want the schema but no access policy and 4 views", state)
 	}
 }
@@ -183,9 +183,9 @@ func TestTableSyncStateDataSource(t *testing.T) {
 		{name: "a table that was never synced", response: `[{"schema":"s","name":"sales.orders","synced":false,"signature":null,"partition_count":0}]`, wantSignature: types.StringNull()},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := newStepClient(t, []step{{uri: "/synced?name=eq.sales.orders", response: tt.response}})
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c := newStepClient(t, []step{{uri: "/synced?name=eq.sales.orders", response: testCase.response}})
 
 			resp, got := readDataSource(t, newTableSyncStateDataSource(), c, syncStateModel{
 				ID: types.StringNull(), Name: types.StringValue("sales.orders"), Schema: types.StringNull(), Synced: types.BoolNull(),
@@ -200,8 +200,8 @@ func TestTableSyncStateDataSource(t *testing.T) {
 
 			resp.State.Get(context.Background(), &state)
 
-			if !state.Signature.Equal(tt.wantSignature) {
-				t.Errorf("signature = %v, want %v", state.Signature, tt.wantSignature)
+			if !state.Signature.Equal(testCase.wantSignature) {
+				t.Errorf("signature = %v, want %v", state.Signature, testCase.wantSignature)
 			}
 		})
 	}
@@ -220,11 +220,11 @@ func TestConfigHistoryDataSource(t *testing.T) {
 		{name: "a schema and a limit", schema: types.StringValue("s"), limit: types.Int64Value(5), uri: "/config_history?order=changed_at.desc&limit=5&schema_name=eq.s"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := newStepClient(t, []step{{uri: tt.uri, response: entry}})
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			c := newStepClient(t, []step{{uri: testCase.uri, response: entry}})
 
-			resp, got := readDataSource(t, newConfigHistoryDataSource(), c, historyModel{ID: types.StringNull(), Schema: tt.schema, Limit: tt.limit})
+			resp, got := readDataSource(t, newConfigHistoryDataSource(), c, historyModel{ID: types.StringNull(), Schema: testCase.schema, Limit: testCase.limit})
 
 			if len(got) != 0 {
 				t.Fatalf("diagnostics = %+v, want none", got)
@@ -307,7 +307,7 @@ data "data_proxy_schema_health" "provisioned" {
 				Config: config,
 				Check: acc.ComposeAggregateTestCheckFunc(
 					acc.TestCheckResourceAttr("data.data_proxy_project.this", "id", project),
-					acc.TestCheckResourceAttr("data.data_proxy_schema.by_parts", "name", project+"_orders"),
+					acc.TestCheckResourceAttr("data.data_proxy_schema.by_parts", "name", project+"__orders"),
 					acc.TestCheckResourceAttr("data.data_proxy_schema.by_parts", "claim", "preferred_username"),
 					acc.TestCheckResourceAttr("data.data_proxy_table.this", "cache_ttl", "30"),
 					acc.TestCheckResourceAttr("data.data_proxy_table.this", "rls.0.unit_type", "unit"),

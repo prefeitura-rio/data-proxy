@@ -97,8 +97,25 @@ When('I open the {string} tab', async ({ page }, tab: string) => {
 
 /** An admin reaches every schema, so the Access tab opens the first one. Open the schema of the seed. */
 When('I open the Access tab of the schema {string}', async ({ page }, schema: string) => {
-	await page.goto(`${BASE}/access?schema=${schema}`);
+	await page.goto(`${BASE}/access?scope=${schema.replace('__', '.')}`);
 	await expect(mainNav(page, 'Access')).toHaveAttribute('aria-current', 'page');
+});
+
+/** The empty path of the database is the scope `*`, so the address names it with a star. */
+When('I open the Access tab of the scope {string}', async ({ page }, scope: string) => {
+	await page.goto(`${BASE}/access?scope=${encodeURIComponent(scope)}`);
+	await expect(mainNav(page, 'Access')).toHaveAttribute('aria-current', 'page');
+});
+
+const scopeOption = (page: Page, scope: string) =>
+	page.locator('form[method="GET"] select[name="scope"]').getByRole('option', { name: scope, exact: true });
+
+Then('the scope list has {string}', async ({ page }, scope: string) => {
+	await expect(scopeOption(page, scope)).toHaveCount(1);
+});
+
+Then('the scope list has no {string}', async ({ page }, scope: string) => {
+	await expect(scopeOption(page, scope)).toHaveCount(0);
 });
 
 Then('I see the {string} tab', async ({ page }, tab: string) => {
@@ -135,7 +152,7 @@ async function post(
 
 When('I post a run request directly', async ({ page, world }) => {
 	const response = await post(page, `${BASE}/sync?/start`, {
-		body: 'schemas=test&tables=',
+		body: 'schemas=default__test&tables=',
 		type: 'application/x-www-form-urlencoded'
 	});
 	world.lastStatus = response.status;
@@ -425,7 +442,10 @@ Then('the confirm button stays disabled until I type {name}', async ({ page }, n
 
 When('I add the schema {name}', async ({ page, world }, name: string) => {
 	world.schemas.push(name);
-	await page.getByPlaceholder('short name', { exact: true }).first().fill(name);
+	await page
+		.getByPlaceholder('short name', { exact: true })
+		.first()
+		.fill(name.replace(/^default__/, ''));
 	await page.getByRole('button', { name: 'Add schema' }).click();
 	await expect(listOf(page, 'Encrypted').rows.getByRole('cell', { name, exact: true })).toBeVisible();
 });
@@ -433,8 +453,8 @@ When('I add the schema {name}', async ({ page, world }, name: string) => {
 /** The name of a project in a scenario. It has no underscore, so the suffix of the scenario joins it as it is. */
 const projectName = (project: string) => `${project}${scenario.suffix}`;
 
-/** The physical name of a schema of a project: the project, an underscore, and the short name. */
-const physicalName = (project: string, schema: string) => `${projectName(project)}_${schema}`;
+/** The physical name of a schema of a project: the project, two underscores, and the short name. */
+const physicalName = (project: string, schema: string) => `${projectName(project)}__${schema}`;
 
 const projectRows = (page: Page) => page.getByRole('table', { name: 'Projects' }).locator('tbody tr');
 

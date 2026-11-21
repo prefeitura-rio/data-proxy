@@ -9,6 +9,7 @@ use ../rules.nu [
     input-problems
     line-findings
     migration-problems
+    reserved-project-problems
     RULES
 ]
 
@@ -304,5 +305,53 @@ export def "test input-problems-names-the-variables-that-the-header-lacks" []: n
 
     for case in $cases {
         assert equal (input-problems f.sql $case.text) $case.expected $case.name
+    }
+}
+
+const CONSOLE_LIST = "export const RESERVED_PROJECTS = ['access', 'console'];"
+const PROVIDER_LIST = 'var reservedProjects = []string{"access", "console"}'
+const PROXY_LIST = "\treserved_projects = { -- A comment.\n\t\taccess = true,\n\t\tconsole = true,\n\t},"
+
+# Verify that the three lists of reserved project names must hold the same names, and that each problem names the file and the name.
+export def "test reserved-project-problems-compares-the-three-lists" []: nothing -> nothing {
+    let cases = [
+        {
+            name: 'three equal lists'
+            console: $CONSOLE_LIST
+            provider: $PROVIDER_LIST
+            proxy: $PROXY_LIST
+            expected: []
+        }
+        {
+            name: 'the provider lacks a name'
+            console: $CONSOLE_LIST
+            provider: 'var reservedProjects = []string{"access"}'
+            proxy: $PROXY_LIST
+            expected: [
+                'terraform/internal/provider/names.go: GEN-06 The list of reserved project names lacks console.'
+            ]
+        }
+        {
+            name: 'the console has a name that the proxy lacks'
+            console: "export const RESERVED_PROJECTS = ['access', 'console', 'reports'];"
+            provider: 'var reservedProjects = []string{"access", "console", "reports"}'
+            proxy: $PROXY_LIST
+            expected: [
+                'proxy/src/proxy/constants.lua: GEN-06 The list of reserved project names lacks reports.'
+            ]
+        }
+        {
+            name: 'a list that the check cannot read'
+            console: 'export const RESERVED_PROJECTS = [];'
+            provider: $PROVIDER_LIST
+            proxy: $PROXY_LIST
+            expected: [
+                'console/ui/src/lib/projects.ts: GEN-06 The file lists no reserved project name.'
+            ]
+        }
+    ]
+
+    for case in $cases {
+        assert equal (reserved-project-problems $case.console $case.provider $case.proxy | sort) ($case.expected | sort) $case.name
     }
 }

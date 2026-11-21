@@ -35,14 +35,13 @@
 - Database views (console/views.md)
 - Control a run and a schedule (console/runs.md)
 - Configuration (console/configuration.md)
+- Projects (console/projects.md)
 - Changes (console/changes.md)
 - Query tab (console/query.md)
 - Development (dev/index.md)
 - Tests (dev/tests.md)
 - CI and releases (dev/ci.md)
 - Production deploys (dev/promote.md)
-- Provider releases (dev/provider.md)
-- Provider development (dev/provider-development.md)
 - Operations (operations/index.md)
 - Helm Chart (operations/helm.md)
 - Initialization (operations/initialization.md)
@@ -58,8 +57,6 @@
 - Metrics (operations/metrics.md)
 - Backups (operations/backups.md)
 - Terraform provider (terraform.md)
-- Terraform resources (terraform-resources.md)
-- Terraform data sources (terraform-data-sources.md)
 
 ---
 
@@ -198,7 +195,7 @@ flowchart TD
 PostgreSQL stores metadata only:
 
 - Roles and grants
-- `access_policy` and `access_log`
+- `access.policy` and `access.log`
 - PostgreSQL views and `SECURITY DEFINER` functions
 - DBOS workflow state
 
@@ -631,7 +628,7 @@ The tables of the `console` schema contain the configuration (Console), and the 
 | Field      | Required                | Meaning                                                                                   |
 | ---------- | ----------------------- | ----------------------------------------------------------------------------------------- |
 | `source`   | No                      | One external source for every table in this schema. Defaults to `{ "type": "bigquery" }`. |
-| `claim`    | When a table uses `rls` | JSON Web Token (JWT) claim matched against `access_policy.subject`.                       |
+| `claim`    | When a table uses `rls` | JSON Web Token (JWT) claim matched against `access.policy.subject`.                       |
 | `tables`   | No                      | Tables in this PostgreSQL schema. Defaults to `[]`.                                       |
 | `ducklake` | No                      | Schema-level DuckLake settings, including `encrypted`.                                    |
 
@@ -728,7 +725,7 @@ A `full` table creates one dump task. A partitioned table creates one extraction
 
 ### Schema initialization
 
-The provision job creates configured schemas, `access_policy`, `access_log`, row policies and triggers. It doesn't create application data tables in PostgreSQL. The sync workflow creates the views.
+The provision job creates the role that reads the metadata of each configured schema, and then the schema. The migrations create `access.policy`, `access.log`, their row policies and their triggers. The job doesn't create application data tables in PostgreSQL. The sync workflow creates the views.
 
 Application table names are PostgreSQL views over DuckLake functions.
 
@@ -740,16 +737,17 @@ Source: using.md
 
 ## Using the API
 
-Data Proxy exposes synced tables through [PostgREST](https://docs.postgrest.org/). Use a JSON Web Token (JWT) and select the target schema with `Accept-Profile`.
+Data Proxy exposes synced tables through [PostgREST](https://docs.postgrest.org/). Use a JSON Web Token (JWT) and name the project and the schema in the path: `/<project>/<schema>/<table>`.
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
-  "${BASE_URL}/participants?select=region_id,name&limit=20"
+  "${BASE_URL}/my_project/my_schema/participants?select=region_id,name&limit=20"
 ```
 
 ### Request routing
+
+The proxy reads the first two segments of the path as the project and the schema. It answers 404 when the configuration has no such schema. The segments `access`, `console`, `rbac`, `dbos`, `public`, `duckdb`, `rpc`, `docs` and `v1` never name a project. The proxy replaces any `Accept-Profile` header that the client sends.
 
 The proxy sends every request to the `postgrest` Deployment, which connects through PgDog. PgDog sends a `GET` to a standby and every write to the primary. See Topology.
 
@@ -765,7 +763,7 @@ ${BASE_URL}/docs
 
 The page can list table and column names without exposing data. Use its Authorize control with the token value only. The page adds `Bearer `.
 
-The schema selector lists the schemas of the console. A sync worker updates the list after each schema change and at the start of every sync run. Reload the page to see the change, which takes about a minute.
+The schema selector lists the schemas of the console as `<project>__<schema>`. The page calls the path `/<project>/<schema>/` of the chosen schema. A sync worker updates the list after each schema change and at the start of every sync run. Reload the page to see the change, which takes about a minute.
 
 ### Querying
 
@@ -785,13 +783,12 @@ Use `Prefer: count=exact` to request a total. Read the total from `Content-Range
 
 ### DuckLake change feed
 
-Each configured table exposes a read-only RPC named `dl_changes_<table>` in its target schema. PostgreSQL cuts a name at 63 bytes, so the RPC of a table with a very long name has the cut name. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID and typed row columns.
+Each configured table exposes a read-only RPC named `<table>_dl_chg` in its target schema. PostgreSQL cuts a name at 63 bytes, so the RPC of a table with a very long name has the cut name. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID and typed row columns.
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
-  --get "${BASE_URL}/rpc/dl_changes_participants" \
+  --get "${BASE_URL}/my_project/my_schema/rpc/participants_dl_chg" \
   --data-urlencode "start_snapshot=12" \
   --data-urlencode "end_snapshot=15"
 ```
@@ -801,9 +798,8 @@ Use the schema RPC `dl_latest_snapshot` to get the current cursor before or afte
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
   --request POST \
-  "${BASE_URL}/rpc/dl_latest_snapshot"
+  "${BASE_URL}/my_project/my_schema/rpc/dl_latest_snapshot"
 ```
 
 Snapshot bounds are inclusive. The feed returns deleted rows as preimages. The same schema scope and row policy apply to change rows, including deleted preimages. DuckLake keeps the snapshot history for seven days, so consumers must advance their cursor within that window. Compaction preserves change history, but snapshot expiration removes history that references expired snapshots.
@@ -831,9 +827,8 @@ Send `X-DuckLake-Snapshot` to read DuckLake as of one snapshot. A pinned request
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
   --header "X-DuckLake-Snapshot: 42" \
-  "${BASE_URL}/my_table?limit=20"
+  "${BASE_URL}/my_project/my_schema/my_table?limit=20"
 ```
 
 An unknown or expired snapshot returns `404`, and a value that's not a whole number returns `400`. DuckLake keeps the snapshot history for seven days. A table that has no published data and no fallback also returns `404`.
@@ -956,7 +951,7 @@ flowchart TD
   agg -->|"no"| table
   agg -->|"yes"| supported{"Group, functions and order<br/>are supported?"}
   supported -->|"no"| postgrest
-  supported -->|"yes"| agg_call["Call table_aggregate<br/>DuckDB groups the rows"]
+  supported -->|"yes"| agg_call["Call table_agg<br/>DuckDB groups the rows"]
   agg_call --> empty{"Answer null, error<br/>or a fallback source?"}
   empty -->|"yes"| postgrest
   empty -->|"no"| answer["Send the answer<br/>and cache it"]
@@ -974,7 +969,7 @@ flowchart TD
 A `select` with aggregates, for example `select=grp,numerador:qty.sum(),total:count()`, runs in DuckDB.
 
 1. The proxy puts the group and the aggregates in the `aggregate` field of `X-DuckLake-Filter`.
-2. It calls `GET /rpc/<table>_aggregate` with the same headers and no query string.
+2. It calls `GET /rpc/<table>_agg` with the same headers and no query string.
 3. The function applies the row policy and the filter, runs the `GROUP BY` in DuckDB and returns the result rows as JSON.
 4. PostgreSQL orders and cuts the rows of the groups.
 
@@ -1003,7 +998,7 @@ A complete answer has no `Content-Range` header. It has the same `X-Source` and 
 
 ### Counts
 
-A `GET` of a table with `Prefer: count=exact` and a `limit` counts in DuckDB. The proxy calls `<table>_aggregate` with the filter and `count()`. Then it reads the page with the `limit`, pinned to the snapshot of the count. It builds `Content-Range` and `Preference-Applied`, and sends `206` unless the page has every row. Other counts, `Range`, `HEAD`, an empty page and a table with a fallback source go to PostgREST, which counts every row.
+A `GET` of a table with `Prefer: count=exact` and a `limit` counts in DuckDB. The proxy calls `<table>_agg` with the filter and `count()`. Then it reads the page with the `limit`, pinned to the snapshot of the count. It builds `Content-Range` and `Preference-Applied`, and sends `206` unless the page has every row. Other counts, `Range`, `HEAD`, an empty page and a table with a fallback source go to PostgREST, which counts every row.
 
 ---
 
@@ -1015,10 +1010,10 @@ This page explains what the proxy caches and how it builds the cache key. A toke
 
 - The proxy stores only non-empty `GET` answers with status 200. An empty answer can mean three things: access was denied, the data isn't published yet or the access policy changed. The proxy never stores it.
 - An entry stores the body with `X-Source` and `X-DuckLake-Snapshot`, so a cache hit reports what produced the answer. `X-Cache` tells a hit from a miss.
-- OpenResty doesn't cache ranged, write, oversized or non-JSON responses. `/access_policy` and its subpaths are never cached. The OpenAPI document at `/` isn't cached either, because it changes when PostgREST reloads the schema after a sync run.
+- OpenResty doesn't cache ranged, write, oversized or non-JSON responses. A path in `noCachePaths` and its subpaths are never cached. The OpenAPI document at `/` isn't cached either, because it changes when PostgREST reloads the schema after a sync run.
 - The proxy reads and writes the cache through one Redis endpoint.
 - After a sync run, the sync service counts up the data generation of each schema that the run planned. The answers of the other schemas stay in the cache.
-- The key has the parts in the table below, and the table also has the three counters that keep the cache current.
+- The key has the parts in the table below, and the table also has the counters that keep the cache current.
 - When an entry is missing, only one request for that key asks PostgREST. The lock section shows how.
 
 ### The cache key
@@ -1029,13 +1024,12 @@ This page explains what the proxy caches and how it builds the cache key. A toke
 | Schema profile and representation headers | The same path can answer in another schema or format. |
 | The pinned snapshot (`X-DuckLake-Snapshot`) | A pinned read must not share an entry with the latest data. |
 | The scope of the user, or the user, then the schemas and the role | A token with another identity never reads an answer that another token cached. Users with the same grants have the same scope and share their answers. |
-| The access policy generation | A write to `/access_policy` through the proxy raises this counter in Redis. |
-| The data generation of the schema | The sync service counts it up after a run that planned the schema. The proxy reads the counter of the `Accept-Profile` schema, so a run of one schema doesn't empty the cache of another. A request without a profile reads the counter of the empty name, which every run also counts up. |
-| The settings revision | `console.config()` contains it in its document. Any other change of the access policy or the rules moves `rbac.revision`. |
+| The data generation of the schema | The sync service counts it up after a run that planned the schema. The proxy reads the counter of the schema in the path, so a run of one schema doesn't empty the cache of another. |
+| The settings revision | `console.config()` contains it in its document. A change of a grant or of the rules moves `rbac.revision`. |
 
 A trigger on `rbac.revision` queues a `reload_proxy` workflow. The sync worker asks every proxy pod to read the settings. A proxy that takes a new document stops serving the old answers immediately. Examples of such a change are a write to the access policy from the console, and a new `rbac.toml` that `configure-db` loads.
 
-Redis keeps the counters as `policy:generation` and `cache:generation:<schema>`. The proxy reads both in one `MGET`. Upgrade the proxy before the sync workers. An older proxy ignores the data generation. It can show an answer that a run changed until the entry expires. The old keys and the new keys never meet, because the key has one more part.
+Redis keeps the counters as `policy:generation` and `cache:generation:<schema>`. The proxy reads both in one `MGET`.
 
 ### The scope
 
@@ -1121,9 +1115,9 @@ The proxy needs two parts of `sync.json`: the cache lifetime of each table (`cac
 
 With `PROXY_CONFIG_URL` set, it takes both from PostgREST: `GET /rpc/config` with the header `Accept-Profile: console`. The function `console.config()` builds the document from the configuration tables of the console. It contains only the table names and their `cache_ttl`. All nginx workers of a pod share one copy, and a worker parses it again only when the copy changes.
 
-The proxy needs no credentials for this call. The chart grants the anonymous role the `EXECUTE` right on that one function, and nothing else in the `console` schema. To keep the endpoint inside the cluster, the proxy refuses every request that has the profile `console` in `Accept-Profile` or `Content-Profile`. It answers 403. The proxy calls PostgREST for the configuration on its own, so this block doesn't touch the call.
+The proxy needs no credentials for this call. The chart grants the anonymous role the `EXECUTE` right on that one function, and nothing else in the `console` schema. To keep the endpoint inside the cluster, the proxy refuses every request that has the profile `console` or `access` in `Accept-Profile` or `Content-Profile`. It answers 403. The proxy calls PostgREST for the configuration on its own, so this block doesn't touch the call.
 
-The first `sync.json` comes from the file `/config/sync.json` when the file exists. The chart doesn't mount one. Before the first answer of PostgREST, the proxy uses its defaults: the lifetime of `PROXY_CACHE_TTL` and no cache for `/access_policy`.
+The first `sync.json` comes from the file `/config/sync.json` when the file exists. The chart doesn't mount one. Before the first answer of PostgREST, the proxy uses its defaults: the lifetime of `PROXY_CACHE_TTL` and no schema, so every data path answers 404.
 
 The proxy takes a new document in three ways:
 
@@ -1161,10 +1155,11 @@ A schema is an API that PostgREST serves, a rule that the APIs share, or private
 | `console` | API, served | The views, the functions, and the three configuration tables that the web app uses. |
 | `data_proxy` | Private | The `state`, `errors`, and `scope` tables of the engine, the routing and reload functions, `sees()` (which workflows a token sees), and the maintenance procedures. |
 | `dbos` | Private, owned by DBOS | The workflow tables. |
-| One schema for each source schema | API, served | `access_policy`, `access_log`, and the views and functions of the synced tables. |
+| `access` | API, served | The table `policy`, which stores the grants of every project, and the table `log`, which records each change. A scope of one `ltree` column says what a grant covers. |
+| One schema for each source schema | API, served | The views and the functions of the synced tables. |
 | `public`, `duckdb` | Defaults | The goose version table, the extensions, and the objects of `pg_duckdb`. |
 
-A source schema has a physical name, which is `<project>_<short name>`, or the short name in the project `default`. It can't have the name `console`, `rbac`, `data_proxy`, `dbos`, `public`, `duckdb` or `information_schema`, and its name can't start with `pg_`. A check on `console.schemas` refuses these names.
+A source schema has a physical name, which is `<project>__<short name>`, also in the project `default`. The name always has two underscores, so it never equals the name of a schema of the system. The S3 folder of its files is the short name in `default`, and `<project>_<short name>` in another project. A check on `console.schemas` refuses these names.
 
 The `ducklake` database contains one metadata schema for each source schema, with the same name. It's a separate database because the catalog has its own owner, `ops`, and its own read-only login, `duckdb`.
 
@@ -1176,6 +1171,7 @@ DBOS stays in the application database. The console views join `dbos.workflow_st
 | --- | --- |
 | `postgis` | BigQuery `GEOGRAPHY` support. |
 | `pg_duckdb` | Executes DuckDB scans and reads SeaweedFS Parquet. |
+| `ltree` | The paths of projects, schemas and tables in the view `console.catalog`. |
 
 The function `data_proxy.pre_request()` isn't an extension. It mirrors the JSON Web Token (JWT) claims into PostgreSQL session settings.
 
@@ -1185,11 +1181,10 @@ Each configured schema contains metadata and views:
 
 | Object | Purpose |
 | --- | --- |
-| `<schema>.access_policy` | Active access grants. |
-| `<schema>.access_log` | Append-only audit trail of grant changes. |
 | `<schema>.<table>` | PostgreSQL view over the table function. |
 | `<schema>.<table>_fn()` | `SECURITY DEFINER` function that checks row-level security (RLS), plans the sources, and reads them. |
-| `<schema>.<table>_aggregate()` | `SECURITY DEFINER` function that applies RLS and runs the aggregate of a request inside DuckDB. It answers `null` for a request that the table function must serve. A table with a name longer than 53 bytes has none. |
+| `<schema>.<table>_agg()` | `SECURITY DEFINER` function that applies RLS and runs the aggregate of a request inside DuckDB. It answers `null` for a request that the table function must serve. A table with a name longer than 59 bytes has none. |
+| `<schema>.<table>_dl_chg(bigint, bigint)` | `SECURITY DEFINER` function that returns the DuckLake change feed of the table, with the same schema scope and row policy. |
 | `<schema>.<table>_dl_fn(text, text, boolean, text[], text)` | Private `SECURITY DEFINER` helper that reads DuckLake at one snapshot, with the columns and the tail that the request needs. |
 | `<schema>.<table>_bq_fn(text, text)` | Private `SECURITY DEFINER` helper that reads the schema source (BigQuery today) when a partitioned table sets `fallback: true`. |
 
@@ -1232,11 +1227,11 @@ This page describes the PostgreSQL roles, the security of the functions, the pus
 
 `configure-db` creates `anon`, the `dp_*` roles and `serving` as `ops`, so a new role in `rbac.toml` needs no chart change.
 
-The Secret of a login has the name `<release>-cnpg-<role>`: `-cnpg-ops`, `-cnpg-serving` and `-cnpg-duckdb`. After an upgrade of an install that used the old names, the chart creates the new Secrets with new generated passwords. The old names are the Secrets `-cnpg-authenticator` and `-duckdb`, and the login `postgrest`. `configure-db` creates the `serving` login and sets its password, `provision` records `pgrst.db_schemas` on it, and the PgDog users Secret carries it. The old login, the old Secrets and the old DuckDB secret files `ducklake_reader_pg` and `ducklake_reader` stay until someone deletes them.
+The Secret of a login has the name `<release>-cnpg-<role>`: `-cnpg-ops`, `-cnpg-serving` and `-cnpg-duckdb`. `configure-db` creates the `serving` login and sets its password, `provision` records `pgrst.db_schemas` on it, and the PgDog users Secret carries it.
 
 ### Security and predicate pushdown
 
-The PostgreSQL functions are `SECURITY DEFINER` and read `access_policy` using the request claim settings. They build the allowed-row predicate and pass it into the DuckDB SQL query. This enforces RLS before the Parquet scan returns rows.
+The PostgreSQL functions are `SECURITY DEFINER` and read `access.policy` using the request claim settings. They build the allowed-row predicate and pass it into the DuckDB SQL query. This enforces RLS before the Parquet scan returns rows.
 
 An `rls` rule on a list column, such as `ARRAY<STRING>`, gives a row to a user. At least one value of the list must match a grant.
 
@@ -1279,15 +1274,6 @@ erDiagram
 "data_proxy.scope" }o--|| "console.schemas" : ""
 "console.config_history" }o--|| "console.schemas" : ""
 
-"rbac.revision" {
-  boolean singleton
-  bigint value
-}
-"rbac.roles" {
-  text name
-  text__ permissions
-  text wrapped
-}
 "data_proxy.state" {
   text table_name
   jsonb state
@@ -1303,6 +1289,15 @@ erDiagram
   text run_id
   text schema_name
   text table_name
+}
+"rbac.revision" {
+  boolean singleton
+  bigint value
+}
+"rbac.roles" {
+  text name
+  text__ permissions
+  text wrapped
 }
 "console.schemas" {
   text name
@@ -1351,13 +1346,15 @@ erDiagram
   timestamp_with_time_zone updated_at
   text updated_by
 }
-"test.access_policy" {
+"access.policy" {
   text subject
+  ltree scope
   text unit_type
   text unit_id
 }
-"test.access_log" {
+"access.log" {
   text subject
+  ltree scope
   text unit_type
   text unit_id
   text action
@@ -1365,10 +1362,10 @@ erDiagram
 }
 ```
 
-- **Configuration (`console`):** `schemas`, `tables` and `rls` store the sync configuration. A table belongs to one schema, and a row policy rule (`rls`) belongs to one table. The name of a schema can't be a reserved name. `config_history` records every change of these three tables. See Configuration and Changes.
+- **Configuration (`console`):** `schemas`, `tables` and `rls` store the sync configuration. A table belongs to one schema, and a row policy rule (`rls`) belongs to one table. The name of a schema is `<project>__<schema>`. `config_history` records every change of these three tables. See Configuration and Changes.
 - **Engine (`data_proxy`):** `state` has the state of each synced table as JSON. `errors` has the engine errors. `scope` links a workflow to the schemas and tables that a sync run covers. The console views use it to show a user only the sync runs of its own schemas.
 - **Rules (`rbac`):** `roles` has the permissions of each role, filled from `rbac.toml`. `revision` is a single row with a counter. The proxy reads the counter to find a change of the rules.
-- **Access policy (one schema for each source schema):** `access_policy` has the subjects that may read a unit, and `access_log` records each change. A trigger writes the log. See Authorization.
+- **Access policy (`access`):** `policy` has the grants of every project: the subjects that may read a unit, in a scope of one `ltree` column. `log` records each change. A trigger writes the log. See Authorization.
 
 The `data_proxy` and `console` tables don't reference each other with foreign keys. `scope.schema_name` and `config_history.schema_name` carry the name of a schema, and nothing enforces it.
 
@@ -1387,13 +1384,13 @@ erDiagram
   text secret_sealed
   timestamp_with_time_zone created_at
 }
-"test.ducklake_metadata" {
+"default__test.ducklake_metadata" {
   varchar key
   varchar value
   varchar scope
   bigint scope_id
 }
-"test.ducklake_schema" {
+"default__test.ducklake_schema" {
   bigint schema_id
   uuid schema_uuid
   bigint begin_snapshot
@@ -1402,7 +1399,7 @@ erDiagram
   varchar path
   boolean path_is_relative
 }
-"test.ducklake_table" {
+"default__test.ducklake_table" {
   bigint table_id
   uuid table_uuid
   bigint begin_snapshot
@@ -1412,7 +1409,7 @@ erDiagram
   varchar path
   boolean path_is_relative
 }
-"test.ducklake_data_file" {
+"default__test.ducklake_data_file" {
   bigint data_file_id
   bigint table_id
   bigint begin_snapshot
@@ -1430,7 +1427,7 @@ erDiagram
   bigint mapping_id
   bigint partial_max
 }
-"test.ducklake_delete_file" {
+"default__test.ducklake_delete_file" {
   bigint delete_file_id
   bigint table_id
   bigint begin_snapshot
@@ -1445,13 +1442,13 @@ erDiagram
   varchar encryption_key
   bigint partial_max
 }
-"test.ducklake_sort_info" {
+"default__test.ducklake_sort_info" {
   bigint sort_id
   bigint table_id
   bigint begin_snapshot
   bigint end_snapshot
 }
-"test.ducklake_sort_expression" {
+"default__test.ducklake_sort_expression" {
   bigint sort_id
   bigint table_id
   bigint sort_key_index
@@ -1595,6 +1592,7 @@ The diagrams leave out the tables that Data Proxy doesn't read directly. Every D
 | DBOS              | `workflow_events`                       | The latest value of each event that a workflow sets.                  |
 | DBOS              | `workflow_input`                        | The input of each workflow.                                           |
 | DBOS              | `workflow_output`                       | The output of each workflow.                                          |
+| -                 | `goose_db_version`                      | The migrations that goose applied to the catalog database.            |
 | DuckLake metadata | `ducklake_column_mapping`               | Links a file column to a table column when the file has no field IDs. |
 | DuckLake metadata | `ducklake_column_tag`                   | The tags on a column.                                                 |
 | DuckLake metadata | `ducklake_column`                       | The columns of each table, by snapshot.                               |
@@ -1629,7 +1627,7 @@ This page defines the terms that the other pages use. Each term has one meaning 
 
 | Term | Meaning |
 | --- | --- |
-| Access policy | The table `<schema>.access_policy`. Each row names a subject, a unit type and a unit id, and it says which rows that subject may read. |
+| Access policy | The table `access.policy`. Each row names a scope, a subject, a unit type and a unit id, and it says which rows that subject may read. |
 | Adapter | The code that reads one kind of source. BigQuery is the only adapter today. |
 | Batch | The contiguous changed partitions of one table that a single dump task extracts with one query and one file. `sync.dumpBatchBytes` limits its size. |
 | Catalog | The DuckLake metadata of one schema. It lives in the `ducklake` database, in a metadata schema with the name of the schema. |
@@ -1676,9 +1674,9 @@ This page defines the terms that the other pages use. Each term has one meaning 
 
 The word schema has three meanings. A page uses the full phrase if the meaning isn't clear.
 
-- **PostgreSQL schema:** a namespace in the database. PostgREST serves each source schema as a profile, which a request selects with `Accept-Profile`.
-- **Project:** a group of schemas, with its own name. A schema name is unique in its project. The `projects` claim gives access to every schema of a project.
-- **Physical name:** the name of a schema in the database, the API, S3 and the roles. It's `<project>_<short name>`, or the short name in the project `default`.
+- **PostgreSQL schema:** a namespace in the database. PostgREST serves each source schema as a profile. The proxy chooses the profile from the first two segments of the path.
+- **Project:** a group of schemas, with its own name. A short schema name is unique in its project, and the physical name is unique in the database. The `projects` claim gives access to every schema of a project.
+- **Physical name:** the name of a schema in the database and the roles. It's `<project>__<short name>`, also in the project `default`. The path of the API names the project and the schema as `/<project>/<schema>`.
 - **Configured schema:** an entry under `schemas` in `sync.json`. It has one source, one PostgreSQL schema and one catalog.
 - **JSON schema:** a document that checks the shape of data, such as the `config` schema of the proxy.
 
@@ -1874,7 +1872,7 @@ sync:
 
 - PostgREST reads the PostgreSQL role from the JSON Web Token (JWT) `role` claim.
 - The `schemas` claim of the token must contain `test`.
-- The database matches the `preferred_username` claim with `access_policy.subject`.
+- The database matches the `preferred_username` claim with `access.policy.subject`.
 - A row is visible only when its unit columns match an active access policy row.
 
 ---
@@ -1888,7 +1886,7 @@ This page lists the claims that a token needs. A normal end-user token for the e
 ```json
 {
   "role": "dp_api",
-  "schemas": ["test"],
+  "schemas": ["default.test"],
   "preferred_username": "test_user_1"
 }
 ```
@@ -1912,7 +1910,7 @@ The `configure-db` job loads the file into the `rbac` schema. The pre-request fu
 | Permission | What it opens |
 | --- | --- |
 | `read_sync` | The views `runs`, `tasks`, `steps`, `logs`, `errors`, `queues`, `schedules`, `health`, `synced`, and `overview`. |
-| `read_config` | The tables `schemas`, `tables`, and `rls`, and `sync_config()`. |
+| `read_config` | The tables `schemas`, `tables`, and `rls`, the view `catalog`, and `sync_config()`. A role with it also gets the Config tab of the console. |
 | `create_config` | Insert on the three tables. |
 | `edit_config` | Update on the three tables. |
 | `delete_config` | Delete on the three tables. |
@@ -1922,8 +1920,8 @@ The `configure-db` job loads the file into the `rbac` schema. The pre-request fu
 | `read_files` | `table_files()`, the Parquet files for the query tab. |
 | `read_api` | The synced views of the data API. |
 | `read_ducklake` | The change feed of the catalog. |
-| `read_policy` | Read `<schema>.access_policy`. |
-| `create_policy`, `edit_policy`, `delete_policy` | Insert, update, and delete in `<schema>.access_policy`. |
+| `read_policy` | Read `access.policy` and `access.log`, in the scopes that the claims reach. |
+| `create_policy`, `edit_policy`, `delete_policy` | Insert, update, and delete in `access.policy`, in the scopes that the claims reach. |
 
 A role that edits needs the matching read permission, because an update reads the row first. The roles in `rbac.toml` include it.
 
@@ -1935,7 +1933,7 @@ The database checks a permission with a row policy or with a check at the start 
 
 A delete that the row policy hides removes nothing and answers 200 with an empty list.
 
-Every role except `dp_admin` sees only the schemas in the `schemas` claim and in the `projects` claim, and a token without them sees nothing. `dp_admin` has `grant_all` and reaches every schema and project, whatever the claims say, but the access policy still decides its rows. The `projects` claim names projects. When a request starts, `rbac.load()` expands each entry into the schemas that the project has: `<schema>` for `<project>`, and `<schema>:*` for `<project>:*`. A token with a project can add a schema in it, even though the schema doesn't exist yet. The wildcard `*` names every project. The database enforces this, not the console:
+Every role except `dp_admin` sees only the schemas in the `schemas` claim and in the `projects` claim, and a token without them sees nothing. `dp_admin` has `grant_all` and reaches every schema and project, whatever the claims say, but the access policy still decides its rows. The `projects` claim names projects. When a request starts, `rbac.load()` expands each entry into the schemas that the project has: `<schema>` for `<project>`, and `<schema>:*` for `<project>:*`. A token with a project can add a schema in it, even though the schema doesn't exist yet. The wildcard `*` names every project and every row, as it does in `schemas`. The database enforces this, not the console:
 
 - Row-level security filters `schemas`, `tables` and `rls` by the schema of each row. A role with `create_config` writes a row only for a schema in its claim, and the claim can name a schema that doesn't exist yet.
 - The views `tasks`, `logs`, `errors`, `health`, `synced` and `overview` show the rows of the schemas in the claim. A log line without a schema is hidden.
@@ -1975,7 +1973,7 @@ Source: security/roles.md
 %% Role inheritance
 flowchart TD
   dp_api["<b>dp_api</b><br/>read_api"]
-  dp_policy["<b>dp_policy</b><br/>read_policy<br/>create_policy<br/>edit_policy<br/>delete_policy"]
+  dp_policy["<b>dp_policy</b><br/>read_config<br/>read_policy<br/>create_policy<br/>edit_policy<br/>delete_policy"]
   dp_console["<b>dp_console</b><br/>read_sync<br/>read_config"]
   dp_admin["<b>dp_admin</b><br/>start_sync<br/>control_sync<br/>create_config<br/>edit_config<br/>delete_config<br/>import_config<br/>read_files<br/>read_ducklake"]
   dp_api -->|"inherited by"| dp_console
@@ -1993,7 +1991,7 @@ The table shows the permissions that each role has, with the inherited ones. The
 | `read_sync`     |          |             | yes          | yes        |
 | `start_sync`    |          |             | yes          | yes        |
 | `control_sync`  |          |             | yes          | yes        |
-| `read_config`   |          |             | yes          | yes        |
+| `read_config`   |          | yes         | yes          | yes        |
 | `create_config` |          |             | yes          | yes        |
 | `edit_config`   |          |             | yes          | yes        |
 | `delete_config` |          |             | yes          | yes        |
@@ -2007,7 +2005,7 @@ The table shows the permissions that each role has, with the inherited ones. The
 | Role | Inherits | Adds |
 | --- | --- | --- |
 | `dp_api` | | `read_api` |
-| `dp_policy` | | `read_policy`, `create_policy`, `edit_policy`, `delete_policy` |
+| `dp_policy` | | `read_config`, `read_policy`, `create_policy`, `edit_policy`, `delete_policy` |
 | `dp_console` | `dp_api` | `read_sync`, `read_config` |
 | `dp_admin` | `dp_console`, `dp_policy` | `start_sync`, `control_sync`, `create_config`, `edit_config`, `delete_config`, `import_config`, `read_files`, `read_ducklake` |
 
@@ -2070,28 +2068,28 @@ flowchart TD
 
 ### Schema condition
 
-The token must list the requested schema:
+The token must list the requested schema as `project.schema`:
 
 ```json
-"schemas": ["test"]
+"schemas": ["default.test"]
 ```
 
-The client must select the same schema:
+The client names the same project and schema in the path:
 
 ```http
-Accept-Profile: test
+GET /default/test/participants
 ```
 
-The schema name `*` stands for every schema. Use it only for a debugging account in staging. The token then reads and changes every schema, and it also reads every row, as the next section describes.
+The entry `*` stands for every schema. Use it only for a debugging account in staging. The token then reads and changes every schema, and it also reads every row, as the next section describes.
 
 ```json
 "schemas": ["*"]
 ```
 
-The element `<schema>:*` reaches one schema and reads every row of it. A token with it needs no access policy row for that schema, and it reaches no other schema.
+The element `<project>.<schema>:*` reaches one schema and reads every row of it. A token with it needs no grant for that schema, and it reaches no other schema.
 
 ```json
-"schemas": ["test:*"]
+"schemas": ["default.test:*"]
 ```
 
 ### Row condition
@@ -2113,7 +2111,7 @@ OR unit_type/unit_id matches the row
 
 A token whose `schemas` claim has `*`, or `<schema>:*` for the schema of the table, skips this condition and reads every row.
 
-A subject with the grant `unit_type = '*'` and `unit_id = '*'` in the `access_policy` of the schema reads every row of the tables of that schema too. The grant covers one subject and one schema. Revoking it deletes the row, like any other grant.
+A subject with the grant `unit_type = '*'` and `unit_id = '*'` in `access.policy` reads every row of the tables that the scope of the grant covers. The scope is `*`, a project, a schema or a table. Revoking the grant deletes the row, like any other grant.
 
 #### A list column
 
@@ -2154,12 +2152,12 @@ Create one confidential client for the service that manages the access policy, a
 ```json
 {
   "role": "dp_policy",
-  "schemas": ["test"],
+  "schemas": ["default.test"],
   "preferred_username": "test_policy"
 }
 ```
 
-The token reads and writes `<schema>.access_policy` for the schemas in its claim. `dp_policy` has only the four policy permissions: `read_policy`, `create_policy`, `edit_policy` and `delete_policy`. Deleting a row revokes the grant. The database records the change in `test.access_log`.
+The token reads and writes `access.policy` for the scopes that its claim reaches. `dp_policy` has the four policy permissions `read_policy`, `create_policy`, `edit_policy` and `delete_policy`, and `read_config`. `read_config` shows the token the schemas and tables of its claim, and `sync_config()`, so a service can list its own scopes. The token can't change the configuration. Deleting a row revokes the grant. The database records the change in `access.log`.
 
 ---
 
@@ -2176,13 +2174,12 @@ Use a normal end-user token:
 ```bash
 curl \
   --header "Authorization: Bearer ${USER_TOKEN}" \
-  --header "Accept-Profile: test" \
-  "${BASE_URL}/participants?limit=20"
+  "${BASE_URL}/default/test/participants?limit=20"
 ```
 
 The proxy sends every request to PostgREST, and PgDog sends a `GET` to a standby. Rows from the source follow the same authentication and row-level security (RLS) rules as DuckLake rows. Request sequence shows the whole read.
 
-See Proxy for the routing and cache rules. `/access_policy` is never response-cached.
+See Proxy for the routing and cache rules. The proxy never serves the schemas `console` and `access`.
 
 ### Expected results
 
@@ -2260,18 +2257,19 @@ The `k3d` test realm has one client, `idp`, that's set up like this recipe:
 
 The `idp` scenario of the end-to-end suite reads their tokens and uses them on the data API and on the console. The other test clients carry a fixed `role` claim.
 
-Use that token and the target schema profile:
+Use that token and the profile `access`. Send the request to the address of PostgREST, because the data proxy refuses the profile `access`:
 
 ```bash
 curl --request POST \
   --header "Authorization: Bearer ${POLICY_WRITER_TOKEN}" \
   --header "Content-Type: application/json" \
-  --header "Accept-Profile: test" \
+  --header "Accept-Profile: access" \
+  --header "Content-Profile: access" \
   --header "Prefer: resolution=merge-duplicates" \
   --data '[
-    {"subject": "test_user_1", "unit_type": "region", "unit_id": "region_1"}
+    {"scope": "default.test", "subject": "test_user_1", "unit_type": "region", "unit_id": "region_1"}
   ]' \
-  "${BASE_URL}/access_policy"
+  "${POSTGREST_URL}/policy"
 ```
 
 The access policy subject must equal the configured identity claim in the end-user JSON Web Token (JWT).
@@ -2293,10 +2291,11 @@ The gateway, PostgREST and the proxy need the same three claims from any provide
 | Claim | Value | How to add it |
 | --- | --- | --- |
 | `role` | One role of `rbac.toml`, as text. | Keycloak: a mapper that sets a fixed claim on a service client, or a *User Client Role* mapper for users. Auth0: an Action that sets a custom claim. `Entra ID`: an app role, with a claims mapping policy that renames it. |
-| `schemas` | A list of schema names, or one name as text. | A user attribute with several values, or a fixed list on a service client. An empty list reads nothing. The name `*` stands for every schema and every row. Give it only to a debugging account. The element `<schema>:*` names one schema and reads every row of it. |
+| `schemas` | A list of schemas as `project.schema`, or one as text. | A user attribute with several values, or a fixed list on a service client. An empty list reads nothing. The entry `*` stands for every schema and every row. Give it only to a debugging account. The element `project.schema:*` names one schema and reads every row of it. A name without a dot reaches no schema. |
+| `projects` | Optional. A list of project names, or one name as text. | The same ways as `schemas`. The name `sales` gives every schema of the project, and `sales:*` also every row of them. The name `*` stands for every project and every row, so give it only to a debugging account. |
 | `preferred_username` | The subject of the access policy. | The default claim of most providers. If yours doesn't set it, the access policy subject must be the `sub` value. |
 
-The token must also carry the audience that the gateway expects. Get a token with `nu scripts/token.nu --issuer <issuer> --client-id <client> --client-secret <secret>`, and decode its payload. Check that `role`, `schemas` and `preferred_username` are there, and that `aud` and `iss` match your values. Then call `/<table>?limit=1`. A token with an unknown role gets 400 or 403, and a token without a role reads nothing.
+The token must also carry the audience that the gateway expects. Get a token with `nu scripts/token.nu --issuer <issuer> --client-id <client> --client-secret <secret>`, and decode its payload. Check that `role`, `schemas` and `preferred_username` are there, and that `aud` and `iss` match your values. Then call `/<project>/<schema>/<table>?limit=1`. A token with an unknown role gets 400 or 403, and a token without a role reads nothing.
 
 A claim that names a role that isn't in `rbac.toml` never gains rights. PostgREST can switch only to the roles that the serving login is a member of. `verify-rbac` makes sure that this list is the list of the file.
 
@@ -2329,11 +2328,12 @@ Delete the grant:
 ```bash
 curl --request DELETE \
   --header "Authorization: Bearer ${POLICY_WRITER_TOKEN}" \
-  --header "Accept-Profile: test" \
-  "${BASE_URL}/access_policy?subject=eq.test_user_1&unit_type=eq.region&unit_id=eq.region_1"
+  --header "Accept-Profile: access" \
+  --header "Content-Profile: access" \
+  "${POSTGREST_URL}/policy?scope=eq.default.test&subject=eq.test_user_1&unit_type=eq.region&unit_id=eq.region_1"
 ```
 
-The database removes the row from `test.access_policy` and writes its previous state to `test.access_log` with `action = 'delete'`. To grant access again, insert the row again. You need no resync or token refresh. Every change of an access policy row makes the cached answers outdated, whether it passed the proxy or not. A trigger on the revision counter queues a reload of the proxy (Cache).
+The database removes the row from `access.policy` and writes its previous state to `access.log` with `action = 'delete'`. To grant access again, insert the row again. You need no resync or token refresh. Every change of an access policy row makes the cached answers outdated, whether it passed the proxy or not. A trigger on the revision counter queues a reload of the proxy (Cache).
 
 ---
 
@@ -2349,11 +2349,10 @@ Use this page when a request fails or returns no rows. Request outcomes lists wh
 | `403` with the body `RBAC: access denied`     | Istio refused a request without a token. Send the header `Authorization: Bearer <token>`. Only `GET` and `HEAD` on `/health`, and on `/` with the Swagger UI, need no token. |
 | `403` with `permission denied to set role`    | Check that `configure-db` completed: the `auth.servingRole` login must be a member of `anon` and of every `dp_*` role. |
 | `403` with `permission denied for schema data_proxy` | Check `GRANT USAGE ON SCHEMA data_proxy TO anon/user`.                                             |
-| `200 []` for every table                      | Check `schemas`, the schema profile, the configured subject claim, and enabled `access_policy` rows.    |
-| `404 Unknown schema profile`                  | Check `Accept-Profile`, and check that the provision job ran for the schema.                                                       |
-| Access policy write fails                     | Check that the token has `edit_policy` and `read_policy`, that its `schemas` claim names the schema, and that `Accept-Profile` matches. |
+| `200 []` for every table                      | Check `schemas`, the project and the schema in the path, the configured subject claim, and the rows of `access.policy`.    |
+| `404` with `the schema is not known`          | Check that the path is `/project/schema/table`, and check that the provision job ran for the schema.                              |
+| Access policy write fails                     | Check that the token has `edit_policy` and `read_policy`, that its claims reach the scope of the grant, and that the request uses the profile `access`. |
 | Results differ between requests               | Check `X-Source`, `X-DuckLake-Snapshot`, and `X-Cache`. Every source uses the same JWT and row-level security (RLS) rules. |
-| `/access_policy` appears cached               | It must never be cached. Check nginx configuration and response headers.                                |
 
 See Using the API, Database Schema and Proxy for related details.
 
@@ -2382,6 +2381,7 @@ The code is in `console/`. `ui/` is the SvelteKit app, `notebooks/` builds the n
 - Database views — Database views, logs and the HTTP interface.
 - Control a run and a schedule — Control of sync runs and schedules.
 - Configuration — Configuration tables, schemas and the configuration endpoint.
+- Projects — Projects and the names of schemas.
 - Changes — Configuration history and import preview.
 - Query tab — The query tab and its scope.
 
@@ -2425,7 +2425,7 @@ Each tab needs one permission to open, and it shows an action only if the user h
 | --- | --- | --- | --- | --- |
 | Sync | `/sync` | `read_sync` | `start_sync`, `control_sync` | The views `runs`, `tasks`, `steps`, `logs`, `errors`, `overview`, `queues` and `schedules` (one schedule for each schema, with an Edit dialog for its cron). |
 | Config | `/config` | `read_config` | `create_config`, `edit_config`, `delete_config`, `import_config` | The tables `schemas`, `tables` and `rls`, the history, and the import preview. |
-| Access | `/access` | `read_policy` | `create_policy`, `edit_policy`, `delete_policy` | `access_policy` and `access_log` of one schema. |
+| Access | `/access` | `read_policy` | `create_policy`, `edit_policy`, `delete_policy` | `access.policy` and `access.log` of one scope. |
 | Query | `/query` | `read_files` | None | The file lists of a table and the signed links. |
 
 The app has these routes besides the tab pages. Every route sits under the path `/console` of the API host, so `/healthz` is `/console/healthz`. Every request that changes data also needs the console origin, as described above.
@@ -2487,6 +2487,7 @@ The `console` schema contains the views that the console reads through PostgREST
 | `queues` | The queue settings and the number of enqueued, pending, and delayed workflows. |
 | `schedules` | The schedules with their cron expression and status. |
 | `errors` | The errors that the sync recorded, newest first. |
+| `catalog` | One row for each schema and each table: its project, its short schema name, its table name, its physical schema and its `ltree` path, such as `sales.orders.items`. A path is empty for a name that `ltree` can't store. The view shows the rows that the token may read in `schemas` and `tables`. |
 | `overview` | One row for each schema: its tables, how many have committed state, its last sync run, and the sync runs, failed sync runs, and errors of the last 24 hours. The dashboard reads it in one request. |
 
 The maintenance job deletes a sync run with its tasks and logs after it finishes and `jobs.maintenance.workflowRetentionDays` days pass (90 by default). The views then no longer show it. A sync run that isn't finished stays. The job also deletes an error after the same number of days.
@@ -2503,7 +2504,7 @@ It reads `GET /runs?id=eq.<id>` and `GET /tasks?run_id=eq.<id>` for the status. 
 
 The console talks to PostgREST only. The `console` scenario in `k6/scenarios/console.js` tests this contract against the cluster.
 
-- Send `Authorization: Bearer <JWT>` with a `role` claim (one role of `rbac.toml`) and a `schemas` claim that lists the schemas of the user. Send `Accept-Profile: console` on reads and `Content-Profile: console` on writes, because PostgREST also serves the schemas of the synced data. The access tab sends the data schema as the profile.
+- Send `Authorization: Bearer <JWT>` with a `role` claim (one role of `rbac.toml`) and a `schemas` claim that lists the schemas of the user. Send `Accept-Profile: console` on reads and `Content-Profile: console` on writes, because PostgREST also serves the schemas of the synced data. The access tab sends the profile `access`.
 - Send `Prefer: return=representation` to get the written row back.
 - Reads are `GET /runs`, `GET /schemas` and the other views. The configuration is `POST`, `PATCH` and `DELETE` on `/schemas`, `/tables` and `/rls`, and `GET /rpc/sync_config` reads the whole document. Queues and schedules are read-only: `GET /queues` and `GET /schedules`. The functions are `POST /rpc/start_sync`, `POST /rpc/import_config`, `POST /rpc/replace_rls` and `GET /rpc/table_files`. `GET /rpc/permissions` tells the console which controls to show.
 
@@ -2600,8 +2601,8 @@ Every row records `updated_at` and `updated_by`. The database sets both. The nam
 
 Constraints replace a validation step:
 
-- A project name uses lowercase letters and digits. The project `default` always exists. A project with schemas can't be deleted.
-- A schema has one project. Its `name` is the physical name that the sync, the proxy, S3 and the roles use: `<project>_<short_name>`, or `<short_name>` in `default`.
+- A project name uses lowercase letters and digits. The project `default` always exists. A project with schemas can't be deleted. A new name follows the name rules.
+- A schema has one project. Its `name` is the physical name that the sync, the proxy and the roles use: `<project>__<short_name>`, also in `default`. The files of a schema in S3 keep the folder of its old name.
 - A physical name uses lowercase letters, digits and underscores, and it starts with a letter. It has at most 56 characters, so that the role name `schema_<name>` fits in 63. Two schemas can't share one.
 - A schema can't change its project or its short name. Delete it and add it again to rename it.
 - A table name is unique in the whole configuration, and unique in its schema by its last part.
@@ -2611,7 +2612,7 @@ Constraints replace a validation step:
 
 The engine checks the rules of a source, such as the form of a table name, when a sync run starts.
 
-Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema, its `access_policy` and its views exist. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
+Two read-only views compare the configuration with the system. `health` shows, for each schema, whether the PostgreSQL schema exists and how many views it has. `synced` shows, for each table, whether a sync committed its state, with the signature and the number of partitions.
 
 ### Remove a table or a schema
 
@@ -2621,7 +2622,7 @@ Deleting a row in `tables` or `schemas` destroys the data of that table or schem
 
 **A schema.** A trigger on `schemas` queues the workflow `provision_schemas` when none waits. The queue runs one workflow at a time, so a change during a sync run gets the next sync run. The sync worker creates a Job from the suspended `provision` CronJob (Initialization). The Job makes the database match the configuration. Every sync run does the same at its start, so a lost event heals.
 
-- **Add:** the Job creates the PostgreSQL schema with `access_policy` and `access_log`, adds it to `pgrst.db_schemas` and tells PostgREST to reload. It takes seconds.
+- **Add:** the Job creates the role that reads the metadata, then the PostgreSQL schema, adds it to `pgrst.db_schemas` and tells PostgREST to reload. It takes seconds.
 - **Remove:** the Job stops serving the schema and purges the files in S3. It drops the metadata schema in the catalog database. It deletes the state, the errors and the scope of its tables. It drops the schema of the database last, so the next sync run finds an unfinished removal. Every step can run again.
 
 ### The configuration endpoint
@@ -2637,6 +2638,25 @@ One limit: the export drops a `null` value inside the `settings` of a source, be
 The proxy reads a smaller document, `console.config()`: the table names and their `cache_ttl`. The chart grants it to the anonymous role, and the proxy refuses the `console` profile from outside, so only the cluster can call it.
 
 A trigger on `schemas`, `tables` and `rls` queues a `reload_proxy` workflow after every statement. A change queues a reload only when none waits. A burst of edits therefore shares one reload. A change during a sync run queues the next one, and an editor never sees an error from it. The sync worker then sends a reload request to every proxy pod (Table settings).
+
+---
+
+Source: console/projects.md
+
+## Projects
+
+A project groups schemas under one name. The Config tab lists the schemas by project, and a project with no schema stays in the list. The project `default` always exists, and no token deletes it.
+
+### Add a project and a schema
+
+- Add a project with a name of lowercase letters and digits. A name that the system uses is refused, as Names lists.
+- Add a schema with a project and a short name. The database builds the physical name: `<project>__<short_name>`, also in `default`.
+- A schema can't change its project or its short name. Delete it and add it again.
+- Delete a project only when it has no schema.
+
+### Who reads what
+
+The `projects` claim of a token gives every schema of a project, also one that the project gets later. The claims page says how the claim works. The view `catalog` lists each project, schema and table with its `ltree` path. The row policies show a token only the rows that it may read.
 
 ---
 
@@ -2745,7 +2765,7 @@ Source: dev/index.md
 
 ## Development
 
-This section helps you set up the repository, run the checks and find your way in the code. Tests says how to run each suite. CI describes the pipeline and the release. Production deploys says how a release reaches production. Provider releases and Provider development cover the provider. Style has the rules for the code and the docs.
+This section helps you set up the repository, run the checks and find your way in the code. Tests says how to run each suite. CI describes the pipeline and the release. Production deploys says how a release reaches production. Terraform provider covers the build, the tests and the releases of the provider. Style has the rules for the code and the docs.
 
 ### Code map
 
@@ -3074,150 +3094,6 @@ The reviewers are in the GitHub settings of the repository, under Environments a
 
 ---
 
-Source: dev/provider.md
-
-## Provider releases
-
-The Terraform provider has its own versions and its own releases. A chart release doesn't release the provider, and a provider release doesn't change the chart or production.
-
-### How a release happens
-
-CI runs on every push to `main`. When `repo` and `test-terraform` pass, the job `terraform` of CI runs the action `terraform-release` on the same commit. The action decides whether a release is due. The job doesn't wait for the chart release. A failed provider release turns the run red, so the chart stays out of staging.
-
-1. `ci plan terraform` reads the commits that changed `terraform/` since the last tag `terraform-v<version>`.
-2. A `feat` or a breaking commit raises the minor version, and a `fix` raises the patch. Other types give no release. The major version stays 0 until a person sets it.
-3. `ci release terraform` builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and signs the checksums with the GPG key.
-4. It creates the GitHub Release `terraform-v<version>` with the archives, the checksum file and its signature. The notes list the commit subjects under `terraform/`.
-5. `ci publish terraform` writes the registry files from every release and uploads them to a bucket.
-
-A tag that exists already makes the job fail, so a version never changes after its release. To release a version by hand, start CI with the input `provider_version`.
-
-### The registry
-
-The registry is a set of static JSON files, as the [registry protocol](https://developer.hashicorp.com/terraform/internet-documentation/provider-registry-protocol) describes. The release workflow writes them to a public bucket. The ingress of Data Proxy sends `/.well-known/terraform.json` and `/v1/providers/` to that bucket, so the host of the API also serves the registry. The archives stay in GitHub Releases, and the JSON files point to them.
-
-The provider and the scripts have no host name. Every name comes from a variable.
-
-| Variable | Where | Content |
-| --- | --- | --- |
-| `TERRAFORM_REGISTRY_HOST` | GitHub repository variable | The host that serves the registry. The provider reports `<host>/<namespace>/data-proxy` as its address. |
-| `TERRAFORM_REGISTRY_NAMESPACE` | GitHub repository variable | The namespace in the address and in the registry paths. |
-| `TERRAFORM_REGISTRY_BUCKET` | GitHub repository variable | The bucket that stores the registry files. |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` | GitHub repository variables | The identity that writes the bucket. |
-| `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE` | GitHub secrets | The key that signs the checksums. |
-| `ingress.registry.bucket` | Chart value | The bucket that the ingress serves. An empty value adds no route. |
-
-Terraform and OpenTofu refuse a provider from a registry unless a GPG key signs its checksums. The workflow gets the public key from the private key, so the secrets are the only key input.
-
-### Set up the registry
-
-1. Create a GPG key without an expiry date, and add its private key and its passphrase as the secrets `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE`.
-2. In the infra repository, set the variable `terraform_registry` of the GCP module with the repository that publishes. Apply the module. It creates the bucket, the service account and the identity pool.
-3. Set `terraform_registry_enabled` of the k8s module, and apply it. It adds the route values for the ingress and the Istio objects for the storage host.
-4. Copy the outputs of the GCP module into the GitHub variables of the table above. The workflow does nothing while `TERRAFORM_REGISTRY_HOST` is empty.
-
-The route needs a chart version that has `ingress.registry`. Staging gets each chart first, and production waits for an approval.
-
-### Use a release
-
-```hcl
-terraform {
-  required_providers {
-    data-proxy = {
-      source = "registry.example.com/example/data-proxy"
-    }
-  }
-}
-```
-
-Replace the source with `<host>/<namespace>/data-proxy` of your registry. A local name has no underscore, and Terraform reads the provider of `data_proxy_table` from the part before the first underscore. So each resource needs `provider = data-proxy`. `terraform init` downloads the archive and checks the signature and the checksum.
-
-### Roll back and rotate
-
-- A bad release stays in the registry. Fix it with a new `fix` commit. Or delete the GitHub Release and run `ci publish terraform` again, which drops the version from the files.
-- To rotate the key, add the new key and rerun `ci publish terraform`. A release that the old key signed fails to install with the new key, so keep the old key until you release again.
-
-### Commands
-
-| Command | Work |
-| --- | --- |
-| `ci plan terraform` | Writes `release` and `version` from the commits since the last provider tag. |
-| `ci release terraform <version>` | Builds, signs and publishes the GitHub Release. |
-| `ci publish terraform` | Writes the registry files from the releases and uploads them to the bucket. |
-
-CI and releases describes the chart release.
-
----
-
-Source: dev/provider-development.md
-
-## Provider development
-
-This page says how to build, run and test the Terraform provider in `terraform/`. Terraform provider describes what it does, and Provider releases describes how it ships.
-
-### Build and test
-
-Run the commands in `terraform/`. The module has its own `go.mod`, so the commands don't build the rest of the repository.
-
-```bash
-cd terraform
-go build ./...
-go vet ./...
-go test ./...
-```
-
-### Local development
-
-Terraform downloads a provider from the registry. To test your local binary, add a `dev_overrides` block to the command-line configuration file `~/.terraformrc`. The block tells Terraform to load the provider from a folder on your machine.
-
-1. Build the binary with the name that Terraform expects. `terraform/bin/` is in `.gitignore`.
-
-   ```bash
-   cd terraform
-   go build -o bin/terraform-provider-data-proxy .
-   ```
-
-2. Add the block to `~/.terraformrc`. Write the absolute path of `terraform/bin` in your clone.
-
-   ```hcl
-   provider_installation {
-     dev_overrides {
-       "registry.example.com/example/data-proxy" = "/home/you/data-proxy/terraform/bin"
-     }
-     direct {}
-   }
-   ```
-
-3. Run `terraform validate` or `terraform plan` in a folder with a configuration that uses the provider. Don't run `terraform init` for this provider. Terraform prints a warning that says the override is active.
-
-The `direct {}` block keeps the normal download for every other provider. Build the binary again after each change. Terraform loads the new binary on the next command. To use the file only in one shell, set `TF_CLI_CONFIG_FILE` to its path. Remove the block when you want the registry version again.
-
-#### Acceptance tests
-
-An acceptance test runs the provider through Terraform against a real API. It's a `TestAcc` function in `terraform/internal/provider/`. It runs only when `TF_ACC` is set, so `go test ./...` compiles it and skips it.
-
-```bash
-devenv --profile terraform tasks run tf:test:int
-```
-
-The task runs `devenv --profile terraform-acc test`. That profile starts the console stack: PostgreSQL, SeaweedFS, Keycloak, PostgREST and the console. It sets `TF_ACC=1` and the `DATA_PROXY_*` variables. The provider calls the local PostgREST. It gets its token from the local Keycloak with the test client `terraform`. That client has the role `dp_admin` and the `schemas` claim `*`. The stack needs Podman, as the tests page says.
-
-To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `terraform-acc` shell, because the tests call OpenTofu.
-
-```bash
-devenv --profile console up -d
-devenv processes wait
-export TF_ACC=1 DATA_PROXY_ENDPOINT=http://127.0.0.1:13000 DATA_PROXY_CLIENT_ID=terraform DATA_PROXY_CLIENT_SECRET=test-secret
-export DATA_PROXY_TOKEN_URL=http://localhost:18180/realms/dev/protocol/openid-connect/token
-devenv --profile terraform shell -- go -C terraform test -count=1 -run TestAccPermissionsDataSource ./...
-```
-
-A new acceptance test uses the helpers in `acceptance_test.go`. Give `testAccPreCheck` to `PreCheck` and `testAccProviderFactories` to `ProtoV6ProviderFactories`. Name each object with `testAccName`, which returns `tfacc` and 10 random letters and digits. Register `testAccCleanup` for each object, so a failed step leaves no row behind. Register a parent before its children, because the cleanups run in reverse order.
-
-The client `terraform` has the `schemas` claim `*`, so a test can add projects and schemas. The stack runs no sync worker, so a schema never gets provisioned. Set `timeouts { create = "0s" }` on a schema to skip the wait. The schema `test` is provisioned at start, so use it for an access policy.
-
----
-
 Source: operations/index.md
 
 ## Operations
@@ -3397,7 +3273,7 @@ sequenceDiagram
 
 The migrations make what changes only with the code:
 
-- the extensions `postgis` and `pg_duckdb`
+- the extensions `postgis`, `pg_duckdb` and `ltree`
 - the `data_proxy` schema: the state tables, the reload functions, the pre-request function and the maintenance procedures
 - the `rbac` schema with its functions, and the `console` schema with its tables, views, functions and triggers
 - the grants to the request roles
@@ -3597,7 +3473,7 @@ Notes for the cluster:
 
 - Every instance has the same `cnpg.resources`.
 - The chart raises the instance floor to 2 (one primary and one standby). Raise it more with `cnpg.autoscaling.minReplicaCount`.
-- Replication is asynchronous, so a changed access policy can reach a standby a moment later. To make `access_policy` writes wait for a standby, set `cnpg.postgresql.synchronous` (for example `{method: any, number: 1, dataDurability: preferred}`) after the cluster has scaled up. CNPG rejects it on one instance, so it can't be a default. A trigger then uses `remote_apply` for access policy writes only.
+- Replication is asynchronous, so a changed access policy can reach a standby a moment later. To make `access.policy` writes wait for a standby, set `cnpg.postgresql.synchronous` (for example `{method: any, number: 1, dataDurability: preferred}`) after the cluster has scaled up. CNPG rejects it on one instance, so it can't be a default. A trigger then uses `remote_apply` for access policy writes only.
 - The DuckDB secrets (the S3 secret `s3`, and the catalog secrets `ducklake_catalog_pg` and `ducklake_catalog`) are files in `/duckdb/secrets` on the shared `<release>-duckdb` volume. The chart creates the volume when `ducklake.secrets.storage.storageClass` is set. Set it before you serve data, because the console adds schemas after the install and the chart can't know them. Every instance mounts that folder at `~/.duckdb/stored_secrets`, and only the primary writes it. The catalogs aren't on this volume: they live in the `ducklake` database, and every standby gets its own copy through replication. After the first upgrade that adds a secret, run `helm upgrade` once more so `configure-db` writes it to the volume.
 - Each PostgreSQL backend starts its own DuckDB and attaches the catalog on its first aggregate, which takes about 160 ms. PgDog keeps a server connection for one hour, so a backend then serves many requests at 10 to 15 ms each.
 - DuckDB reads the S3 secret once for each PostgreSQL backend. When the S3 keys change, `helm upgrade` rolls PgDog and the PostgREST pods, so every backend reloads the secret.
@@ -4142,31 +4018,27 @@ Source: operations/backups.md
 
 ## Backups
 
-A sync rebuilds application tables from the source. It doesn't rebuild access grants. The chart backs up each `<schema>.access_policy` table and, when configured, its `<schema>.access_log` audit trail.
+A sync rebuilds application tables from the source. It doesn't rebuild access grants. The chart backs up the table `access.policy` and the audit trail `access.log`.
 
 ### Operation
 
 ```mermaid
 %% Backup flow
 flowchart LR
-  schemas[("console.schemas<br/>the list of schemas")]
   subgraph job["Backup CronJob backup.schedule"]
-    each["For each schema"] --> export["Export access_policy<br/>and access_log"] --> prune["Delete access_log rows<br/>older than retentionDays"]
+    export["Export access.policy<br/>and access.log"] --> prune["Delete access.log rows<br/>older than retentionDays"]
   end
-  bucket[("Backup bucket<br/>prefix/schema/date/")]
-  fail["One schema fails:<br/>the job goes on, then fails<br/>and names the schema"]
-  schemas -->|"read at each run"| each
+  bucket[("Backup bucket<br/>prefix/date/")]
   export -->|"upload two dumps"| bucket
-  each -.->|"on a failure"| fail
 ```
 
-Set `backup.enabled` to create the backup CronJob. It reads the schemas from the `console.schemas` table, so it backs up a schema that an editor adds in the console from its first night.
+Set `backup.enabled` to create the backup CronJob. The two tables store the grants of every project, so one run backs up all of them.
 
-For each schema it exports `<schema>.access_policy` and `<schema>.access_log`, uploads both dumps to the separate backup S3/GCS-compatible service, then prunes `access_log` rows older than `backup.accessLog.retentionDays`. A failure in one schema doesn't stop the others. The job fails at the end and names the schemas that failed. The objects are:
+It exports `access.policy` and `access.log`, uploads both dumps to the separate backup S3/GCS-compatible service, then prunes `access.log` rows older than `backup.accessLog.retentionDays` with the procedure `access.prune_log`. The objects are:
 
 ```text
-<backup.prefix>/<schema>/<date>/access_policy.dump
-<backup.prefix>/<schema>/<date>/access_log.dump
+<backup.prefix>/<date>/policy.dump
+<backup.prefix>/<date>/log.dump
 ```
 
 The chart default prefix is:
@@ -4203,17 +4075,17 @@ Download the dump and inspect it before restoring:
 
 ```bash
 rclone copy \
-  ":s3:<bucket>/backups/access_policy/<schema>/<date>/access_policy.dump" \
-  access_policy.dump
+  ":s3:<bucket>/backups/access_policy/<date>/policy.dump" \
+  policy.dump
 
-pg_restore --list access_policy.dump
+pg_restore --list policy.dump
 ```
 
 ### Restore
 
 1. Download the reviewed dump from the separate backup service.
 2. Restore it into a temporary database or table.
-3. Compare it with `<schema>.access_policy`.
+3. Compare it with `access.policy`.
 4. Apply reviewed rows only.
 
 Don't load an unreviewed backup into a live access policy table.
@@ -4262,11 +4134,11 @@ Source: terraform.md
 
 The `data_proxy` Terraform provider manages the configuration of Data Proxy as code. It manages the projects, the schemas, the tables, the row policies and the access policies through the PostgREST API. The provider is a Go module in `terraform/`, and it uses the Terraform Plugin Framework.
 
-The provider has four resources and nine data sources. Resources and Data sources describe them, and Provider development says how to build and test it. The provider gets an access token from the identity provider with the OAuth 2.0 client credentials grant. It fetches a new token 30 seconds before the old one expires, so a long run keeps working with tokens that last 5 minutes.
+The provider has four resources and nine data sources. Resources and Data sources describe them, and Develop says how to build and test it, and Releases says how it ships. The provider gets an access token from the identity provider with the OAuth 2.0 client credentials grant. It fetches a new token 30 seconds before the old one expires, so a long run keeps working with tokens that last 5 minutes.
 
 ### Configuration
 
-The registry address is `<host>/<namespace>/data-proxy`, and the build sets it, so the provider has no host name. A local name has no underscore, so it's `data-proxy`. The resources are `data_proxy_*`, so each one needs `provider = data-proxy`. Provider releases says where the registry is. Each attribute has an environment variable. The provider uses the variable when the block doesn't set the attribute. An attribute in the block takes precedence over its variable, also when its value is an empty string.
+The registry address is `<host>/<namespace>/data-proxy`, and the build sets it, so the provider has no host name. A local name has no underscore, so it's `data-proxy`. The resources are `data_proxy_*`, so each one needs `provider = data-proxy`. Releases says where the registry is. Each attribute has an environment variable. The provider uses the variable when the block doesn't set the attribute. An attribute in the block takes precedence over its variable, also when its value is an empty string.
 
 | Attribute | Variable | Type | Content |
 | --- | --- | --- | --- |
@@ -4297,17 +4169,13 @@ provider "data-proxy" {
 }
 ```
 
-Don't write the client secret in a `.tf` file. Set `DATA_PROXY_CLIENT_SECRET`, or give it to Terraform as a variable from your secret store.
+`terraform init` downloads the archive and checks the signature and the checksum. Don't write the client secret in a `.tf` file. Set `DATA_PROXY_CLIENT_SECRET`, or give it to Terraform as a variable from your secret store.
 
----
+### Resources
 
-Source: terraform-resources.md
+Every resource of the provider needs `provider = data-proxy`. A refused write names the permission that it needed, such as `create_config`.
 
-## Terraform resources
-
-Every resource of the provider needs `provider = data-proxy`, because a provider local name has no underscore. The provider page explains why. A refused write names the permission that it needed, such as `create_config`.
-
-### `data_proxy_project`
+#### `data_proxy_project`
 
 A project groups schemas. The project `default` exists already, so the resource refuses that name.
 
@@ -4323,7 +4191,7 @@ resource "data_proxy_project" "sales" {
 
 The database refuses to delete a project that has schemas, so Terraform deletes the schemas first. Import with the name: `terraform import data_proxy_project.sales sales`.
 
-### `data_proxy_schema`
+#### `data_proxy_schema`
 
 A schema has the tables of one source. The sync creates its PostgreSQL schema after the row appears.
 
@@ -4341,7 +4209,7 @@ resource "data_proxy_schema" "orders" {
 | --- | --- |
 | `project` | The project. The default is `default`. A change replaces the schema. |
 | `short_name` | The name inside the project. A change replaces the schema. |
-| `name` | The physical name: the short name in `default`, else `<project>_<short_name>`. Tables and access policies use it. |
+| `name` | The physical name: `<project>__<short_name>`, also in `default`. Tables use it. |
 | `source`, `settings`, `claim`, `encrypted` | The columns of the schema. `settings` is a JSON object, such as `jsonencode({...})`. |
 | `deletion_protection` | Refuses the delete while it's `true`, which is the default. Only Terraform reads it. |
 
@@ -4349,7 +4217,15 @@ A create waits until the sync provisions the schema, for 5 minutes at most. A de
 
 Import with the physical name. An imported schema has deletion protection.
 
-### `data_proxy_table`
+#### Names
+
+The console and the provider check a new name before they send a request. The database doesn't check these rules, so an old name stays valid.
+
+- A project name can't be `access`, `console`, `rbac`, `dbos`, `public`, `duckdb`, `rpc`, `docs` or `v1`. A URL or a PostgreSQL schema of the system uses these names.
+- A schema short name has no two underscores in a row.
+- `<project>__<short_name>` has at most 56 bytes. The project `default` counts with its name, so a short name in `default` has at most 47 bytes.
+
+#### `data_proxy_table`
 
 A table that the sync copies from the source into a schema.
 
@@ -4386,33 +4262,29 @@ resource "data_proxy_table" "orders" {
 
 A change of `rls` replaces the policies of the table in one call, so a failure leaves the old policies. A change of the strategy, the partitioning, the sort or the policies makes the next sync rebuild the table. Import with the name.
 
-### `data_proxy_access_policy`
+#### `data_proxy_grant`
 
-A row that lets a subject read the data of a schema, limited to one unit when the row names it.
+A grant of the access policy. It lets a subject read the rows of one unit in a scope: a project, a schema or a table.
 
 ```hcl
-resource "data_proxy_access_policy" "reader" {
+resource "data_proxy_grant" "reader" {
   provider  = data-proxy
-  schema    = data_proxy_schema.orders.name
+  scope     = "${data_proxy_schema.orders.project}.${data_proxy_schema.orders.short_name}"
   subject   = "reader@example.org"
   unit_type = "unit"
   unit_id   = "42"
 }
 ```
 
-Every attribute replaces the row. Without `unit_type` and `unit_id`, the row covers the whole schema. A create waits for the schema, for 5 minutes at most.
+The scope is `*` for every project, or `project`, `project.schema` or `project.schema.table`. A grant covers its scope and what's below it. The unit `*` of type `*` stands for every row. Every attribute replaces the row.
 
-Manage static grants only, such as the grants of service accounts. An application that registers its own policies would delete rows that it didn't write. The table has no primary key, so a read fails when it finds equal rows.
+Manage static grants only, such as the grants of service accounts. An application that registers its own grants would delete rows that it didn't write.
 
-Import with `schema/subject/unit_type/unit_id`, and an empty part for a missing unit: `terraform import data_proxy_access_policy.reader orders/reader@example.org/unit/42`.
+Import with `scope/subject/unit_type/unit_id`: `terraform import data_proxy_grant.reader default.orders/reader@example.org/unit/42`.
 
----
+### Data sources
 
-Source: terraform-data-sources.md
-
-## Terraform data sources
-
-Every data source needs `provider = data-proxy`. A read fails when the object doesn't exist or the token can't see it.
+Every data source needs `provider = data-proxy` too. A read fails when the object doesn't exist or the token can't see it.
 
 | Data source | Arguments | Content |
 | --- | --- | --- |
@@ -4420,13 +4292,13 @@ Every data source needs `provider = data-proxy`. A read fails when the object do
 | `data_proxy_project` | `name` | The project row. |
 | `data_proxy_schema` | `name`, or `short_name` and `project` | The schema row, with its settings and claim. `project` defaults to `default`. |
 | `data_proxy_table` | `name` | The table row and its `rls` list. |
-| `data_proxy_schema_health` | `name` | Whether the sync created the schema (`schema_exists`) and its access policy table (`access_policy`), and the `view_count`. |
+| `data_proxy_schema_health` | `name` | Whether the sync created the schema (`schema_exists`), and the `view_count`. |
 | `data_proxy_table_sync_state` | `name` | Whether the sync published the table (`synced`), its `signature` and `partition_count`. |
 | `data_proxy_export_config` | none | The configuration as a JSON `document` grouped by project, with the empty projects. |
 | `data_proxy_sync_config` | none | The flat `document` that the sync engine reads, with physical schema names as keys. |
 | `data_proxy_config_history` | `schema` and `limit`, both optional | The newest changes in `entries`, newest first. The default `limit` is 100. |
 
-### Examples
+#### Examples
 
 Read a schema that Terraform doesn't manage, and use its physical name:
 
@@ -4464,6 +4336,128 @@ data "data_proxy_schema_health" "orders" {
 }
 
 output "ready" {
-  value = data.data_proxy_schema_health.orders.schema_exists && data.data_proxy_schema_health.orders.access_policy
+  value = data.data_proxy_schema_health.orders.schema_exists
 }
 ```
+
+### Develop
+
+The provider is a Go module in `terraform/`. This section says how to build, run and test it.
+
+#### Build and test
+
+Run the commands in `terraform/`. The module has its own `go.mod`, so the commands don't build the rest of the repository.
+
+```bash
+cd terraform
+go build ./...
+go vet ./...
+go test ./...
+```
+
+#### Local development
+
+Terraform downloads a provider from the registry. To test your local binary, add a `dev_overrides` block to the command-line configuration file `~/.terraformrc`. The block tells Terraform to load the provider from a folder on your machine.
+
+1. Build the binary with the name that Terraform expects. `terraform/bin/` is in `.gitignore`.
+
+   ```bash
+   cd terraform
+   go build -o bin/terraform-provider-data-proxy .
+   ```
+
+2. Add the block to `~/.terraformrc`. Write the absolute path of `terraform/bin` in your clone.
+
+   ```hcl
+   provider_installation {
+     dev_overrides {
+       "registry.example.com/example/data-proxy" = "/home/you/data-proxy/terraform/bin"
+     }
+     direct {}
+   }
+   ```
+
+3. Run `terraform validate` or `terraform plan` in a folder with a configuration that uses the provider. Don't run `terraform init` for this provider. Terraform prints a warning that says the override is active.
+
+The `direct {}` block keeps the normal download for every other provider. Build the binary again after each change. Terraform loads the new binary on the next command. To use the file only in one shell, set `TF_CLI_CONFIG_FILE` to its path. Remove the block when you want the registry version again.
+
+##### Acceptance tests
+
+An acceptance test runs the provider through Terraform against a real API. It's a `TestAcc` function in `terraform/internal/provider/`. It runs only when `TF_ACC` is set, so `go test ./...` compiles it and skips it.
+
+```bash
+devenv --profile terraform tasks run tf:test:int
+```
+
+The task runs `devenv --profile terraform-acc test`. That profile starts the console stack: PostgreSQL, SeaweedFS, Keycloak, PostgREST and the console. It sets `TF_ACC=1` and the `DATA_PROXY_*` variables. The provider calls the local PostgREST. It gets its token from the local Keycloak with the test client `terraform`. That client has the role `dp_admin` and the `schemas` claim `*`. The stack needs Podman, as the tests page says.
+
+To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `terraform-acc` shell, because the tests call OpenTofu.
+
+```bash
+devenv --profile console up -d
+devenv processes wait
+export TF_ACC=1 DATA_PROXY_ENDPOINT=http://127.0.0.1:13000 DATA_PROXY_CLIENT_ID=terraform DATA_PROXY_CLIENT_SECRET=test-secret
+export DATA_PROXY_TOKEN_URL=http://localhost:18180/realms/dev/protocol/openid-connect/token
+devenv --profile terraform shell -- go -C terraform test -count=1 -run TestAccPermissionsDataSource ./...
+```
+
+A new acceptance test uses the helpers in `acceptance_test.go`. Give `testAccPreCheck` to `PreCheck` and `testAccProviderFactories` to `ProtoV6ProviderFactories`. Name each object with `testAccName`, which returns `tfacc` and 10 random letters and digits. Register `testAccCleanup` for each object, so a failed step leaves no row behind. Register a parent before its children, because the cleanups run in reverse order.
+
+The client `terraform` has the `schemas` claim `*`, so a test can add projects and schemas. The stack runs no sync worker, so a schema never gets provisioned. Set `timeouts { create = "0s" }` on a schema to skip the wait. The schema `test` is provisioned at start, so use it for an access policy.
+
+### Releases
+
+The Terraform provider has its own versions and its own releases. A chart release doesn't release the provider, and a provider release doesn't change the chart or production.
+
+#### How a release happens
+
+CI runs on every push to `main`. When `repo` and `test-terraform` pass, the job `terraform` of CI runs the action `terraform-release` on the same commit. The action decides whether a release is due. The job doesn't wait for the chart release. A failed provider release turns the run red, so the chart stays out of staging.
+
+1. `ci plan terraform` reads the commits that changed `terraform/` since the last tag `terraform-v<version>`.
+2. A `feat` or a breaking commit raises the minor version, and a `fix` raises the patch. Other types give no release. The major version stays 0 until a person sets it.
+3. `ci release terraform` builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and signs the checksums with the GPG key.
+4. It creates the GitHub Release `terraform-v<version>` with the archives, the checksum file and its signature. The notes list the commit subjects under `terraform/`.
+5. `ci publish terraform` writes the registry files from every release and uploads them to a bucket.
+
+A tag that exists already makes the job fail, so a version never changes after its release. To release a version by hand, start CI with the input `provider_version`.
+
+#### The registry
+
+The registry is a set of static JSON files, as the [registry protocol](https://developer.hashicorp.com/terraform/internet-documentation/provider-registry-protocol) describes. The release workflow writes them to a public bucket. The ingress of Data Proxy sends `/.well-known/terraform.json` and `/v1/providers/` to that bucket, so the host of the API also serves the registry. The archives stay in GitHub Releases, and the JSON files point to them.
+
+The provider and the scripts have no host name. Every name comes from a variable.
+
+| Variable | Where | Content |
+| --- | --- | --- |
+| `TERRAFORM_REGISTRY_HOST` | GitHub repository variable | The host that serves the registry. The provider reports `<host>/<namespace>/data-proxy` as its address. |
+| `TERRAFORM_REGISTRY_NAMESPACE` | GitHub repository variable | The namespace in the address and in the registry paths. |
+| `TERRAFORM_REGISTRY_BUCKET` | GitHub repository variable | The bucket that stores the registry files. |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` | GitHub repository variables | The identity that writes the bucket. |
+| `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE` | GitHub secrets | The key that signs the checksums. |
+| `ingress.registry.bucket` | Chart value | The bucket that the ingress serves. An empty value adds no route. |
+
+Terraform and OpenTofu refuse a provider from a registry unless a GPG key signs its checksums. The workflow gets the public key from the private key, so the secrets are the only key input.
+
+#### Set up the registry
+
+1. Create a GPG key without an expiry date, and add its private key and its passphrase as the secrets `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE`.
+2. In the infra repository, set the variable `terraform_registry` of the GCP module with the repository that publishes. Apply the module. It creates the bucket, the service account and the identity pool.
+3. Set `terraform_registry_enabled` of the k8s module, and apply it. It adds the route values for the ingress and the Istio objects for the storage host.
+4. Copy the outputs of the GCP module into the GitHub variables of the table above. The workflow does nothing while `TERRAFORM_REGISTRY_HOST` is empty.
+
+The route needs a chart version that has `ingress.registry`. Staging gets each chart first, and production waits for an approval.
+
+#### Roll back and rotate
+
+- A bad release stays in the registry. Fix it with a new `fix` commit. Or delete the GitHub Release and run `ci publish terraform` again, which drops the version from the files.
+- To rotate the key, add the new key and rerun `ci publish terraform`. A release that the old key signed fails to install with the new key, so keep the old key until you release again.
+
+#### Commands
+
+| Command | Work |
+| --- | --- |
+| `ci plan terraform` | Writes `release` and `version` from the commits since the last provider tag. |
+| `ci release terraform <version>` | Builds, signs and publishes the GitHub Release. |
+| `ci publish terraform` | Writes the registry files from the releases and uploads them to the bucket. |
+
+CI and releases describes the chart release.

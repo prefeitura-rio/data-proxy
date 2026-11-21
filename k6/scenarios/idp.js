@@ -36,13 +36,13 @@ export function idp() {
     const viewerClaims = claimsOf(viewer);
     const operatorClaims = claimsOf(operator);
     expect("the viewer token carries its client role as one text", viewerClaims.role === "dp_api");
-    expect("the viewer token lists the schemas of its attribute", stable(viewerClaims.schemas) === stable([SCHEMA]));
+    expect("the viewer token lists the schemas of its attribute", stable(viewerClaims.schemas) === stable([SCHEMA.replace("__", ".")]));
     expect("the viewer token names the user", viewerClaims.preferred_username === VIEWER);
     expect("the console user token carries its client role as one text", operatorClaims.role === "dp_console");
 
     expect(
         "the console user token lists every value of its attribute",
-        stable(operatorClaims.schemas) === stable([SCHEMA, "console_probe"]),
+        stable(operatorClaims.schemas) === stable([SCHEMA.replace("__", "."), "default.console_probe"]),
     );
 
     expectEach(
@@ -51,7 +51,8 @@ export function idp() {
         (claims) => typeof claims.role === "string",
     );
 
-    const policy = postgrestCall(SCHEMA, "POST", "/access_policy", "admin", {
+    const policy = postgrestCall("access", "POST", "/policy", "admin", {
+        scope: SCHEMA.replace("__", "."),
         subject: VIEWER,
         unit_type: "unit",
         unit_id: "unit_1",
@@ -80,7 +81,7 @@ export function idp() {
             rowsOf(read).every((row) => row.unit_id === "unit_1"),
         );
     } finally {
-        postgrestCall(SCHEMA, "DELETE", `/access_policy?subject=eq.${VIEWER}`, "admin");
+        postgrestCall("access", "DELETE", `/policy?subject=eq.${VIEWER}`, "admin");
     }
 
     const overview = postgrestRequest("console", "GET", "/overview", operator);

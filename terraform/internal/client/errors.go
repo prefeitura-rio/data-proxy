@@ -71,7 +71,6 @@ func (e *Error) Unwrap() error {
 	return e.kind
 }
 
-// body is the JSON of an error response of PostgREST.
 type body struct {
 	Code    string  `json:"code"`
 	Message string  `json:"message"`

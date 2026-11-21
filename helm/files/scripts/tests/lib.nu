@@ -5,6 +5,7 @@ use ../lib.nu [
     check-result
     data-prefix
     jwks-key-valid
+    legacy-name
     live-executor-ids
     orphans
     postgres-ready-args
@@ -171,38 +172,31 @@ export def "test rbac-context-fails-without-the-file" []: nothing -> nothing {
     assert equal $failed 'The rules file does not exist: /nonexistent/rbac.toml'
 }
 
-# Verify that a schema with both marker tables and no row in the console is an orphan, and nothing else is.
-export def "test orphans-need-both-marker-tables-and-no-console-row" []: nothing -> nothing {
-    let relations = [
-        {schema: test, table: access_policy}
-        {schema: test, table: access_log}
-        {schema: e2e_new, table: access_policy}
-        {schema: e2e_new, table: access_log}
-        {schema: half, table: access_policy}
-        {schema: other, table: people}
-    ]
+# Verify that a schema of the form `<project>__<schema>` with no row in the console is an orphan, and nothing else is.
+export def "test orphans-have-the-project-form-and-no-console-row" []: nothing -> nothing {
+    let schemas = [default__test sales__gone other people]
 
-    assert equal ($relations | orphans test) [e2e_new]
-    assert equal ($relations | orphans test e2e_new) []
+    assert equal ($schemas | orphans default__test) [sales__gone]
+    assert equal ($schemas | orphans default__test sales__gone) []
 }
 
-# Verify that the schemas of the system are never orphans, even with both marker tables.
+# Verify that the schemas of the system are never orphans.
 export def "test orphans-never-include-system-schemas" []: nothing -> nothing {
-    let relations = [console data_proxy dbos rbac public]
-    | each {|schema|
-        [
-            {schema: $schema, table: access_policy}
-            {schema: $schema, table: access_log}
-        ]
-    }
-    | flatten
+    assert equal ([console data_proxy dbos rbac public access] | orphans) []
+}
 
-    assert equal ($relations | orphans []) []
+# Verify that the old name of a schema is its short name in the project default, and the project and the short name otherwise.
+export def "test legacy-name-is-the-name-before-the-project-form" []: nothing -> nothing {
+    assert equal (legacy-name default__api_bcadastro) api_bcadastro
+    assert equal (legacy-name sales__orders) sales_orders
+    assert equal (legacy-name sales__a_b) sales_a_b
+    assert equal (legacy-name plain) plain
 }
 
 # Verify that the data prefix of a schema is the folder of the catalog path.
 export def "test data-prefix-names-the-schema-folder" []: nothing -> nothing {
-    assert equal (data-prefix bucket ducklake e2e_new) 'store:bucket/ducklake/e2e_new'
+    assert equal (data-prefix bucket ducklake default__e2e_new) 'store:bucket/ducklake/e2e_new'
+    assert equal (data-prefix bucket ducklake sales__orders) 'store:bucket/ducklake/sales_orders'
 }
 
 # Verify that a name that could leave its folder gets no prefix, so that nothing outside it is purged.
@@ -265,19 +259,19 @@ export def "test live-executor-ids-keeps-only-running-pods-that-are-not-deleting
     assert equal ({items: []} | live-executor-ids) []
 }
 
-# Verify that backup-plan names the two dumps of the schema and the dated folder of the bucket.
+# Verify that backup-plan names the two dumps and the dated folder of the bucket.
 export def "test backup-plan-names-the-dumps-and-the-folder-of-the-day" []: nothing -> nothing {
-    let plan = backup-plan sales bucket backups 2026-10-25
+    let plan = backup-plan bucket backups 2026-10-25
 
-    assert equal $plan.remote_prefix 'store:bucket/backups/sales/2026-10-25'
+    assert equal $plan.remote_prefix 'store:bucket/backups/2026-10-25'
     assert equal $plan.dumps [
-        {table: access_policy, file: '/tmp/sales-access_policy.dump'}
-        {table: access_log, file: '/tmp/sales-access_log.dump'}
+        {table: policy, file: '/tmp/access-policy.dump'}
+        {table: log, file: '/tmp/access-log.dump'}
     ]
 }
 
-# Verify that served-schemas sorts the data schemas and puts the console last, whatever the order of the names.
-export def "test served-schemas-puts-the-console-last" []: nothing -> nothing {
-    assert equal (served-schemas b a) 'a,b,console'
-    assert equal (served-schemas) 'console'
+# Verify that served-schemas sorts the data schemas and puts the console and the access schema last, whatever the order of the names.
+export def "test served-schemas-puts-the-console-and-access-last" []: nothing -> nothing {
+    assert equal (served-schemas b a) 'a,b,console,access'
+    assert equal (served-schemas) 'console,access'
 }

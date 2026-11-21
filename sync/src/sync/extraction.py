@@ -16,6 +16,7 @@ from .sources.partitions import (
     TimeRangeSelection,
 )
 from .sources.registry import sources
+from .types import DescribeRow
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -81,7 +82,7 @@ async def run_extraction(duckdb_conn: DuckDB, task: DumpTask, report: Report) ->
         columns = await executor.query(
             "duckdb/describe_source",
             {"source": scan},
-            expect=tuple[str, str, object, object, object, object],
+            expect=DescribeRow,
         )
     finally:
         FIRST_REQUEST.release()

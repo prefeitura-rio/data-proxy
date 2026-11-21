@@ -27,10 +27,10 @@ func TestCompactJSON(t *testing.T) {
 		{name: "text that is not JSON", raw: json.RawMessage("{"), want: ""},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := string(compactJSON(tt.raw)); got != tt.want {
-				t.Errorf("compactJSON(%s) = %q, want %q", tt.raw, got, tt.want)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := string(compactJSON(testCase.raw)); got != testCase.want {
+				t.Errorf("compactJSON(%s) = %q, want %q", testCase.raw, got, testCase.want)
 			}
 		})
 	}
@@ -49,10 +49,10 @@ func TestJSONValue(t *testing.T) {
 		{name: "a JSON null is null", raw: json.RawMessage("null"), current: types.StringValue(`{"a":1}`), want: types.StringNull()},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := jsonValue(tt.raw, tt.current); !got.Equal(tt.want) {
-				t.Errorf("jsonValue = %v, want %v", got, tt.want)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := jsonValue(testCase.raw, testCase.current); !got.Equal(testCase.want) {
+				t.Errorf("jsonValue = %v, want %v", got, testCase.want)
 			}
 		})
 	}
@@ -70,12 +70,12 @@ func TestJSONRaw(t *testing.T) {
 		{name: "a value", input: types.StringValue(`{"a":1}`), want: `{"a":1}`},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := jsonRaw(tt.input)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := jsonRaw(testCase.input)
 
-			if (got == nil) != (tt.want == "") || string(got) != tt.want {
-				t.Errorf("jsonRaw() = %s, want %q", got, tt.want)
+			if (got == nil) != (testCase.want == "") || string(got) != testCase.want {
+				t.Errorf("jsonRaw() = %s, want %q", got, testCase.want)
 			}
 		})
 	}
@@ -99,9 +99,9 @@ func TestOptionalConversions(t *testing.T) {
 		{name: "a number has a pointer", run: func() (string, string) { return fmt.Sprint(*intPointer(types.Int64Value(4))), "4" }},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got, want := tt.run(); got != want {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got, want := testCase.run(); got != want {
 				t.Errorf("got %q, want %q", got, want)
 			}
 		})
@@ -126,14 +126,14 @@ func TestJSONValidators(t *testing.T) {
 		{name: "an unknown value", validator: jsonArray(), value: types.StringUnknown()},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			resp := validator.StringResponse{}
 
-			tt.validator.ValidateString(context.Background(), validator.StringRequest{Path: path.Root("settings"), ConfigValue: tt.value}, &resp)
+			testCase.validator.ValidateString(context.Background(), validator.StringRequest{Path: path.Root("settings"), ConfigValue: testCase.value}, &resp)
 
-			if resp.Diagnostics.HasError() != tt.wantError {
-				t.Errorf("errors = %v, want an error: %t", resp.Diagnostics, tt.wantError)
+			if resp.Diagnostics.HasError() != testCase.wantError {
+				t.Errorf("errors = %v, want an error: %t", resp.Diagnostics, testCase.wantError)
 			}
 		})
 	}
@@ -150,9 +150,9 @@ func TestProviderClient(t *testing.T) {
 		t.Errorf("providerClient(nil) = %v, %v, want nil and no error", got, diagnostics)
 	}
 
-	apiClient := &client.Client{}
+	c := &client.Client{}
 
-	if got := providerClient(apiClient, &diagnostics); got != apiClient || diagnostics.HasError() {
+	if got := providerClient(c, &diagnostics); got != c || diagnostics.HasError() {
 		t.Errorf("providerClient = %v, %v, want the client and no error", got, diagnostics)
 	}
 
@@ -163,17 +163,17 @@ func TestProviderClient(t *testing.T) {
 
 func TestSchemasAreValid(t *testing.T) {
 	ctx := context.Background()
-	p := New("test")()
+	dataProxy := New("test")()
 
-	for _, newResource := range p.Resources(ctx) {
-		res := newResource()
+	for _, newResource := range dataProxy.Resources(ctx) {
+		instance := newResource()
 
-		if diagnostics := resourceSchema(t, res).ValidateImplementation(ctx); diagnostics.HasError() {
-			t.Errorf("%T schema: %v", res, diagnostics)
+		if diagnostics := resourceSchema(t, instance).ValidateImplementation(ctx); diagnostics.HasError() {
+			t.Errorf("%T schema: %v", instance, diagnostics)
 		}
 	}
 
-	for _, newSource := range p.DataSources(ctx) {
+	for _, newSource := range dataProxy.DataSources(ctx) {
 		source := newSource()
 
 		if diagnostics := dataSourceSchema(t, source).ValidateImplementation(ctx); diagnostics.HasError() {

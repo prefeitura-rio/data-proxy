@@ -73,34 +73,34 @@ func NewCredentialsSource(credentials Credentials, httpClient *http.Client) (*Cr
 }
 
 // Token returns the kept access token, or fetches a new one when it expires within RenewBefore.
-func (s *CredentialsSource) Token(ctx context.Context) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (cs *CredentialsSource) Token(ctx context.Context) (string, error) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
 
-	if s.valid() {
-		return s.token, nil
+	if cs.valid() {
+		return cs.token, nil
 	}
 
-	token, err := s.config.Token(context.WithValue(ctx, oauth2.HTTPClient, s.http))
+	token, err := cs.config.Token(context.WithValue(ctx, oauth2.HTTPClient, cs.http))
 	if err != nil {
-		return "", fmt.Errorf("fetch a token from %s: %w", s.config.TokenURL, err)
+		return "", fmt.Errorf("fetch a token from %s: %w", cs.config.TokenURL, err)
 	}
 
-	s.token = token.AccessToken
-	s.expiry = token.Expiry
+	cs.token = token.AccessToken
+	cs.expiry = token.Expiry
 
-	return s.token, nil
+	return cs.token, nil
 }
 
 // valid treats a token without an expiry as one that never expires.
-func (s *CredentialsSource) valid() bool {
-	if s.token == "" {
+func (cs *CredentialsSource) valid() bool {
+	if cs.token == "" {
 		return false
 	}
 
-	if s.expiry.IsZero() {
+	if cs.expiry.IsZero() {
 		return true
 	}
 
-	return s.now().Add(RenewBefore).Before(s.expiry)
+	return cs.now().Add(RenewBefore).Before(cs.expiry)
 }

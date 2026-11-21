@@ -5,18 +5,19 @@ from typing import TYPE_CHECKING
 from psycopg.rows import TupleRow
 from psycopg.sql import Identifier, Literal
 
-from sync.constants import PROTECTED_VIEW_NAMES
+from sync.constants import CHANGES_FUNCTION_SUFFIX, PROTECTED_VIEW_NAMES
+from sync.ducklake import data_path
 from sync.executor import Executor
 from sync.models import PartitionedTable, SyncConfig, TableConfig
 from sync.settings import settings
 from sync.sources.registry import sources
 from sync.types import PostgresParams
+from sync.utils import changes_function_name, destination_name
 
 from .mappings import (
     aggregate_function_mapping,
     aggregate_function_name,
     boundary_view_mapping,
-    changes_function_name,
     column_types_from_duckdb,
     ducklake_function_mapping,
     serving_definition_signature,
@@ -37,7 +38,7 @@ def desired_functions(
     functions = {(schema_name, "dl_latest_snapshot") for schema_name in selected}
     functions.update((schema_name, "dl_table_files") for schema_name in selected)
     functions.update(
-        (schema_name, changes_function_name(table))
+        (schema_name, changes_function_name(table.table_name))
         for schema_name, schema_config in config.schemas.items()
         if schema_name in selected
         for table in schema_config.tables
@@ -59,9 +60,13 @@ def desired_views(
 
 
 async def existing_functions(
-    pg_conn: Postgres, schema_names: list[str]
+    pg_conn: Postgres, schema_names: list[str], desired: set[tuple[str, str]]
 ) -> set[tuple[str, str]]:
-    """Return managed PostgreSQL functions in the configured schemas."""
+    """Return managed PostgreSQL functions in the configured schemas.
+
+    A change-feed name that PostgreSQL cut at 63 bytes lost its suffix, so a function that the configuration wants
+    counts as managed too.
+    """
     rows = await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).query(
         "postgres/list_functions",
         mapping={"schemas": Literal(schema_names)},
@@ -70,8 +75,9 @@ async def existing_functions(
     return {
         (schema, name)
         for schema, name in rows
-        if name.startswith("dl_changes_")
+        if name.endswith(CHANGES_FUNCTION_SUFFIX)
         or name in {"dl_latest_snapshot", "dl_table_files"}
+        or (schema, name) in desired
     }
 
 
@@ -105,7 +111,9 @@ async def drop_removed_functions(
     """Drop managed RPC functions no longer present in the configuration."""
     for schema_name, function_name in removed:
         arguments = (
-            "(bigint, bigint)" if function_name.startswith("dl_changes_") else "()"
+            "(bigint, bigint)"
+            if function_name.endswith(CHANGES_FUNCTION_SUFFIX)
+            else "()"
         )
         await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
             "postgres/drop_function",
@@ -173,7 +181,7 @@ async def create_current_snapshot_function(pg_conn: Postgres, schema: str) -> No
             "schema": Identifier(schema),
             "function": Identifier("dl_latest_snapshot"),
             "metadata_schema": schema,
-            "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
+            "data_path": data_path(schema),
             "user_role": Identifier(settings.AUTH_USER_ROLE),
         },
     )
@@ -187,7 +195,7 @@ async def create_table_files_function(pg_conn: Postgres, schema: str) -> None:
             "schema": Identifier(schema),
             "function": Identifier("dl_table_files"),
             "metadata_schema": schema,
-            "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{schema}",
+            "data_path": data_path(schema),
         },
     )
 
@@ -285,13 +293,15 @@ async def create_table_views(
     Dropping first lets a source column change alter the returned row type.
     """
     if len(columns) == 0:
-        table_name = f"{table.resolved_schema}.{table.table_name}"
+        table_name = destination_name(table.resolved_schema, table.table_name)
         raise RuntimeError(f"DuckDB returned no columns for table {table_name}")
 
     executor: Executor[PostgresParams, list[TupleRow]] = Executor(conn=pg_conn)
 
     await drop_view_objects(pg_conn, schema, table.table_name)
-    await drop_removed_functions(pg_conn, {(schema, changes_function_name(table))})
+    await drop_removed_functions(
+        pg_conn, {(schema, changes_function_name(table.table_name))}
+    )
     await create_source_helpers(executor, schema, table, columns)
     await create_table_function(executor, schema, table, columns, claim)
     await create_aggregate_function(executor, schema, table, columns, claim)
@@ -331,7 +341,7 @@ async def reconcile_schema(
             schema_name, table, columns, schema_config.claim
         )
         key = (schema_name, table.table_name)
-        change_function = (schema_name, changes_function_name(table))
+        change_function = (schema_name, changes_function_name(table.table_name))
         if signatures.get(key) == signature and change_function in functions:
             continue
         await create_table_views(

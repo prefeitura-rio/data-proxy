@@ -4,7 +4,7 @@
 	import { explain, GROUP, type Editor, type Explained } from '#lib/rules.js';
 	import { PolicyRow } from '#lib/types.js';
 
-	let { editor, schema }: { editor: Editor; schema: string } = $props();
+	let { editor, schema, table }: { editor: Editor; schema: string; table: string | null } = $props();
 
 	let subject = $state('');
 	let answer = $state<Explained | null>(null);
@@ -26,7 +26,7 @@
 
 		try {
 			const response = await fetch(
-				`${resolve('/config/grants')}?subject=${encodeURIComponent(name)}&schema=${encodeURIComponent(schema)}`
+				`${resolve('/config/grants')}?subject=${encodeURIComponent(name)}&schema=${encodeURIComponent(schema)}&table=${encodeURIComponent(table ?? '')}`
 			);
 
 			if (!response.ok) {

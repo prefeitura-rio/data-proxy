@@ -1,6 +1,5 @@
 """Tests for the pre-request, access policy and trigger templates."""
 
-import itertools
 import json
 from asyncio import timeout
 from time import perf_counter
@@ -12,20 +11,13 @@ from psycopg.sql import SQL, Identifier
 
 from sync.postgres import Postgres as PgBackend
 from sync.schema import notify_postgrest, wait_for_standbys
-from sync.settings import settings
 from tests.fixtures.types import Postgres
 from tests.helpers.core import (
-    fetch_all,
     scalar,
     set_request_headers,
     set_setting,
 )
-from tests.helpers.rbac import empty_queues, queued_workflows, revision
-from tests.helpers.routing import (
-    act_as_token,
-    create_access_policy,
-    insert_access_policy,
-)
+from tests.helpers.rbac import empty_queues, queued_workflows
 
 
 @pytest.mark.postgres
@@ -159,13 +151,14 @@ class TestPreRequest:
         ("profile", "longer"),
         [
             pytest.param("console", True, id="console-profile"),
+            pytest.param("access", True, id="access-profile"),
             pytest.param("sales", False, id="data-profile"),
         ],
     )
     async def test_pre_request_gives_the_console_profile_a_longer_timeout(
         self, rbac: Postgres, profile: str, longer: bool
     ) -> None:
-        """A request to the console reads views over the engine tables, so it may run for 30 seconds."""
+        """A request to the console reads views over the engine tables, and one to access reads the policy, so each may run for 30 seconds."""
         postgres = rbac
         before = await scalar(postgres, "SELECT current_setting('statement_timeout')")
         await set_request_headers(postgres, {"accept-profile": profile})
@@ -177,8 +170,8 @@ class TestPreRequest:
 
 
 @pytest.mark.postgres
-class TestAccessPolicyTemplates:
-    """The access policy, its triggers, the reload and the console triggers."""
+class TestReloadAndTriggers:
+    """The reload and the console triggers."""
 
     async def test_reload_notifies_postgrest_and_does_not_wait_without_a_standby(
         self, postgres: Postgres
@@ -200,68 +193,11 @@ class TestAccessPolicyTemplates:
                     break
             assert perf_counter() - started < 1
 
-    async def test_setup_access_policy_logs_every_change(
-        self, postgres: Postgres
-    ) -> None:
-        """The trigger writes the old row of an update and a delete, and the new row of an insert."""
-        await create_access_policy(postgres)
-        table = postgres.namespace.identifier
-
-        await insert_access_policy(postgres, "ana", "unit", "u1")
-        await postgres.connection.execute(
-            SQL("UPDATE {}.access_policy SET unit_id = 'u2'").format(table)
-        )
-        await postgres.connection.execute(
-            SQL("DELETE FROM {}.access_policy").format(table)
-        )
-
-        assert sorted(
-            await fetch_all(
-                postgres, "postgres/access_log_entries", mapping={"schema": table}
-            )
-        ) == [
-            ("ana", "unit", "u1", "insert"),
-            ("ana", "unit", "u1", "update"),
-            ("ana", "unit", "u2", "delete"),
-        ]
-
-    @pytest.mark.parametrize(
-        ("role", "claim", "expected"),
-        [
-            pytest.param("dp_policy", "{schema}", 1, id="policy-role-of-the-schema"),
-            pytest.param("dp_policy", "other", 0, id="policy-role-of-another-schema"),
-            pytest.param("dp_api", "{schema}", 0, id="role-without-read-policy"),
-        ],
-    )
-    async def test_setup_access_policy_shows_the_log_to_a_token_that_may_read_the_policy(
-        self, rbac: Postgres, role: str, claim: str, expected: int
-    ) -> None:
-        """A token reads the access log of a schema when it holds read_policy for that schema."""
-        await create_access_policy(rbac)
-        await insert_access_policy(rbac, "ana", "unit", "u1")
-        await act_as_token(rbac, role, claim.format(schema=rbac.namespace.schema))
-        token_role = Identifier(settings.AUTH_USER_ROLE)
-        await rbac.connection.execute(
-            SQL(
-                "GRANT USAGE ON SCHEMA rbac TO {role}; GRANT EXECUTE ON FUNCTION rbac.can(text), rbac.mine(text) TO {role}; SET LOCAL ROLE {role}"
-            ).format(role=token_role)
-        )
-
-        assert (
-            await scalar(
-                rbac,
-                SQL("SELECT count(*) FROM {}.access_log")
-                .format(rbac.namespace.identifier)
-                .as_string(),
-            )
-            == expected
-        )
-
     @pytest.mark.parametrize(
         ("statement", "expected"),
         [
             pytest.param(
-                "INSERT INTO console.schemas (name) VALUES ('a') ON CONFLICT DO NOTHING",
+                "INSERT INTO console.schemas (name) VALUES ('default__a') ON CONFLICT DO NOTHING",
                 ["provision_schemas", "reconcile_schedules", "reload_proxy"],
                 id="schema-added",
             ),
@@ -306,7 +242,7 @@ class TestAccessPolicyTemplates:
                 id="rules-or-policy-revision-moved",
             ),
             pytest.param(
-                "INSERT INTO {policy} VALUES ('ana', 'unit', 'u1') ON CONFLICT DO NOTHING",
+                "INSERT INTO access.policy VALUES ('ana', 'default.a', 'unit', 'u1') ON CONFLICT DO NOTHING",
                 ["reload_proxy"],
                 id="policy-written",
             ),
@@ -320,11 +256,8 @@ class TestAccessPolicyTemplates:
         expected: list[str],
     ) -> None:
         """A change queues each workflow once, so that a burst of changes shares one run."""
-        await create_access_policy(rbac)
         await empty_queues(rbac, dbos_schema)
-        sql = SQL(statement).format(
-            policy=SQL("{}.access_policy").format(rbac.namespace.identifier)
-        )
+        sql = SQL(statement)
 
         before = await queued_workflows(rbac, dbos_schema)
         await rbac.connection.execute(sql)
@@ -340,7 +273,7 @@ class TestAccessPolicyTemplates:
         """The queue runs one reconcile at a time, so two changes never create the same schedule twice."""
         await empty_queues(rbac, dbos_schema)
         await rbac.connection.execute(
-            SQL("INSERT INTO console.schemas (name) VALUES ('a')")
+            SQL("INSERT INTO console.schemas (name) VALUES ('default__a')")
         )
 
         cursor = await rbac.connection.execute(
@@ -355,7 +288,9 @@ class TestAccessPolicyTemplates:
     ) -> None:
         """A renamed schema needs the schedule of its new name, and its old schedule must go. The trigger keep_name refuses a rename today, so the test turns it off in its own transaction."""
         await rbac.connection.execute(
-            SQL("INSERT INTO console.schemas (name) VALUES ('a')")
+            SQL(
+                "INSERT INTO console.schemas (project, short_name) VALUES ('default', 'a')"
+            )
         )
         await rbac.connection.execute(
             SQL("ALTER TABLE console.schemas DISABLE TRIGGER keep_name")
@@ -364,7 +299,7 @@ class TestAccessPolicyTemplates:
 
         await rbac.connection.execute(
             SQL(
-                "UPDATE console.schemas SET name = 'b', short_name = 'b' WHERE name = 'a'"
+                "UPDATE console.schemas SET name = 'default__b', short_name = 'b' WHERE name = 'default__a'"
             )
         )
 
@@ -380,7 +315,7 @@ class TestAccessPolicyTemplates:
         """A change that arrives during a run waits for the next run, because the running one may have read the data already."""
         await empty_queues(rbac, dbos_schema)
         await rbac.connection.execute(
-            SQL("INSERT INTO console.schemas (name) VALUES ('a')")
+            SQL("INSERT INTO console.schemas (name) VALUES ('default__a')")
         )
         await rbac.connection.execute(
             SQL(
@@ -389,10 +324,10 @@ class TestAccessPolicyTemplates:
         )
 
         await rbac.connection.execute(
-            SQL("INSERT INTO console.schemas (name) VALUES ('b')")
+            SQL("INSERT INTO console.schemas (name) VALUES ('default__b')")
         )
         await rbac.connection.execute(
-            SQL("INSERT INTO console.schemas (name) VALUES ('c')")
+            SQL("INSERT INTO console.schemas (name) VALUES ('default__c')")
         )
 
         cursor = await rbac.connection.execute(
@@ -404,41 +339,3 @@ class TestAccessPolicyTemplates:
             "ENQUEUED",
             "PENDING",
         ]
-
-    async def test_setup_access_policy_raises_the_revision_once_for_each_write_statement(
-        self, rbac: Postgres
-    ) -> None:
-        """The proxy learns of a policy change from the revision, so each write statement moves it by one."""
-        await create_access_policy(rbac)
-        table = rbac.namespace.identifier
-        revisions = [await revision(rbac)]
-
-        for statement in (
-            "INSERT INTO {} VALUES ('ana', 'unit', 'u1'), ('bia', 'unit', 'u2')",
-            "UPDATE {} SET unit_id = 'u3'",
-            "DELETE FROM {}",
-        ):
-            await rbac.connection.execute(
-                SQL(statement).format(SQL("{}.access_policy").format(table))
-            )
-            revisions.append(await revision(rbac))
-
-        assert [after - before for before, after in itertools.pairwise(revisions)] == [
-            1,
-            1,
-            1,
-        ]
-
-    async def test_setup_access_policy_makes_a_policy_write_wait_for_the_standbys(
-        self, postgres: Postgres
-    ) -> None:
-        """A policy write raises synchronous_commit for its own transaction only."""
-        await create_access_policy(postgres)
-
-        before = await scalar(postgres, "SELECT current_setting('synchronous_commit')")
-        await insert_access_policy(postgres, "ana", "unit", "u1")
-        during = await scalar(postgres, "SELECT current_setting('synchronous_commit')")
-        await postgres.connection.rollback()
-        after = await scalar(postgres, "SELECT current_setting('synchronous_commit')")
-
-        assert (before, during, after) == ("on", "remote_apply", "on")

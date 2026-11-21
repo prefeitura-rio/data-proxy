@@ -52,7 +52,7 @@
 	const statusOf = (name: string) => {
 		const row = health.find((item) => item.name === name);
 
-		return row?.schema_exists && row.access_policy ? `ready, ${row.view_count} views` : 'provisioning';
+		return row?.schema_exists ? `ready, ${row.view_count} views` : 'provisioning';
 	};
 </script>
 

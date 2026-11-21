@@ -5,6 +5,7 @@
   "inputs": {
     "schema": "PostgreSQL schema that owns the function.",
     "schema_literal": "SQL literal of the schema name, for the schemas claim check.",
+    "scope_path": "SQL literal of the ltree path of the table, for the grants of access.policy.",
     "function": "PostgreSQL function being created or called.",
     "table_name": "SQL literal table name passed to dl.table_changes.",
     "duckdb_view": "DuckDB intermediate view name.",
@@ -46,7 +47,7 @@ BEGIN
 
   v_subject := current_setting('{{ claim_setting }}', true);
 
-{{ rls_where_clause(schema, schema_literal, rls_mappings, true) }}
+{{ rls_where_clause(schema_literal, scope_path, rls_mappings, true) }}
   IF v_where IS NULL THEN
     RETURN;
   END IF;

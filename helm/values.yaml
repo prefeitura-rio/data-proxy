@@ -308,7 +308,7 @@ jobs:
   ## access policy, serves the list, and removes what the console dropped.
   provision:
     activeDeadlineSeconds: 300
-  ## Backup CronJob: exports access_policy, access_log, and restored catalogs.
+  ## Backup CronJob: exports access.policy, access.log, and restored catalogs.
   backup:
     enabled: false
     schedule: 0 3 * * *
@@ -352,7 +352,7 @@ cnpg:
     parameters: {}
     ## Optional CNPG synchronous replication, for example {method: any, number: 1, dataDurability: preferred}.
     ## CNPG rejects it while the cluster has one instance, so set it after the cluster has scaled up.
-    ## With it, access_policy writes wait for a standby to apply them and other commits do not wait.
+    ## With it, access.policy writes wait for a standby to apply them and other commits do not wait.
     synchronous: {}
   db:
     name: data-proxy

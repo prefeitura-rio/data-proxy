@@ -52,7 +52,7 @@ end
 --- --> "Proxy Redis cache failed: operation=read error=timeout"
 --- ```
 ---@param event string Event name. It is a key of constants.log.messages.
----@param fields table<string, string|number|nil> Values: operation and error.
+---@param fields table<string, string|number|nil> Values: operation, error, method, path and sub.
 ---@return string line
 function log.format_note(event, fields)
 	local message = constants.log.messages[event] or constants.log.fallback_message

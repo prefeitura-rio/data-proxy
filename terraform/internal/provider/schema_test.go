@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -14,28 +13,25 @@ import (
 	"terraform-provider-data-proxy/internal/client"
 )
 
-// schemaRowJSON is the row that the test server gives for the schema orders of the project sales.
 const schemaRowJSON = `{"name":"sales_orders","project":"sales","short_name":"orders","source":"bigquery","settings":{"b":1,"a":2},` +
 	`"claim":"preferred_username","encrypted":false,"updated_at":"2026-01-01T00:00:00Z","updated_by":"terraform"}`
 
 // Steps that a provisioned schema answers: the health row and a read of its access policy table.
 var (
-	healthReadyStep = step{method: "GET", uri: "/health?name=eq.sales_orders", response: `[{"name":"sales_orders","schema_exists":true,"access_policy":true,"view_count":0}]`}
-	probeReadyStep  = step{method: "GET", uri: "/access_policy?limit=0", profile: "sales_orders", response: "[]"}
-	probeGoneStep   = step{method: "GET", uri: "/access_policy?limit=0", profile: "sales_orders", status: 406, response: `{"code":"PGRST106","message":"The schema must be one of the following"}`}
+	healthReadyStep = step{method: "GET", uri: "/health?name=eq.sales_orders", response: `[{"name":"sales_orders","schema_exists":true,"view_count":0}]`}
+	probeReadyStep  = step{method: "GET", uri: "/", profile: "sales_orders", response: "{}"}
+	probeGoneStep   = step{method: "GET", uri: "/", profile: "sales_orders", status: 406, response: `{"code":"PGRST106","message":"The schema must be one of the following"}`}
 )
 
-// newTestSchema returns the resource with a client that the steps drive, and no wait between reads.
 func newTestSchema(t *testing.T, steps []step) resource.Resource {
 	t.Helper()
 
-	res := newSchemaResource()
-	res.(*schemaResource).backoff = client.Backoff{}
+	testSchema := newSchemaResource()
+	testSchema.(*schemaResource).backoff = client.Backoff{}
 
-	return configured(t, res, newStepClient(t, steps))
+	return configured(t, testSchema, newStepClient(t, steps))
 }
 
-// schemaPlan returns the plan of a new schema with the given create timeout.
 func schemaPlan(createTimeout string) schemaModel {
 	return schemaModel{
 		ID:                 types.StringUnknown(),
@@ -53,7 +49,6 @@ func schemaPlan(createTimeout string) schemaModel {
 	}
 }
 
-// schemaState returns the state of the saved schema.
 func schemaState(protected bool, deleteTimeout string) schemaModel {
 	model := schemaPlan("")
 	applySchemaRow(&model, client.Schema{
@@ -94,25 +89,25 @@ func TestSchemaCreate(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := newTestSchema(t, tt.steps)
-			s := resourceSchema(t, res)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			testSchema := newTestSchema(t, testCase.steps)
+			s := resourceSchema(t, testSchema)
 			resp := resource.CreateResponse{State: nullState(s)}
 
-			res.Create(context.Background(), resource.CreateRequest{Plan: planOf(t, s, schemaPlan(tt.createTimeout))}, &resp)
+			testSchema.Create(context.Background(), resource.CreateRequest{Plan: planOf(t, s, schemaPlan(testCase.createTimeout))}, &resp)
 
 			got := summaries(diagnosticsOf(resp.Diagnostics))
 
-			if tt.wantSummary != "" {
-				if len(got) != 1 || got[0] != tt.wantSummary {
-					t.Fatalf("diagnostics = %v, want %q", got, tt.wantSummary)
+			if testCase.wantSummary != "" {
+				if len(got) != 1 || got[0] != testCase.wantSummary {
+					t.Fatalf("diagnostics = %v, want %q", got, testCase.wantSummary)
 				}
 			} else if len(got) != 0 {
 				t.Fatalf("diagnostics = %v, want none", got)
 			}
 
-			if tt.wantSummary == "Couldn't create the schema" {
+			if testCase.wantSummary == "Couldn't create the schema" {
 				if !resp.State.Raw.IsNull() {
 					t.Errorf("state = %v, want none after a refused write", resp.State.Raw)
 				}
@@ -147,23 +142,23 @@ func TestSchemaRead(t *testing.T) {
 		{name: "reports a read that fails", steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}}, wantSummary: "Couldn't read the schema"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := newTestSchema(t, tt.steps)
-			s := resourceSchema(t, res)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			testSchema := newTestSchema(t, testCase.steps)
+			s := resourceSchema(t, testSchema)
 			state := stateOf(t, s, schemaState(true, ""))
 			resp := resource.ReadResponse{State: state}
 
-			res.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
+			testSchema.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
 
 			got := summaries(diagnosticsOf(resp.Diagnostics))
 
 			switch {
-			case tt.wantSummary != "":
-				if len(got) != 1 || got[0] != tt.wantSummary {
-					t.Fatalf("diagnostics = %v, want %q", got, tt.wantSummary)
+			case testCase.wantSummary != "":
+				if len(got) != 1 || got[0] != testCase.wantSummary {
+					t.Fatalf("diagnostics = %v, want %q", got, testCase.wantSummary)
 				}
-			case tt.wantRemoved:
+			case testCase.wantRemoved:
 				if !resp.State.Raw.IsNull() {
 					t.Errorf("state = %v, want it removed", resp.State.Raw)
 				}
@@ -203,9 +198,9 @@ func TestSchemaUpdate(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := newTestSchema(t, []step{tt.step})
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			res := newTestSchema(t, []step{testCase.step})
 			s := resourceSchema(t, res)
 			plan := schemaState(true, "")
 			resp := resource.UpdateResponse{State: stateOf(t, s, plan)}
@@ -214,7 +209,7 @@ func TestSchemaUpdate(t *testing.T) {
 
 			got := diagnosticsOf(resp.Diagnostics)
 
-			if tt.wantSummary == "" {
+			if testCase.wantSummary == "" {
 				if len(got) != 0 {
 					t.Fatalf("diagnostics = %+v, want none", got)
 				}
@@ -222,8 +217,8 @@ func TestSchemaUpdate(t *testing.T) {
 				return
 			}
 
-			if len(got) != 1 || got[0].summary != tt.wantSummary || !strings.Contains(got[0].detail, tt.wantDetail) {
-				t.Fatalf("diagnostics = %+v, want %q with %q", got, tt.wantSummary, tt.wantDetail)
+			if len(got) != 1 || got[0].summary != testCase.wantSummary || !strings.Contains(got[0].detail, testCase.wantDetail) {
+				t.Fatalf("diagnostics = %+v, want %q with %q", got, testCase.wantSummary, testCase.wantDetail)
 			}
 		})
 	}
@@ -249,22 +244,22 @@ func TestSchemaDelete(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := newTestSchema(t, tt.steps)
-			s := resourceSchema(t, res)
-			state := stateOf(t, s, schemaState(tt.protected, tt.deleteTimeout))
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			testSchema := newTestSchema(t, testCase.steps)
+			s := resourceSchema(t, testSchema)
+			state := stateOf(t, s, schemaState(testCase.protected, testCase.deleteTimeout))
 			resp := resource.DeleteResponse{State: state}
 
-			res.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
+			testSchema.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
 
 			got := summaries(diagnosticsOf(resp.Diagnostics))
 
 			switch {
-			case tt.wantSummary == "" && len(got) != 0:
+			case testCase.wantSummary == "" && len(got) != 0:
 				t.Fatalf("diagnostics = %v, want none", got)
-			case tt.wantSummary != "" && (len(got) != 1 || got[0] != tt.wantSummary):
-				t.Fatalf("diagnostics = %v, want %q", got, tt.wantSummary)
+			case testCase.wantSummary != "" && (len(got) != 1 || got[0] != testCase.wantSummary):
+				t.Fatalf("diagnostics = %v, want %q", got, testCase.wantSummary)
 			}
 		})
 	}
@@ -280,20 +275,20 @@ func TestSchemaImportKeepsDeletionProtection(t *testing.T) {
 		{name: "a name with a project prefix", id: "proj_orders"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			res := newTestSchema(t, nil)
 			s := resourceSchema(t, res)
 			resp := resource.ImportStateResponse{State: nullState(s)}
 
-			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: tt.id}, &resp)
+			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: testCase.id}, &resp)
 
 			var state schemaModel
 
 			resp.State.Get(context.Background(), &state)
 
-			if state.Name.ValueString() != tt.id || !state.DeletionProtection.ValueBool() {
-				t.Errorf("state = %+v, want the name %q and deletion protection", state, tt.id)
+			if state.Name.ValueString() != testCase.id || !state.DeletionProtection.ValueBool() {
+				t.Errorf("state = %+v, want the name %q and deletion protection", state, testCase.id)
 			}
 		})
 	}
@@ -304,7 +299,7 @@ func TestAccSchemaResource(t *testing.T) {
 	testAccCleanup(t, "projects", client.Eq("name", project))
 	testAccCleanup(t, "schemas", client.Eq("project", project))
 
-	physical := project + "_orders"
+	physical := project + "__orders"
 
 	acc.Test(t, acc.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
@@ -331,7 +326,7 @@ func TestAccSchemaResource(t *testing.T) {
 			},
 			{
 				Config: schemaConfig(project, "invoices", "email"),
-				Check:  acc.TestCheckResourceAttr("data_proxy_schema.this", "name", project+"_invoices"),
+				Check:  acc.TestCheckResourceAttr("data_proxy_schema.this", "name", project+"__invoices"),
 			},
 		},
 	})
@@ -339,7 +334,7 @@ func TestAccSchemaResource(t *testing.T) {
 
 func TestAccSchemaResourceInTheDefaultProject(t *testing.T) {
 	short := testAccName()
-	testAccCleanup(t, "schemas", client.Eq("name", short))
+	testAccCleanup(t, "schemas", client.Eq("name", "default__"+short))
 
 	acc.Test(t, acc.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
@@ -360,33 +355,51 @@ resource "data_proxy_schema" "this" {
 `, short),
 				Check: acc.ComposeAggregateTestCheckFunc(
 					acc.TestCheckResourceAttr("data_proxy_schema.this", "project", "default"),
-					acc.TestCheckResourceAttr("data_proxy_schema.this", "name", short),
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "name", "default__"+short),
 				),
 			},
 		},
 	})
 }
 
-func TestAccSchemaResourceRefusesAReservedName(t *testing.T) {
-	testAccCleanup(t, "schemas", client.Eq("name", "dbos"))
+// TestSchemaUpgradeStateNamesTheSchemaByItsProject checks that the upgrade of the state from version 0 gives each schema
+// the physical name with two underscores, also in the project default.
+func TestSchemaUpgradeStateNamesTheSchemaByItsProject(t *testing.T) {
+	tests := []struct {
+		name    string
+		project string
+		short   string
+		want    string
+	}{
+		{name: "a schema of another project", project: "sales", short: "orders", want: "sales__orders"},
+		{name: "a schema of the project default", project: "default", short: "hr", want: "default__hr"},
+	}
 
-	acc.Test(t, acc.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProviderFactories,
-		Steps: []acc.TestStep{
-			{
-				Config: `
-resource "data_proxy_schema" "this" {
-  provider   = data-proxy
-  short_name = "dbos"
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			testSchema := newSchemaResource().(*schemaResource)
+			upgrader := testSchema.UpgradeState(context.Background())[0]
+			old := schemaState(true, "")
+			old.Project = types.StringValue(testCase.project)
+			old.ShortName = types.StringValue(testCase.short)
+			old.ID = types.StringValue(testCase.short)
+			old.Name = types.StringValue(testCase.short)
+			prior := stateOf(t, *upgrader.PriorSchema, old)
+			resp := resource.UpgradeStateResponse{State: nullState(resourceSchema(t, testSchema))}
 
-  timeouts {
-    create = "0s"
-  }
-}
-`,
-				ExpectError: regexp.MustCompile(`Couldn't create the schema`),
-			},
-		},
-	})
+			upgrader.StateUpgrader(context.Background(), resource.UpgradeStateRequest{State: &prior}, &resp)
+
+			if resp.Diagnostics.HasError() {
+				t.Fatalf("upgrade: %v", resp.Diagnostics)
+			}
+
+			var got schemaModel
+
+			resp.State.Get(context.Background(), &got)
+
+			if got.ID.ValueString() != testCase.want || got.Name.ValueString() != testCase.want {
+				t.Errorf("id and name = %q and %q, want %q", got.ID.ValueString(), got.Name.ValueString(), testCase.want)
+			}
+		})
+	}
 }

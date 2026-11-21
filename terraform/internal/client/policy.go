@@ -4,81 +4,87 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 )
 
-// AccessPolicy is a row of the access_policy table of a data schema. A nil UnitType or UnitID is a NULL.
-type AccessPolicy struct {
-	Subject  string  `json:"subject"`
-	UnitType *string `json:"unit_type"`
-	UnitID   *string `json:"unit_id"`
+const accessProfile = "access"
+
+// Grant is a row of access.policy. The scope is `*` for every project, or `project`, `project.schema` or
+// `project.schema.table`.
+type Grant struct {
+	Scope    string `json:"scope"`
+	Subject  string `json:"subject"`
+	UnitType string `json:"unit_type"`
+	UnitID   string `json:"unit_id"`
 }
 
-// provisionInterval is how long the wait for a schema pauses between two checks.
 const provisionInterval = 2 * time.Second
 
-// policyFilters selects the rows of a policy. A missing unit matches a NULL, because eq.null matches nothing.
-func policyFilters(policy AccessPolicy) []Filter {
-	filters := []Filter{Eq("subject", policy.Subject)}
+// everyScope is the scope that stands for every project. The database stores it as the empty path.
+const everyScope = "*"
 
-	for _, column := range []struct {
-		name  string
-		value *string
-	}{{"unit_type", policy.UnitType}, {"unit_id", policy.UnitID}} {
-		if column.value == nil {
-			filters = append(filters, IsNull(column.name))
-		} else {
-			filters = append(filters, Eq(column.name, *column.value))
-		}
+func scopePath(scope string) string {
+	if scope == everyScope {
+		return ""
 	}
 
-	return filters
+	return scope
 }
 
-// CreateAccessPolicy adds the row to the access_policy table of the schema. The schema must be provisioned.
-func (c *Client) CreateAccessPolicy(ctx context.Context, schema string, policy AccessPolicy) error {
-	return c.Insert(ctx, schema, "access_policy", policy, nil)
+func scopeOf(path string) string {
+	if path == "" {
+		return everyScope
+	}
+
+	return path
 }
 
-// CreateAccessPolicyWhenProvisioned adds the row, and tries again every few seconds while the schema has no
-// access_policy table yet. The context limits the wait.
-func (c *Client) CreateAccessPolicyWhenProvisioned(ctx context.Context, schema string, policy AccessPolicy) error {
-	return c.createAccessPolicyWhenProvisioned(ctx, schema, policy, sleep)
-}
-
-// createAccessPolicyWhenProvisioned is CreateAccessPolicyWhenProvisioned with a wait that a test replaces.
-func (c *Client) createAccessPolicyWhenProvisioned(ctx context.Context, schema string, policy AccessPolicy, wait func(context.Context, time.Duration) error) error {
-	for {
-		err := c.CreateAccessPolicy(ctx, schema, policy)
-		if !IsNotProvisioned(err) {
-			return err
-		}
-
-		if waitErr := wait(ctx, provisionInterval); waitErr != nil {
-			return fmt.Errorf("wait for the schema %s to be provisioned: %w", schema, errors.Join(waitErr, err))
-		}
+func grantBody(grant Grant) map[string]string {
+	return map[string]string{
+		"scope":     scopePath(grant.Scope),
+		"subject":   grant.Subject,
+		"unit_type": grant.UnitType,
+		"unit_id":   grant.UnitID,
 	}
 }
 
-// ListAccessPolicy returns the rows that match the policy. The table has no primary key, so more than one row is
-// possible.
-func (c *Client) ListAccessPolicy(ctx context.Context, schema string, policy AccessPolicy) ([]AccessPolicy, error) {
-	var rows []AccessPolicy
+func grantFilters(grant Grant) []Filter {
+	return []Filter{
+		Eq("scope", scopePath(grant.Scope)),
+		Eq("subject", grant.Subject),
+		Eq("unit_type", grant.UnitType),
+		Eq("unit_id", grant.UnitID),
+	}
+}
 
-	if err := c.Get(ctx, schema, "access_policy", policyFilters(policy), &rows); err != nil {
+// CreateGrant adds the row to access.policy.
+func (c *Client) CreateGrant(ctx context.Context, grant Grant) error {
+	return c.Insert(ctx, accessProfile, "policy", grantBody(grant), nil)
+}
+
+// ListGrants returns the rows that match the grant. The unique key makes at most one.
+func (c *Client) ListGrants(ctx context.Context, grant Grant) ([]Grant, error) {
+	var rows []Grant
+
+	if err := c.Get(ctx, accessProfile, "policy", grantFilters(grant), &rows); err != nil {
 		return nil, err
+	}
+
+	for i := range rows {
+		rows[i].Scope = scopeOf(rows[i].Scope)
 	}
 
 	return rows, nil
 }
 
-// DeleteAccessPolicy removes the rows that match the policy.
-func (c *Client) DeleteAccessPolicy(ctx context.Context, schema string, policy AccessPolicy) error {
-	return c.Delete(ctx, schema, "access_policy", policyFilters(policy), nil)
+// DeleteGrant removes the row that matches the grant.
+func (c *Client) DeleteGrant(ctx context.Context, grant Grant) error {
+	return c.Delete(ctx, accessProfile, "policy", grantFilters(grant), nil)
 }
 
-// IsNotProvisioned reports whether the error says that the schema has no access_policy table yet: PostgREST doesn't
-// know the profile or the table, or PostgreSQL has no such relation.
+// IsNotProvisioned reports whether the error says that PostgREST doesn't serve the profile: it doesn't know the
+// profile, or the profile has no such table.
 func IsNotProvisioned(err error) bool {
 	var apiErr *Error
 
@@ -91,12 +97,11 @@ func IsNotProvisioned(err error) bool {
 		return true
 	}
 
-	return apiErr.Status == 404 || apiErr.Status == 406
+	return apiErr.Status == http.StatusNotFound || apiErr.Status == http.StatusNotAcceptable
 }
 
-// provisioned reports whether the schema answers a read of its access_policy table.
-func (c *Client) provisioned(ctx context.Context, schema string) (bool, error) {
-	err := c.Get(ctx, schema, "access_policy", []Filter{Limit(0)}, nil)
+func (c *Client) served(ctx context.Context, schema string) (bool, error) {
+	err := c.do(ctx, request{method: http.MethodGet, profile: schema, rpc: true}, nil)
 
 	switch {
 	case err == nil:
@@ -108,13 +113,12 @@ func (c *Client) provisioned(ctx context.Context, schema string) (bool, error) {
 	}
 }
 
-// WaitProvisioned waits until the sync has created the schema: the view console.health shows the schema and its
-// access_policy table, and PostgREST answers a read of the table. The context limits the wait.
+// WaitProvisioned waits until the sync has created the schema: the view console.health shows it, and PostgREST
+// serves it. The context limits the wait.
 func (c *Client) WaitProvisioned(ctx context.Context, schema string) error {
-	return c.waitProvisioned(ctx, schema, sleep)
+	return c.waitProvisioned(ctx, schema, waitFor)
 }
 
-// waitProvisioned is WaitProvisioned with a wait that a test replaces.
 func (c *Client) waitProvisioned(ctx context.Context, schema string, wait func(context.Context, time.Duration) error) error {
 	for {
 		ready, err := c.isReady(ctx, schema)
@@ -132,7 +136,6 @@ func (c *Client) waitProvisioned(ctx context.Context, schema string, wait func(c
 	}
 }
 
-// isReady reports whether the schema shows in the health view and answers a read of its access_policy table.
 func (c *Client) isReady(ctx context.Context, schema string) (bool, error) {
 	health, err := c.GetHealth(ctx, schema)
 
@@ -141,23 +144,22 @@ func (c *Client) isReady(ctx context.Context, schema string) (bool, error) {
 		return false, nil
 	case err != nil:
 		return false, err
-	case !health.SchemaExists || !health.AccessPolicy:
+	case !health.SchemaExists:
 		return false, nil
 	}
 
-	return c.provisioned(ctx, schema)
+	return c.served(ctx, schema)
 }
 
-// WaitDeprovisioned waits until the sync has dropped the schema, so that a read of its access_policy table fails.
+// WaitDeprovisioned waits until the sync has dropped the schema, so that PostgREST no longer serves it.
 // The context limits the wait.
 func (c *Client) WaitDeprovisioned(ctx context.Context, schema string) error {
-	return c.waitDeprovisioned(ctx, schema, sleep)
+	return c.waitDeprovisioned(ctx, schema, waitFor)
 }
 
-// waitDeprovisioned is WaitDeprovisioned with a wait that a test replaces.
 func (c *Client) waitDeprovisioned(ctx context.Context, schema string, wait func(context.Context, time.Duration) error) error {
 	for {
-		ready, err := c.provisioned(ctx, schema)
+		ready, err := c.served(ctx, schema)
 		if err != nil {
 			return err
 		}

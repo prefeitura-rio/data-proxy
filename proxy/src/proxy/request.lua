@@ -171,12 +171,45 @@ function request.count_plan(input)
 	return { path = path, count_headers = count_headers, page_headers = page_headers }
 end
 
---- Tell whether a request asks for the internal profile, which only the cluster may use.
+--- Tell whether a request asks for an internal profile, which only the cluster may use.
 ---@param headers table<string, string|nil> The request headers.
 ---@return boolean
-function request.asks_for_console(headers)
-	local internal = constants.internal_profile
-	return headers["Accept-Profile"] == internal or headers["Content-Profile"] == internal
+function request.asks_for_internal_profile(headers)
+	local internal = constants.internal_profiles
+	return internal[headers["Accept-Profile"] or ""] == true or internal[headers["Content-Profile"] or ""] == true
+end
+
+--- Split a path into the name of the schema of the database and the path of PostgREST.
+---@param uri string Request path.
+---@return string|nil profile `project__schema`, or nil if the path doesn't start with a usable project and schema.
+---@return string|nil path The rest of the path, `/` if nothing follows the schema.
+local function split_path(uri)
+	local project, schema, rest = uri:match(regex.project_path)
+	if project == nil or constants.reserved_projects[project] then return nil end
+	if rest ~= "" and rest:sub(1, 1) ~= "/" then return nil end
+
+	return project .. constants.schema_separator .. schema, rest == "" and "/" or rest
+end
+
+--- Read the project and the schema from the start of a path, and give the profile and the path of PostgREST.
+--- The path is `/project/schema/table`. The profile is the name of the schema of the database, `project__schema`.
+--- A project that the services of the host reserve, a schema that the configuration doesn't list, and a path with
+--- fewer than two segments give nil.
+---
+--- ```lua
+--- request.route("/sales/orders/people", { sales__orders = true })  --> { profile = "sales__orders", path = "/people" }
+--- request.route("/sales/orders", { sales__orders = true })         --> { profile = "sales__orders", path = "/" }
+--- request.route("/console/orders/people", { console__orders = true }) --> nil
+--- request.route("/sales/other/people", { sales__orders = true })   --> nil
+--- ```
+---@param uri string Request path.
+---@param known table<string, boolean>|nil The schemas of the configuration, by physical name.
+---@return {profile: string, path: string}|nil route nil if the path names no known schema.
+function request.route(uri, known)
+	local profile, path = split_path(uri)
+	if profile == nil or known == nil or not known[profile] then return nil end
+
+	return { profile = profile, path = path }
 end
 
 --- Join a claim that is a text or a list of texts, with commas.

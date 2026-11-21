@@ -24,9 +24,9 @@ linters:
       options:
         require-doc:
           ignore-exported: false
-          ignore-unexported: false
+          ignore-unexported: true
         start-with-name:
-          include-unexported: true
+          include-unexported: false
     revive:
       rules:
         - name: exported

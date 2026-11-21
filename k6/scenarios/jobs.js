@@ -21,12 +21,12 @@ const STALE_VIEW = `${SCHEMA}.e2e_stale_view`;
 export function backup(k8s) {
     const podSpec = cronJobPodSpec(k8s, BACKUP_CRONJOB);
     const image = podSpec.containers[0].image;
-    const base = `base="store:$S3_BUCKET/$BACKUP_PREFIX/${SCHEMA}"`;
+    const base = 'base="store:$S3_BUCKET/$BACKUP_PREFIX"';
 
     runSqlJob(
         k8s,
         "create-stale-log",
-        `INSERT INTO ${SCHEMA}.access_log (subject, unit_type, unit_id, action, changed_at) VALUES ('e2e_stale', 'unit', 'unit_9', 'delete', now() - interval '365 days')`,
+        `INSERT INTO access.log (subject, scope, unit_type, unit_id, action, changed_at) VALUES ('e2e_stale', 'default.test', 'unit', 'unit_9', 'delete', now() - interval '365 days')`,
     );
 
     runCommandJob(k8s, "reset-backup-folder", `${rcloneStore()}; ${base}; rclone purge "$base" || true`, {
@@ -39,11 +39,11 @@ export function backup(k8s) {
     runCommandJob(
         k8s,
         "check-backup-objects",
-        `${rcloneStore()}; ${base}; latest="$(rclone lsf "$base" --dirs-only | sort | tail -n 1)"; test "$(rclone lsf "$base/$latest" | sort | tr '\\n' ' ')" = "access_log.dump access_policy.dump "`,
+        `${rcloneStore()}; ${base}; latest="$(rclone lsf "$base" --dirs-only | sort | tail -n 1)"; test "$(rclone lsf "$base/$latest" | sort | tr '\\n' ' ')" = "log.dump policy.dump "`,
         { podSpec, image },
     );
 
-    checkSql(k8s, "check-pruned-log", `SELECT count(*) FROM ${SCHEMA}.access_log WHERE subject = 'e2e_stale'`, "0");
+    checkSql(k8s, "check-pruned-log", "SELECT count(*) FROM access.log WHERE subject = 'e2e_stale'", "0");
 }
 
 const RESTORE_SCHEMA = "restore_check";
@@ -54,7 +54,7 @@ const RESTORE_SCHEMA = "restore_check";
  * @returns {string}
  */
 const RESTORE_DUMPS = (table) =>
-    `pg_restore --data-only -f - /tmp/restore/${table}.dump | sed 's/^COPY ${SCHEMA}\\./COPY ${RESTORE_SCHEMA}./' | psql "$PG_DATABASE_URL" -v ON_ERROR_STOP=1 -q`;
+    `pg_restore --data-only -f - /tmp/restore/${table}.dump | sed 's/^COPY access\\./COPY ${RESTORE_SCHEMA}./' | psql "$PG_DATABASE_URL" -v ON_ERROR_STOP=1 -q`;
 
 /**
  * The text of a query result in the source and in the scratch schema, so that a Job can compare them.
@@ -62,7 +62,7 @@ const RESTORE_DUMPS = (table) =>
  * @returns {string}
  */
 const ROWS_DIGEST = (schema) =>
-    `psql "$PG_DATABASE_URL" -tAc "SELECT count(*) || ':' || coalesce(md5(string_agg(t::text, '|' ORDER BY t::text)), '') FROM ${schema}.access_policy t"`;
+    `psql "$PG_DATABASE_URL" -tAc "SELECT count(*) || ':' || coalesce(md5(string_agg(t::text, '|' ORDER BY t::text)), '') FROM ${schema}.policy t"`;
 
 /**
  * Verifies that the latest backup restores: the dumps go into a scratch schema, the policy rows equal the live rows,
@@ -72,14 +72,14 @@ const ROWS_DIGEST = (schema) =>
 export function restore(k8s) {
     const podSpec = cronJobPodSpec(k8s, BACKUP_CRONJOB);
     const image = podSpec.containers[0].image;
-    const base = `base="store:$S3_BUCKET/$BACKUP_PREFIX/${SCHEMA}"`;
+    const base = 'base="store:$S3_BUCKET/$BACKUP_PREFIX"';
     const drop = `DROP SCHEMA IF EXISTS ${RESTORE_SCHEMA} CASCADE`;
 
     try {
         runSqlJob(
             k8s,
             "prepare-restore",
-            `${drop}; CREATE SCHEMA ${RESTORE_SCHEMA}; CREATE TABLE ${RESTORE_SCHEMA}.access_policy (LIKE ${SCHEMA}.access_policy INCLUDING DEFAULTS); CREATE TABLE ${RESTORE_SCHEMA}.access_log (LIKE ${SCHEMA}.access_log INCLUDING DEFAULTS)`,
+            `${drop}; CREATE SCHEMA ${RESTORE_SCHEMA}; CREATE TABLE ${RESTORE_SCHEMA}.policy (LIKE access.policy INCLUDING DEFAULTS); CREATE TABLE ${RESTORE_SCHEMA}.log (LIKE access.log INCLUDING DEFAULTS)`,
         );
 
         runCommandJob(
@@ -91,8 +91,8 @@ export function restore(k8s) {
                 base,
                 'latest="$(rclone lsf "$base" --dirs-only | sort | tail -n 1)"',
                 'mkdir -p /tmp/restore && rclone copy "$base/$latest" /tmp/restore',
-                RESTORE_DUMPS("access_policy"),
-                RESTORE_DUMPS("access_log"),
+                RESTORE_DUMPS("policy"),
+                RESTORE_DUMPS("log"),
             ].join("\n"),
             { podSpec, image },
         );
@@ -100,13 +100,13 @@ export function restore(k8s) {
         runCommandJob(
             k8s,
             "check-restored-policy",
-            `test "$(${ROWS_DIGEST(SCHEMA)})" = "$(${ROWS_DIGEST(RESTORE_SCHEMA)})"`,
+            `test "$(${ROWS_DIGEST("access")})" = "$(${ROWS_DIGEST(RESTORE_SCHEMA)})"`,
         );
 
         checkSql(
             k8s,
             "check-restored-log",
-            `SELECT count(*) FROM ${RESTORE_SCHEMA}.access_log WHERE subject = 'e2e_stale'`,
+            `SELECT count(*) FROM ${RESTORE_SCHEMA}.log WHERE subject = 'e2e_stale'`,
             "1",
         );
     } finally {

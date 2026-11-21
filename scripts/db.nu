@@ -122,7 +122,7 @@ export def other-tables [tables: list<record>, ...shown: string]: nothing -> lis
         {
             Group: ($table | get --optional labels | default [] | get name | append '-' | first)
             Table: $'`($table.name | split row '.' | last)`'
-            Contents: (if ($table.comment | is-empty) { '-' } else { $table.comment })
+            Contents: ($table | get --optional comment | default '-' | if ($in | is-empty) { '-' } else { $in })
         }
     }
     | sort-by Group Table

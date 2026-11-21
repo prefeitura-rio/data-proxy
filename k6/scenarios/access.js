@@ -1,7 +1,7 @@
 import http from "k6/http";
 import { sleep } from "k6";
 import {
-    API_URL,
+    DATA_URL,
     authHeaders,
     clientToken,
     fetchToken,
@@ -37,7 +37,7 @@ function noAccess() {
     let snapshot = "";
 
     for (let attempt = 0; attempt < 3; attempt++) {
-        const response = http.get(`${API_URL}/${FULL_TABLE}?limit=1`, {
+        const response = http.get(`${DATA_URL}/${FULL_TABLE}?limit=1`, {
             headers: authHeaders(token),
             tags: { name: "no_access_check" },
         });
@@ -121,15 +121,15 @@ export function authorizedRows(token) {
  * Verifies Istio rejects requests without a valid JWT.
  */
 function istioJwt() {
-    const noToken = http.get(`${API_URL}/${FULL_TABLE}?limit=1`, {
-        headers: { Host: HOST, "Accept-Profile": SCHEMA },
+    const noToken = http.get(`${DATA_URL}/${FULL_TABLE}?limit=1`, {
+        headers: { Host: HOST },
         tags: { name: "istio_no_token" },
     });
 
     expect("Istio rejects a request without a token", noToken.status === 403);
 
-    const invalidToken = http.get(`${API_URL}/${FULL_TABLE}?limit=1`, {
-        headers: { Host: HOST, "Accept-Profile": SCHEMA, Authorization: "Bearer invalid.jwt.token" },
+    const invalidToken = http.get(`${DATA_URL}/${FULL_TABLE}?limit=1`, {
+        headers: { Host: HOST, Authorization: "Bearer invalid.jwt.token" },
         tags: { name: "istio_invalid_token" },
     });
 
@@ -143,36 +143,36 @@ function dataAccess() {
     const data = `/${FULL_TABLE}?select=unit_id&limit=1`;
     expect("a role without read_api is refused the data", proxyGet(data, clientToken("policy")).status === 403);
     expect("the anonymous client is refused the data", [401, 403].includes(proxyGet(data, clientToken("anon")).status));
-    const policy = "/access_policy?select=subject&limit=1";
+    const policy = "/policy?select=subject&limit=1";
 
     expectEach(
         ["policy", "admin"],
         (client) => `the ${client} client reads the policy rows of its schema`,
-        (client) => postgrestRows(SCHEMA, policy, client) > 0,
+        (client) => postgrestRows("access", policy, client) > 0,
     );
 
     expectEach(
         ["admin_other", "api", "console"],
         (client) => `the ${client} client reads no policy row of the schema`,
-        (client) => postgrestRows(SCHEMA, policy, client) === 0,
+        (client) => postgrestRows("access", policy, client) === 0,
     );
 
-    const probe = { subject: "e2e_access_probe", unit_type: "unit", unit_id: "unit_probe" };
+    const probe = { scope: SCHEMA.replace("__", "."), subject: "e2e_access_probe", unit_type: "unit", unit_id: "unit_probe" };
 
     const remove = /** @param {string} client */ (client) =>
-        rowsOf(postgrestCall(SCHEMA, "DELETE", "/access_policy?subject=eq.e2e_access_probe", client)).length;
+        rowsOf(postgrestCall("access", "DELETE", "/policy?subject=eq.e2e_access_probe", client)).length;
 
     expectEach(
         ["admin_other", "api", "console"],
         (client) => `the ${client} client can't add a policy row`,
-        (client) => postgrestCall(SCHEMA, "POST", "/access_policy", client, probe).status === 403,
+        (client) => postgrestCall("access", "POST", "/policy", client, probe).status === 403,
     );
 
     expectEach(
         ["policy", "admin"],
         (client) => `the ${client} client adds and removes a policy row of its schema`,
         (client) =>
-            postgrestCall(SCHEMA, "POST", "/access_policy", client, probe).status === 201 && remove(client) === 1,
+            postgrestCall("access", "POST", "/policy", client, probe).status === 201 && remove(client) === 1,
     );
 }
 

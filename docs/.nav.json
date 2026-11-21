@@ -106,6 +106,9 @@
           "page": "console/configuration.md"
         },
         {
+          "page": "console/projects.md"
+        },
+        {
           "page": "console/changes.md"
         },
         {
@@ -127,12 +130,6 @@
         },
         {
           "page": "dev/promote.md"
-        },
-        {
-          "page": "dev/provider.md"
-        },
-        {
-          "page": "dev/provider-development.md"
         }
       ]
     },
@@ -181,15 +178,7 @@
       ]
     },
     {
-      "page": "terraform.md",
-      "children": [
-        {
-          "page": "terraform-resources.md"
-        },
-        {
-          "page": "terraform-data-sources.md"
-        }
-      ]
+      "page": "terraform.md"
     }
   ]
 }

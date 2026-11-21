@@ -5,6 +5,7 @@ use ./lib.nu [
     data-prefix
     execute-sql
     fail
+    legacy-name
     orphans
     parse-json
     query-sql
@@ -37,26 +38,19 @@ def bootstrap-config []: nothing -> nothing {
     log info 'The values file filled the empty configuration'
 }
 
-# Create the schema, its access policy and the role that reads its metadata, for every given schema
+# Create the role that reads the metadata of every given schema, and then the schema of the database. The schema comes last, because the
+# next run finds an unfinished creation through it. The grants of the access policy live in the schema access, which the migrations made.
 def create-schemas [...names: string]: nothing -> nothing {
-    let app_schema = app-schema
-
     for schema in $names {
-        let scope = 'rbac.mine(' + (quote-literal $schema) + ')'
-
-        execute-sql postgres/create_schema.sql {schema: (quote-identifier $schema)}
-
-        execute-sql postgres/setup_access_policy.sql {
-            schema: (quote-identifier $schema)
-            user_role: (quote-identifier $env.AUTH_USER_ROLE)
-            app_schema: $app_schema
-            scope: $scope
-        }
-
         execute-sql postgres/create_schema_reader.sql --dsn $env.DUCKLAKE_ADMIN_URL {
             name: (quote-literal $schema)
             signer: (quote-literal $env.AUTH_SIGNER_ROLE)
             writer: (quote-literal $env.PGUSER)
+        }
+
+        execute-sql postgres/create_schema.sql {
+            schema: (quote-identifier $schema)
+            user_role: (quote-identifier $env.AUTH_USER_ROLE)
         }
     }
 
@@ -65,9 +59,9 @@ def create-schemas [...names: string]: nothing -> nothing {
     }
 }
 
-# The configured schemas that still lack their schema or their access policy
+# The configured schemas that the database still lacks
 def unprovisioned-schemas []: nothing -> list<string> {
-    let query = "SELECT name FROM console.schemas WHERE to_regclass(format('%I.access_policy', name)) IS NULL ORDER BY name"
+    let query = "SELECT name FROM console.schemas WHERE to_regnamespace(quote_ident(name)) IS NULL ORDER BY name"
     query-sql $query | lines
 }
 
@@ -117,8 +111,7 @@ def publish-schemas [...names: string]: nothing -> nothing {
 
 # The schemas of the database that the console no longer lists, which a removal pass drops.
 def orphan-schemas [...configured: string]: nothing -> list<string> {
-    let query = "SELECT schemaname, tablename FROM pg_tables WHERE tablename IN ('access_policy', 'access_log')"
-    query-sql $query | lines | split column ',' schema table | orphans ...$configured
+    query-sql "SELECT nspname FROM pg_namespace ORDER BY nspname" | lines | orphans ...$configured
 }
 
 # Delete the data files of one schema. A folder that does not exist is already gone.
@@ -160,7 +153,9 @@ def remove-schemas [...names: string]: nothing -> nothing {
     }
 }
 
-# Make the database match the console configuration: create, serve and remove schemas.
+# Make the database match the console configuration: rename, create, serve and remove schemas.
+# A run first renames the metadata schema and the reader role of each schema to its physical name, when they have the S3 folder name.
+# The migration has already renamed the schema of the database, so the run does this for every configured schema.
 # The migrations made the console, its functions and the rights of the request roles.
 # Each pass reads both lists again and the loop repeats up to three times, so that an edit made during the run is not lost.
 def main []: nothing -> nothing {
@@ -169,6 +164,13 @@ def main []: nothing -> nothing {
     wait-for-postgres $env.PG_DATABASE_URL
 
     bootstrap-config
+
+    for schema in ((sync-config).schemas | columns) {
+        execute-sql postgres/rename_schema_reader.sql --dsn $env.DUCKLAKE_ADMIN_URL {
+            old: (quote-literal (legacy-name $schema))
+            new: (quote-literal $schema)
+        }
+    }
 
     for pass in 0..2 {
         let names = (sync-config).schemas | columns

@@ -21,5 +21,5 @@ The Config tab shows the preview before it imports. The import applies only afte
 <!-- nav:start -->
 ---
 
-[Previous: Configuration](./configuration.md) | [Next: Query tab](./query.md) | [Index](./index.md) | [Home](../index.md)
+[Previous: Projects](./projects.md) | [Next: Query tab](./query.md) | [Index](./index.md) | [Home](../index.md)
 <!-- nav:end -->

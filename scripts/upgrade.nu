@@ -32,6 +32,31 @@ def e2e-subset [scenarios: string]: nothing -> nothing {
     nu (git-root | path join scripts cluster.nu) k6 e2e --scenarios $scenarios
 }
 
+# Wait until no sync pod is stopping. A pod of the old release that still polls the queues takes a queued run and
+# runs the old code against the new schema, and the next run is a day away. A release must stop its old workers first.
+def wait-for-old-workers [kubecfg: path]: nothing -> nothing {
+    log info 'Waiting for the sync pods of the old release to stop...'
+
+    for _ in 1..60 {
+        let stopping = try {
+            wrap-kubectl $kubecfg -n $NAMESPACE get pods -l app.kubernetes.io/component=sync --output json
+            | from json
+            | get items
+            | where $it.metadata.deletionTimestamp? != null
+        } catch {|err|
+            fail $'Cannot list the sync pods: ($err.msg)'
+        }
+
+        if ($stopping | is-empty) {
+            return
+        }
+
+        sleep 5sec
+    }
+
+    fail 'A sync pod of the old release is still stopping' | ignore
+}
+
 # Check what an upgrade must keep: the migrations, the rules, the logins, and the serving workloads.
 def check-upgraded-release [kubecfg: path]: nothing -> nothing {
     let migrations = try {
@@ -99,5 +124,6 @@ export def "main upgrade" [
     wrap-helmfile $kubecfg --image-tag (local-image-tag) sync
 
     check-upgraded-release $kubecfg
+    wait-for-old-workers $kubecfg
     e2e-subset 'roles,access,console,cache'
 }

@@ -22,9 +22,11 @@ import (
 )
 
 var (
-	_ resource.Resource                = (*schemaResource)(nil)
-	_ resource.ResourceWithConfigure   = (*schemaResource)(nil)
-	_ resource.ResourceWithImportState = (*schemaResource)(nil)
+	_ resource.Resource                   = (*schemaResource)(nil)
+	_ resource.ResourceWithConfigure      = (*schemaResource)(nil)
+	_ resource.ResourceWithImportState    = (*schemaResource)(nil)
+	_ resource.ResourceWithValidateConfig = (*schemaResource)(nil)
+	_ resource.ResourceWithUpgradeState   = (*schemaResource)(nil)
 
 	// shortName is the pattern of the short name of a schema.
 	shortName = regexp.MustCompile(`^[a-z][a-z0-9_]{0,55}$`)
@@ -36,14 +38,11 @@ const (
 	schemaDeleteTimeout = 10 * time.Minute
 )
 
-// schemaResource is the data_proxy_schema resource. A schema holds the tables of one source and the access policy
-// of its readers.
 type schemaResource struct {
 	client  *client.Client
 	backoff client.Backoff
 }
 
-// schemaModel maps the data_proxy_schema resource and data source.
 type schemaModel struct {
 	ID                 types.String   `tfsdk:"id"`
 	Project            types.String   `tfsdk:"project"`
@@ -59,7 +58,6 @@ type schemaModel struct {
 	Timeouts           timeouts.Value `tfsdk:"timeouts"`
 }
 
-// newSchemaResource returns the data_proxy_schema resource.
 func newSchemaResource() resource.Resource {
 	return &schemaResource{backoff: client.DefaultBackoff}
 }
@@ -80,13 +78,14 @@ func applySchemaRow(model *schemaModel, row client.Schema) {
 }
 
 // Metadata names the resource with the type name of the provider and the suffix _schema.
-func (r *schemaResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (sr *schemaResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_schema"
 }
 
 // Schema declares the attributes of the schema.
-func (r *schemaResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (sr *schemaResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
+		Version:     1,
 		Description: "A schema of a project. The sync creates its PostgreSQL schema, which takes seconds, and a delete drops its data.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -109,7 +108,7 @@ func (r *schemaResource) Schema(ctx context.Context, _ resource.SchemaRequest, r
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"name": schema.StringAttribute{
-				Description:   "The physical name: the short name in the project `default`, and the project, an underscore and the short name in another one. Tables and access policies use it.",
+				Description:   "The physical name: the project, two underscores and the short name, also in the project `default`. Tables use it.",
 				Computed:      true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
@@ -157,13 +156,62 @@ func (r *schemaResource) Schema(ctx context.Context, _ resource.SchemaRequest, r
 	}
 }
 
+// ValidateConfig refuses a name that breaks the rules of the console, before any request.
+func (sr *schemaResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var project, short types.String
+
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("project"), &project)...)
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("short_name"), &short)...)
+
+	if resp.Diagnostics.HasError() || short.IsNull() || short.IsUnknown() || project.IsUnknown() {
+		return
+	}
+
+	name := defaultProject
+	if !project.IsNull() {
+		name = project.ValueString()
+	}
+
+	if problem := schemaProblem(name, short.ValueString()); problem != "" {
+		resp.Diagnostics.AddAttributeError(path.Root("short_name"), "Invalid schema name", problem)
+	}
+}
+
+// UpgradeState moves the state of version 0, where the name of a schema of the project `default` was its short name,
+// to version 1, where every name is `<project>__<short name>`.
+func (sr *schemaResource) UpgradeState(ctx context.Context) map[int64]resource.StateUpgrader {
+	var prior resource.SchemaResponse
+
+	sr.Schema(ctx, resource.SchemaRequest{}, &prior)
+
+	return map[int64]resource.StateUpgrader{
+		0: {
+			PriorSchema: &prior.Schema,
+			StateUpgrader: func(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+				var state schemaModel
+
+				resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+
+				if resp.Diagnostics.HasError() {
+					return
+				}
+
+				name := physicalSchemaName(state.Project.ValueString(), state.ShortName.ValueString())
+				state.ID = types.StringValue(name)
+				state.Name = types.StringValue(name)
+				resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
+			},
+		},
+	}
+}
+
 // Configure takes the client that the provider built.
-func (r *schemaResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	r.client = providerClient(req.ProviderData, &resp.Diagnostics)
+func (sr *schemaResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	sr.client = providerClient(req.ProviderData, &resp.Diagnostics)
 }
 
 // Create adds the schema, saves it, and waits for the sync to provision it. A create timeout of 0s skips the wait.
-func (r *schemaResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+func (sr *schemaResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan schemaModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -172,7 +220,7 @@ func (r *schemaResource) Create(ctx context.Context, req resource.CreateRequest,
 		return
 	}
 
-	row, err := r.client.CreateSchema(ctx, client.SchemaInput{
+	row, err := sr.client.CreateSchema(ctx, client.SchemaInput{
 		Project:   plan.Project.ValueString(),
 		ShortName: plan.ShortName.ValueString(),
 		Source:    plan.Source.ValueString(),
@@ -203,13 +251,13 @@ func (r *schemaResource) Create(ctx context.Context, req resource.CreateRequest,
 	waitCtx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 
-	if err := r.client.WaitProvisioned(waitCtx, row.Name); err != nil {
+	if err := sr.client.WaitProvisioned(waitCtx, row.Name); err != nil {
 		addAPIError(&resp.Diagnostics, "The schema is not ready", "", err)
 	}
 }
 
 // Read refreshes the schema, and drops it from the state when it no longer exists.
-func (r *schemaResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+func (sr *schemaResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state schemaModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -220,8 +268,8 @@ func (r *schemaResource) Read(ctx context.Context, req resource.ReadRequest, res
 
 	var row client.Schema
 
-	err := client.RetryNoRow(ctx, r.backoff, func(ctx context.Context) (err error) {
-		row, err = r.client.GetSchema(ctx, state.Name.ValueString())
+	err := client.RetryNoRow(ctx, sr.backoff, func(ctx context.Context) (err error) {
+		row, err = sr.client.GetSchema(ctx, state.Name.ValueString())
 
 		return err
 	})
@@ -238,7 +286,7 @@ func (r *schemaResource) Read(ctx context.Context, req resource.ReadRequest, res
 }
 
 // Update changes the source, the settings, the claim and the encryption flag. The name never changes.
-func (r *schemaResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+func (sr *schemaResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan schemaModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -247,7 +295,7 @@ func (r *schemaResource) Update(ctx context.Context, req resource.UpdateRequest,
 		return
 	}
 
-	row, err := r.client.UpdateSchema(ctx, plan.Name.ValueString(), client.SchemaUpdate{
+	row, err := sr.client.UpdateSchema(ctx, plan.Name.ValueString(), client.SchemaUpdate{
 		Source:    plan.Source.ValueString(),
 		Settings:  jsonRaw(plan.Settings),
 		Claim:     stringPointer(plan.Claim),
@@ -265,7 +313,7 @@ func (r *schemaResource) Update(ctx context.Context, req resource.UpdateRequest,
 
 // Delete removes the schema, and waits for the sync to drop it. A delete timeout of 0s skips the wait. It refuses
 // while deletion_protection is true.
-func (r *schemaResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+func (sr *schemaResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var state schemaModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -281,7 +329,7 @@ func (r *schemaResource) Delete(ctx context.Context, req resource.DeleteRequest,
 		return
 	}
 
-	if err := r.client.DeleteSchema(ctx, state.Name.ValueString()); err != nil {
+	if err := sr.client.DeleteSchema(ctx, state.Name.ValueString()); err != nil {
 		addAPIError(&resp.Diagnostics, "Couldn't delete the schema", "delete_config", err)
 
 		return
@@ -297,13 +345,13 @@ func (r *schemaResource) Delete(ctx context.Context, req resource.DeleteRequest,
 	waitCtx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 
-	if err := r.client.WaitDeprovisioned(waitCtx, state.Name.ValueString()); err != nil {
+	if err := sr.client.WaitDeprovisioned(waitCtx, state.Name.ValueString()); err != nil {
 		addAPIError(&resp.Diagnostics, "The schema is not dropped yet", "", err)
 	}
 }
 
 // ImportState reads the schema by its physical name. The imported schema has deletion protection.
-func (r *schemaResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+func (sr *schemaResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("name"), req, resp)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("deletion_protection"), true)...)
 }

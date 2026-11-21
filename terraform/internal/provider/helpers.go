@@ -108,35 +108,31 @@ func jsonRaw(value types.String) json.RawMessage {
 	return json.RawMessage(value.ValueString())
 }
 
-// sameJSON reports whether two texts hold the same JSON value.
 func sameJSON(left, right string) bool {
-	var a, b any
+	var leftValue, rightValue any
 
-	if json.Unmarshal([]byte(left), &a) != nil || json.Unmarshal([]byte(right), &b) != nil {
+	if json.Unmarshal([]byte(left), &leftValue) != nil || json.Unmarshal([]byte(right), &rightValue) != nil {
 		return false
 	}
 
-	return reflect.DeepEqual(a, b)
+	return reflect.DeepEqual(leftValue, rightValue)
 }
 
-// jsonKind is a validator that accepts a text that holds a JSON object, or a JSON array.
 type jsonKind struct {
 	array bool
 }
 
-// jsonObject accepts a text that holds a JSON object that has at least one key.
 func jsonObject() validator.String {
 	return jsonKind{}
 }
 
-// jsonArray accepts a text that holds a JSON array.
 func jsonArray() validator.String {
 	return jsonKind{array: true}
 }
 
 // Description says what the validator accepts.
-func (v jsonKind) Description(context.Context) string {
-	if v.array {
+func (jk jsonKind) Description(context.Context) string {
+	if jk.array {
 		return "the value must be a JSON array"
 	}
 
@@ -144,12 +140,12 @@ func (v jsonKind) Description(context.Context) string {
 }
 
 // MarkdownDescription says what the validator accepts.
-func (v jsonKind) MarkdownDescription(ctx context.Context) string {
-	return v.Description(ctx)
+func (jk jsonKind) MarkdownDescription(ctx context.Context) string {
+	return jk.Description(ctx)
 }
 
 // ValidateString checks the text of a known value.
-func (v jsonKind) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
+func (jk jsonKind) ValidateString(ctx context.Context, req validator.StringRequest, resp *validator.StringResponse) {
 	if req.ConfigValue.IsNull() || req.ConfigValue.IsUnknown() {
 		return
 	}
@@ -157,21 +153,21 @@ func (v jsonKind) ValidateString(ctx context.Context, req validator.StringReques
 	var value any
 
 	if err := json.Unmarshal([]byte(req.ConfigValue.ValueString()), &value); err != nil {
-		resp.Diagnostics.AddAttributeError(req.Path, "Invalid JSON", fmt.Sprintf("%s: %s.", v.Description(ctx), err))
+		resp.Diagnostics.AddAttributeError(req.Path, "Invalid JSON", fmt.Sprintf("%s: %s.", jk.Description(ctx), err))
 
 		return
 	}
 
 	switch typed := value.(type) {
 	case []any:
-		if !v.array {
-			resp.Diagnostics.AddAttributeError(req.Path, "Invalid JSON", v.Description(ctx)+".")
+		if !jk.array {
+			resp.Diagnostics.AddAttributeError(req.Path, "Invalid JSON", jk.Description(ctx)+".")
 		}
 	case map[string]any:
-		if v.array || len(typed) == 0 {
-			resp.Diagnostics.AddAttributeError(req.Path, "Invalid JSON", v.Description(ctx)+".")
+		if jk.array || len(typed) == 0 {
+			resp.Diagnostics.AddAttributeError(req.Path, "Invalid JSON", jk.Description(ctx)+".")
 		}
 	default:
-		resp.Diagnostics.AddAttributeError(req.Path, "Invalid JSON", v.Description(ctx)+".")
+		resp.Diagnostics.AddAttributeError(req.Path, "Invalid JSON", jk.Description(ctx)+".")
 	}
 }

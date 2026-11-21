@@ -65,7 +65,7 @@ flowchart TD
 PostgreSQL stores metadata only:
 
 - Roles and grants
-- `access_policy` and `access_log`
+- `access.policy` and `access.log`
 - PostgreSQL views and `SECURITY DEFINER` functions
 - DBOS workflow state
 

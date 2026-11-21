@@ -4,15 +4,6 @@ erDiagram
 "console.rls" }o--|| "console.tables" : ""
 "data_proxy.scope" }o--|| "console.schemas" : ""
 "console.config_history" }o--|| "console.schemas" : ""
-"rbac.revision" {
-  boolean singleton
-  bigint value
-}
-"rbac.roles" {
-  text name
-  text__ permissions
-  text wrapped
-}
 "data_proxy.state" {
   text table_name
   jsonb state
@@ -28,6 +19,15 @@ erDiagram
   text run_id
   text schema_name
   text table_name
+}
+"rbac.revision" {
+  boolean singleton
+  bigint value
+}
+"rbac.roles" {
+  text name
+  text__ permissions
+  text wrapped
 }
 "console.schemas" {
   text name
@@ -76,13 +76,15 @@ erDiagram
   timestamp_with_time_zone updated_at
   text updated_by
 }
-"test.access_policy" {
+"access.policy" {
   text subject
+  ltree scope
   text unit_type
   text unit_id
 }
-"test.access_log" {
+"access.log" {
   text subject
+  ltree scope
   text unit_type
   text unit_id
   text action
@@ -191,13 +193,13 @@ erDiagram
   text secret_sealed
   timestamp_with_time_zone created_at
 }
-"test.ducklake_metadata" {
+"default__test.ducklake_metadata" {
   varchar key
   varchar value
   varchar scope
   bigint scope_id
 }
-"test.ducklake_schema" {
+"default__test.ducklake_schema" {
   bigint schema_id
   uuid schema_uuid
   bigint begin_snapshot
@@ -206,7 +208,7 @@ erDiagram
   varchar path
   boolean path_is_relative
 }
-"test.ducklake_table" {
+"default__test.ducklake_table" {
   bigint table_id
   uuid table_uuid
   bigint begin_snapshot
@@ -216,7 +218,7 @@ erDiagram
   varchar path
   boolean path_is_relative
 }
-"test.ducklake_data_file" {
+"default__test.ducklake_data_file" {
   bigint data_file_id
   bigint table_id
   bigint begin_snapshot
@@ -234,7 +236,7 @@ erDiagram
   bigint mapping_id
   bigint partial_max
 }
-"test.ducklake_delete_file" {
+"default__test.ducklake_delete_file" {
   bigint delete_file_id
   bigint table_id
   bigint begin_snapshot
@@ -249,13 +251,13 @@ erDiagram
   varchar encryption_key
   bigint partial_max
 }
-"test.ducklake_sort_info" {
+"default__test.ducklake_sort_info" {
   bigint sort_id
   bigint table_id
   bigint begin_snapshot
   bigint end_snapshot
 }
-"test.ducklake_sort_expression" {
+"default__test.ducklake_sort_expression" {
   bigint sort_id
   bigint table_id
   bigint sort_key_index

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from pydantic import TypeAdapter
+from pydantic import ConfigDict, TypeAdapter
 
 from .templates import render_template
 
@@ -41,4 +41,6 @@ class Executor[Params, Rows]:
         """Render, run, and validate one SQL query."""
         sql = render_template(path, {} if mapping is None else mapping)
         rows = await self.conn.query(sql, params=params)
-        return TypeAdapter(list[Expected]).validate_python(rows)
+        return TypeAdapter(
+            list[expect], config=ConfigDict(arbitrary_types_allowed=True)
+        ).validate_python(rows)

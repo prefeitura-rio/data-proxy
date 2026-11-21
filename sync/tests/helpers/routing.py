@@ -3,7 +3,7 @@
 import json
 
 from psycopg.rows import TupleRow
-from psycopg.sql import SQL, Composable, Identifier, Literal
+from psycopg.sql import Identifier, Literal
 from pydantic import TypeAdapter
 
 from sync.executor import Executor
@@ -12,6 +12,7 @@ from sync.types import (
     DatabaseRow,
     PostgresParams,
 )
+from sync.views.mappings import scope_path
 from tests.constants import (
     PROXY_FILTER_CASES,
     ROUTED_TABLE,
@@ -20,17 +21,11 @@ from tests.fixtures.types import FilterCase, Postgres
 from tests.helpers.core import (
     execute_sql,
     fetch_all,
-    helm_sql,
     response_headers,
     scalar,
     set_request_headers,
     set_setting,
 )
-
-
-def schema_scope_condition(schema: str) -> Composable:
-    """Return the schema-claim condition that the test policies use, as the provision job renders it."""
-    return SQL("rbac.mine({})").format(Literal(schema))
 
 
 async def render_filter_node(
@@ -47,30 +42,24 @@ async def render_filter_node(
     return rendered
 
 
-async def create_access_policy(pg: Postgres) -> None:
-    """Create the production access_policy and access_log tables in the test schema."""
-    await pg.connection.execute(
-        helm_sql(
-            "setup_access_policy",
-            {
-                "schema": pg.namespace.identifier,
-                "user_role": Identifier(settings.AUTH_USER_ROLE),
-                "scope": schema_scope_condition(pg.namespace.schema),
-                "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
-            },
-        ).encode()
-    )
-
-
 async def insert_access_policy(
-    pg: Postgres, subject: str, unit_type: str, unit_id: str
+    pg: Postgres,
+    subject: str,
+    unit_type: str,
+    unit_id: str,
+    *,
+    scope: str | None = None,
 ) -> None:
-    """Insert one access-policy grant in the test schema."""
+    """Insert one grant into access.policy, at the scope of the test schema unless the test gives another."""
     await execute_sql(
         pg,
         "postgres/insert_access_policy",
-        mapping={"schema": pg.namespace.identifier},
-        params={"subject": subject, "unit_type": unit_type, "unit_id": unit_id},
+        params={
+            "subject": subject,
+            "scope": scope_path(pg.namespace.schema) if scope is None else scope,
+            "unit_type": unit_type,
+            "unit_id": unit_id,
+        },
     )
 
 
@@ -137,6 +126,7 @@ async def install_table_function(
             ],
             "user_role": Identifier(settings.AUTH_USER_ROLE),
             "schema_literal": Literal(pg.namespace.schema),
+            "scope_path": Literal(scope_path(pg.namespace.schema, "t")),
         },
     )
 
@@ -194,6 +184,7 @@ async def install_aggregate_function(
             "fallbacks": [{"name": name} for name in fallbacks],
             "user_role": Identifier(settings.AUTH_USER_ROLE),
             "schema_literal": Literal(pg.namespace.schema),
+            "scope_path": Literal(scope_path(pg.namespace.schema, "t")),
             "max_rows": str(max_rows),
         },
     )

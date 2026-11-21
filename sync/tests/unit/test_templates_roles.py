@@ -20,7 +20,6 @@ from tests.constants import (
 from tests.fixtures.types import Postgres
 from tests.helpers.core import query_plan, scalar, set_setting
 from tests.helpers.dbos import answers_for
-from tests.helpers.migrations import ROLES, migration_sql
 from tests.helpers.rbac import (
     RBAC,
     SOURCE_HASH,
@@ -32,6 +31,7 @@ from tests.helpers.rbac import (
     install_rbac_sync,
     make_serving_login,
     revision,
+    signer_keys,
     stored_roles,
     stored_roles_sync,
     verify_rbac,
@@ -42,15 +42,6 @@ from tests.strategies import (
     claim_and_schema,
     rbac_rules,
 )
-
-
-def signer_keys() -> str:
-    """Return the migration that makes the table of sealed keys, for the signer login of the tests."""
-    return migration_sql(
-        "ducklake",
-        "00002_signer_keys.sql",
-        env={**ROLES, "AUTH_SIGNER_ROLE": SIGNER},
-    )
 
 
 @pytest.mark.postgres

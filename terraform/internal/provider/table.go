@@ -212,10 +212,16 @@ func (r *tableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"schema": schema.StringAttribute{
-				Description:   "The physical name of the schema, such as `data_proxy_schema.example.name`. Changing it replaces the table.",
-				Required:      true,
-				Validators:    []validator.String{stringvalidator.LengthAtLeast(1)},
-				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+				Description: "The physical name of the schema, such as `data_proxy_schema.example.name`. Changing it replaces the table, except when the state holds the name of the schema without the double underscore.",
+				Required:    true,
+				Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplaceIf(
+					func(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
+						resp.RequiresReplace = !renamedSchema(req.StateValue.ValueString(), req.PlanValue.ValueString())
+					},
+					"Replaces the table when the schema is another schema.",
+					"Replaces the table when the schema is another schema.",
+				)},
 			},
 			"strategy": schema.StringAttribute{
 				Description: "`full` replaces the table on each sync, and `partitioned` updates the changed partitions.",

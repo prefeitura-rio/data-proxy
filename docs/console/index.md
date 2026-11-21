@@ -17,6 +17,7 @@ The code is in `console/`. `ui/` is the SvelteKit app, `notebooks/` builds the n
 - [Database views](views.md) — Database views, logs and the HTTP interface.
 - [Control a run and a schedule](runs.md) — Control of sync runs and schedules.
 - [Configuration](configuration.md) — Configuration tables, schemas and the configuration endpoint.
+- [Projects](projects.md) — Projects and the names of schemas.
 - [Changes](changes.md) — Configuration history and import preview.
 - [Query tab](query.md) — The query tab and its scope.
 

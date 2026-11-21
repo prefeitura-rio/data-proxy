@@ -4,7 +4,7 @@ import json
 
 import psycopg
 import pytest
-from psycopg.sql import SQL, Identifier
+from psycopg.sql import Identifier
 
 from sync.settings import settings
 from sync.templates import render_template
@@ -219,9 +219,7 @@ class TestServingFunctions:
         """A token that lists the schema, with no wildcard and no grant (*, *), reads no change."""
         await set_setting(ducklake_view, "app.claim_sub", "nobody")
         await ducklake_view.connection.execute(
-            SQL("DELETE FROM {}.access_policy").format(
-                ducklake_view.namespace.identifier
-            )
+            "DELETE FROM access.policy WHERE subject = %s", ("nobody",)
         )
         await act_as_token(ducklake_view, "dp_admin", ducklake_view.namespace.schema)
 

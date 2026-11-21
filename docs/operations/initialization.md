@@ -48,7 +48,7 @@ sequenceDiagram
 
 The migrations make what changes only with the code:
 
-- the extensions `postgis` and `pg_duckdb`
+- the extensions `postgis`, `pg_duckdb` and `ltree`
 - the `data_proxy` schema: the state tables, the reload functions, the pre-request function and the maintenance procedures
 - the `rbac` schema with its functions, and the `console` schema with its tables, views, functions and triggers
 - the grants to the request roles

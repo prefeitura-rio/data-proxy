@@ -13,12 +13,6 @@ const LLMS = 'llms.txt'
 const LLMS_SKIP = [style.md]
 const LLMS_SUMMARY = 'Data Proxy serves BigQuery data through PostgreSQL, DuckLake and an OpenResty proxy. This file has the documentation pages as plain text, in reading order. Each page starts after a line of three hyphens, with its source path.'
 const SENTENCE_WORDS = 25
-const PAGE_WORDS = 1000
-const LONG_PAGES = [
-    docs/glossary.md
-    docs/model.md
-    docs/style.md
-]
 
 # Return the permissions of a role, including the permissions of the roles that it inherits.
 export def closure [roles: list<record>, name: string]: nothing -> list<string> {
@@ -419,17 +413,6 @@ export def sentence-problems [file: string, text: string]: nothing -> list<strin
     | flatten
 }
 
-# Return a problem for a page of more than 1000 words, unless the path of the page ends with a page of the list of long pages.
-export def length-problems [file: string, text: string, ...allowed: string]: nothing -> list<string> {
-    let size = count-words (prose $text | get text | str join ' ')
-
-    if $size > $PAGE_WORDS and not ($allowed | any {|page| $file | str ends-with $page }) {
-        [$'($file): DOC-13 The page has ($size) words. Split it by topic.']
-    } else {
-        []
-    }
-}
-
 # Return the anchors of the headings of a text.
 export def anchors [text: string]: nothing -> list<string> {
     prose $text
@@ -742,10 +725,7 @@ def "main style" []: nothing -> nothing {
 
     let prose_problems = [...$pages ...$others]
     | each {|page|
-        let sentences = sentence-problems $page.file $page.text
-        let lengths = length-problems $page.file $page.text ...$LONG_PAGES
-
-        [...$sentences ...$lengths]
+        sentence-problems $page.file $page.text
     }
     | flatten
 

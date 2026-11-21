@@ -32,7 +32,7 @@ Each tab needs one permission to open, and it shows an action only if the user h
 | --- | --- | --- | --- | --- |
 | Sync | `/sync` | `read_sync` | `start_sync`, `control_sync` | The views `runs`, `tasks`, `steps`, `logs`, `errors`, `overview`, `queues` and `schedules` (one schedule for each schema, with an Edit dialog for its cron). |
 | Config | `/config` | `read_config` | `create_config`, `edit_config`, `delete_config`, `import_config` | The tables `schemas`, `tables` and `rls`, the history, and the import preview. |
-| Access | `/access` | `read_policy` | `create_policy`, `edit_policy`, `delete_policy` | `access_policy` and `access_log` of one schema. |
+| Access | `/access` | `read_policy` | `create_policy`, `edit_policy`, `delete_policy` | `access.policy` and `access.log` of one scope. |
 | Query | `/query` | `read_files` | None | The file lists of a table and the signed links. |
 
 The app has these routes besides the tab pages. Every route sits under the path `/console` of the API host, so `/healthz` is `/console/healthz`. Every request that changes data also needs the console origin, as described above.

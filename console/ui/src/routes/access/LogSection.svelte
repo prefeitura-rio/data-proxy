@@ -42,18 +42,18 @@
 		<Field label="Subject contains" name="log_subject" defaultValue={params.get('log_subject') ?? ''} />
 	</FilterForm>
 	<Table
-		head={['Time', 'Action', 'Subject', 'Unit']}
+		head={['Time', 'Action', 'Subject', 'Scope', 'Unit']}
 		small
 		class="max-h-96 overflow-y-auto"
 		caption="Access log"
 		count={log.length}
 		empty="No change matches these filters."
 	>
-		{#each log as row (`${row.changed_at}|${row.subject}|${row.action}|${row.unit_id}`)}
+		{#each log as row (`${row.changed_at}|${row.scope}|${row.subject}|${row.action}|${row.unit_id}`)}
 			<tr
 				><td><Time value={row.changed_at} /></td><td>{row.action}</td><td>{row.subject}</td><td
-					>{row.unit_type}:{row.unit_id}</td
-				></tr
+					>{row.scope === '' ? '*' : row.scope}</td
+				><td>{row.unit_type}:{row.unit_id}</td></tr
 			>
 		{/each}
 	</Table>

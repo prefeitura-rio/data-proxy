@@ -98,8 +98,8 @@ def exported(
 ) -> Document:
     """Build the document that the console exports for the seed rows, with the given changes."""
     schemas: Document = {
-        "hr": hr_schema(hr_claim),
-        "sales": sales_schema(ttl, rules),
+        "default__hr": hr_schema(hr_claim),
+        "default__sales": sales_schema(ttl, rules),
         **({} if more is None else more),
     }
 
@@ -177,3 +177,13 @@ async def load_claims(
     await pg.connection.execute(b"SELECT rbac.load()")
 
     return str(await scalar(pg, "SELECT current_setting('rbac.schemas')"))
+
+
+async def names_of_scopes(pg: Postgres, prefix: str) -> list[str]:
+    """Return the scopes of access.policy that start with the prefix."""
+    cursor = await pg.connection.execute(
+        b"SELECT scope::text FROM access.policy WHERE scope::text LIKE %s ORDER BY 1",
+        (f"{prefix}%",),
+    )
+
+    return [row[0] for row in await cursor.fetchall()]

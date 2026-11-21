@@ -27,12 +27,31 @@ from .sources.partitions import (
     TimeRangeSelection,
 )
 from .state import build_table_states, emit_error, write_table_states
-from .types import DatabaseRow, DuckDBParams
+from .types import DatabaseRow, DescribeRow, DuckDBParams
 from .utils import limit_removals
 
 if TYPE_CHECKING:
     from .duckdb import DuckDB
     from .postgres import Postgres
+
+
+def data_folder(schema: str) -> str:
+    """Return the S3 folder of the data files of a schema, under the catalog path.
+
+    The folder is the short name in the project default, and `<project>_<schema>` in another project. The index
+    `schemas_data_prefix` of the console keeps two schemas out of one folder. A name without the project form is its
+    own folder.
+    """
+    project, separator, short = schema.partition("__")
+    if len(separator) == 0:
+        return schema
+
+    return short if project == "default" else f"{project}_{short}"
+
+
+def data_path(schema: str) -> str:
+    """Return the S3 location of the DuckLake data files of a schema."""
+    return f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{quote(data_folder(schema), safe='')}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,7 +67,7 @@ class DuckLakePaths:
         """Build locations for one schema: its own metadata schema in the catalog database."""
         return cls(
             catalog=f"ducklake:postgres:{settings.DUCKLAKE_CATALOG_URL.get_secret_value()}",
-            data=f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{quote(schema, safe='')}",
+            data=data_path(schema),
             metadata_schema=schema,
         )
 
@@ -209,7 +228,7 @@ async def evolve_table_schema(
     ).query(
         "duckdb/describe_table",
         mapping={"table": Identifier(table_name)},
-        expect=tuple[str, str],
+        expect=DescribeRow,
     )
 
     source_rows = await Executor[DuckDBParams, list[DatabaseRow]](
@@ -217,7 +236,7 @@ async def evolve_table_schema(
     ).query(
         "duckdb/describe_parquet",
         params=[parquet_path],
-        expect=tuple[str, str],
+        expect=DescribeRow,
     )
 
     existing = {row[0]: row[1] for row in existing_rows}
@@ -307,7 +326,7 @@ async def table_exists(duckdb_conn: DuckDB, table_name: str) -> bool:
 
 def table_prefix(schema: str, table: str) -> str:
     """Return the key prefix of the folder that holds the data files of one table."""
-    return f"{settings.DUCKLAKE_CATALOG_PATH}/{quote(schema, safe='')}/main/{table}"
+    return f"{settings.DUCKLAKE_CATALOG_PATH}/{quote(data_folder(schema), safe='')}/main/{table}"
 
 
 async def drop_tables_except(duckdb_conn: DuckDB, keep: set[str]) -> list[str]:
@@ -350,7 +369,7 @@ async def apply_sort(
         ).query(
             "duckdb/describe_parquet",
             params=[path],
-            expect=tuple[str, str],
+            expect=DescribeRow,
         )
         validate_sort_columns(table, {row[0] for row in source_rows})
 

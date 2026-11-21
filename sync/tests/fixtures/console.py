@@ -14,6 +14,7 @@ from sync.settings import settings
 from sync.templates import render_template
 from tests.constants import POSTGRES_URL, TEST_SQL_DIR
 from tests.fixtures.types import Postgres
+from tests.helpers.console import add_projects, add_schemas
 from tests.helpers.core import scalar
 from tests.helpers.migrations import console_section
 from tests.helpers.routing import act_as_token
@@ -28,16 +29,16 @@ async def console_api(rbac: Postgres, dbos_schema: str) -> Postgres:
 async def add_schema(
     pg: Postgres, name: str, *, claim: str | None = None, provisioned: bool = True
 ) -> None:
-    """Add a schema to the console. A provisioned schema has the access policy table that the provision job makes."""
+    """Add a schema to the console by its name `<project>__<schema>`. A provisioned schema exists in the database."""
+    project, _, short_name = name.partition("__")
     await pg.connection.execute(
-        "INSERT INTO console.schemas (name, claim) VALUES (%s, %s)", (name, claim)
+        "INSERT INTO console.schemas (project, short_name, claim) VALUES (%s, %s, %s)",
+        (project, short_name, claim),
     )
 
     if provisioned:
         await pg.connection.execute(
-            SQL(
-                "CREATE SCHEMA IF NOT EXISTS {}; CREATE TABLE {}.access_policy (subject text)"
-            ).format(Identifier(name), Identifier(name))
+            SQL("CREATE SCHEMA IF NOT EXISTS {}").format(Identifier(name))
         )
 
 
@@ -157,17 +158,19 @@ async def claim_database() -> AsyncIterator[tuple[AsyncConnection, AsyncConnecti
 
 async def two_schemas(pg: Postgres) -> None:
     """Add two provisioned schemas, one table in each, and a row rule on the first."""
-    await add_schema(pg, "sales", claim="cpf")
-    await add_schema(pg, "hr", claim="cpf")
-    await add_table(pg, "p.d.orders", "sales", cache_ttl=60, rls=("cpf", "cpf"))
-    await add_table(pg, "p.d.staff", "hr")
+    await add_schema(pg, "default__sales", claim="cpf")
+    await add_schema(pg, "default__hr", claim="cpf")
+    await add_table(
+        pg, "p.d.orders", "default__sales", cache_ttl=60, rls=("cpf", "cpf")
+    )
+    await add_table(pg, "p.d.staff", "default__hr")
 
 
 async def start(
     pg: Postgres, schemas: list[str], tables: list[str] | None = None
 ) -> str:
     """Start a run as an administrator of every schema, and return its id."""
-    await as_token(pg, "dp_admin", ["sales", "hr"])
+    await as_token(pg, "dp_admin", ["default__sales", "default__hr"])
     run = await scalar(
         pg,
         "SELECT console.start_sync(%s, %s)",
@@ -181,17 +184,19 @@ async def start(
 
 async def seed(pg: Postgres) -> None:
     """Add two schemas with a claim, two tables, a partitioned table and two row rules."""
-    await add_schema(pg, "sales", claim="cpf")
-    await add_schema(pg, "hr", claim="cpf")
-    await add_table(pg, "p.d.orders", "sales", cache_ttl=60, rls=("cpf", "cpf"))
+    await add_schema(pg, "default__sales", claim="cpf")
+    await add_schema(pg, "default__hr", claim="cpf")
+    await add_table(
+        pg, "p.d.orders", "default__sales", cache_ttl=60, rls=("cpf", "cpf")
+    )
     await pg.connection.execute(
         "INSERT INTO console.rls (table_name, column_name, unit_type) VALUES ('p.d.orders', 'cnpj', 'cnpj')"
     )
-    await add_table(pg, "p.d.staff", "hr")
+    await add_table(pg, "p.d.staff", "default__hr")
     await pg.connection.execute(
         """
         INSERT INTO console.tables (name, schema, strategy, n, fallback, partitioning, sort)
-        VALUES ('p.d.events', 'sales', 'partitioned', 4, TRUE, '[{"column": "dt"}]', ARRAY['dt', 'id'])
+        VALUES ('p.d.events', 'default__sales', 'partitioned', 4, TRUE, '[{"column": "dt"}]', ARRAY['dt', 'id'])
         """
     )
 
@@ -199,18 +204,32 @@ async def seed(pg: Postgres) -> None:
 async def add_policy_schema(
     pg: Postgres, name: str, grants: dict[str, list[tuple[str, str]]], claim: str
 ) -> None:
-    """Add a provisioned schema whose access policy has the given grants for each subject."""
+    """Add a provisioned schema, and give each subject the grants in the table access.policy at the scope of the schema."""
     await add_schema(pg, name, claim=claim)
-    await pg.connection.execute(
-        SQL(
-            "ALTER TABLE {}.access_policy ADD COLUMN unit_type text, ADD COLUMN unit_id text"
-        ).format(Identifier(name))
-    )
+    scope = name.replace("__", ".", 1)
     for subject, units in grants.items():
         for unit_type, unit_id in units:
             await pg.connection.execute(
-                SQL("INSERT INTO {}.access_policy VALUES (%s, %s, %s)").format(
-                    Identifier(name)
-                ),
-                (subject, unit_type, unit_id),
+                "INSERT INTO access.policy (subject, scope, unit_type, unit_id) VALUES (%s, %s, %s, %s)",
+                (subject, scope, unit_type, unit_id),
             )
+
+
+@pytest.fixture
+async def claim_seed(console_api: Postgres) -> None:
+    """Make two projects with schemas, and a schema of default."""
+    await add_projects(console_api, "sales", "hr")
+    await add_schemas(
+        console_api,
+        ("sales", "orders"),
+        ("sales", "crm"),
+        ("hr", "staff"),
+        ("default", "legacy"),
+    )
+
+
+@pytest.fixture
+async def rows_seed(console_api: Postgres) -> None:
+    """Make two projects with a schema each, and an empty project."""
+    await add_projects(console_api, "sales", "hr", "empty")
+    await add_schemas(console_api, ("sales", "orders"), ("hr", "staff"))

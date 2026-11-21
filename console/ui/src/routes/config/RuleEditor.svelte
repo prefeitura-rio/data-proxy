@@ -180,7 +180,7 @@
 		{/if}
 
 		<p class="rounded-box bg-base-200 p-3 text-sm" data-testid="rule-sentence">{sentence}</p>
-		<RuleExplain editor={rules.asEditor(groups)} {schema} />
+		<RuleExplain editor={rules.asEditor(groups)} {schema} {table} />
 		<p class="sr-only" aria-live="polite">{announce}</p>
 	</div>
 </FormDialog>

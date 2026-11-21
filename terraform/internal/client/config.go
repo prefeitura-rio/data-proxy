@@ -103,7 +103,6 @@ type rulesRow struct {
 type Health struct {
 	Name         string `json:"name"`
 	SchemaExists bool   `json:"schema_exists"`
-	AccessPolicy bool   `json:"access_policy"`
 	ViewCount    int    `json:"view_count"`
 }
 

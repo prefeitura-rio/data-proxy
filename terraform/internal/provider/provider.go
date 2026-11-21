@@ -34,19 +34,15 @@ const (
 
 var _ provider.Provider = (*dataProxyProvider)(nil)
 
-// dataProxyProvider is the provider. Configure gives its resources and data sources a *client.Client.
 type dataProxyProvider struct {
 	version string
 }
 
-// settings are the values that the provider needs, after the environment fills the attributes that the block
-// leaves out.
 type settings struct {
 	endpoint    string
 	credentials client.Credentials
 }
 
-// providerModel maps the provider block.
 type providerModel struct {
 	Endpoint     types.String `tfsdk:"endpoint"`
 	TokenURL     types.String `tfsdk:"token_url"`
@@ -63,13 +59,13 @@ func New(version string) func() provider.Provider {
 }
 
 // Metadata sets the type name and the version of the provider.
-func (p *dataProxyProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
+func (dp *dataProxyProvider) Metadata(_ context.Context, _ provider.MetadataRequest, resp *provider.MetadataResponse) {
 	resp.TypeName = TypeName
-	resp.Version = p.version
+	resp.Version = dp.version
 }
 
 // Schema declares the attributes of the provider block. Each one can come from an environment variable.
-func (p *dataProxyProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
+func (dp *dataProxyProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "Manages the configuration of Data Proxy through its PostgREST API.",
 		Attributes: map[string]schema.Attribute{
@@ -101,7 +97,7 @@ func (p *dataProxyProvider) Schema(_ context.Context, _ provider.SchemaRequest, 
 
 // Configure gives the resources and the data sources a client, and fails when the token doesn't work or lacks
 // read_config.
-func (p *dataProxyProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
+func (dp *dataProxyProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
 	var config providerModel
 
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
@@ -209,7 +205,6 @@ func readSettings(ctx context.Context, config providerModel, getenv func(string)
 	return values, diagnostics
 }
 
-// splitScopes splits a list of scopes at commas and spaces.
 func splitScopes(value string) []string {
 	return strings.FieldsFunc(value, func(r rune) bool {
 		return r == ',' || unicode.IsSpace(r)
@@ -217,17 +212,17 @@ func splitScopes(value string) []string {
 }
 
 // Resources lists the resources of the provider.
-func (p *dataProxyProvider) Resources(_ context.Context) []func() resource.Resource {
+func (dp *dataProxyProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		newProjectResource,
 		newSchemaResource,
 		newTableResource,
-		newAccessPolicyResource,
+		newGrantResource,
 	}
 }
 
 // DataSources lists the data sources of the provider.
-func (p *dataProxyProvider) DataSources(_ context.Context) []func() datasource.DataSource {
+func (dp *dataProxyProvider) DataSources(_ context.Context) []func() datasource.DataSource {
 	return []func() datasource.DataSource{
 		newPermissionsDataSource,
 		newProjectDataSource,

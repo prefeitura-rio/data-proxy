@@ -54,7 +54,7 @@ class TestSyncConfig:
         """Write the ducklake block only for an encrypted schema."""
         await console_api.connection.execute(
             "INSERT INTO console.schemas (name, source, settings, encrypted) VALUES "
-            "('vault', 'bigquery', '{\"project\": \"p\"}', TRUE)"
+            "('default__vault', 'bigquery', '{\"project\": \"p\"}', TRUE)"
         )
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
 
@@ -62,7 +62,7 @@ class TestSyncConfig:
 
         assert document == {
             "schemas": {
-                "vault": {
+                "default__vault": {
                     "source": {"type": "bigquery", "settings": {"project": "p"}},
                     "ducklake": {"encrypted": True},
                     "tables": [],
@@ -75,9 +75,9 @@ class TestSyncConfig:
     ) -> None:
         """Apply the row policies, so a token exports its part of the configuration."""
         await seed(console_api)
-        await as_token(console_api, "dp_console", ["hr"], database_role=True)
+        await as_token(console_api, "dp_console", ["default__hr"], database_role=True)
 
-        assert await export(console_api) == {"schemas": {"hr": hr_schema()}}
+        assert await export(console_api) == {"schemas": {"default__hr": hr_schema()}}
 
 
 @pytest.mark.postgres
@@ -102,27 +102,27 @@ class TestImportPreview:
         [
             pytest.param(
                 exported(ttl=120),
-                [("tables", "sales", "p.d.orders", "update")],
+                [("tables", "default__sales", "p.d.orders", "update")],
                 id="cache-ttl-changes",
             ),
             pytest.param(
                 exported(hr_claim="other"),
-                [("schemas", "hr", "hr", "update")],
+                [("schemas", "default__hr", "default__hr", "update")],
                 id="claim-changes",
             ),
             pytest.param(
                 exported(rules=RULES[:1]),
-                [("rls", "sales", "p.d.orders.cnpj", "delete")],
+                [("rls", "default__sales", "p.d.orders.cnpj", "delete")],
                 id="rule-goes-away",
             ),
             pytest.param(
                 exported(rules=[*RULES, {"column": "email", "unit_type": "mail"}]),
-                [("rls", "sales", "p.d.orders.email", "insert")],
+                [("rls", "default__sales", "p.d.orders.email", "insert")],
                 id="rule-comes",
             ),
             pytest.param(
                 exported(rules=[{"column": "cpf", "unit_type": "tax_id"}, RULES[1]]),
-                [("rls", "sales", "p.d.orders.cpf", "update")],
+                [("rls", "default__sales", "p.d.orders.cpf", "update")],
                 id="rule-changes-its-unit-type",
             ),
             pytest.param(
@@ -135,8 +135,8 @@ class TestImportPreview:
                     }
                 ),
                 [
-                    ("schemas", "new", "new", "insert"),
-                    ("tables", "new", "p.d.fresh", "insert"),
+                    ("schemas", "default__new", "default__new", "insert"),
+                    ("tables", "default__new", "p.d.fresh", "insert"),
                 ],
                 id="schema-and-table-come",
             ),
@@ -218,10 +218,10 @@ class TestImportConfig:
             "SELECT groups FROM console.rules() WHERE table_name = 'p.d.orders'",
         ) == [{"conditions": [{"column": "email", "unit_type": "mail"}]}]
         assert [row for row in planned if row[3] != "unchanged"] == [
-            ("rls", "sales", "p.d.orders.cnpj", "delete"),
-            ("rls", "sales", "p.d.orders.cpf", "delete"),
-            ("rls", "sales", "p.d.orders.email", "insert"),
-            ("tables", "sales", "p.d.orders", "update"),
+            ("rls", "default__sales", "p.d.orders.cnpj", "delete"),
+            ("rls", "default__sales", "p.d.orders.cpf", "delete"),
+            ("rls", "default__sales", "p.d.orders.email", "insert"),
+            ("tables", "default__sales", "p.d.orders", "update"),
         ]
 
     async def test_importing_an_export_changes_no_value(
@@ -247,7 +247,7 @@ class TestImportConfig:
 
         await console_api.connection.execute(
             b"SELECT console.import_config(%s)",
-            (Jsonb({"schemas": {"sales": {"claim": "cpf", "tables": []}}}),),
+            (Jsonb({"schemas": {"default__sales": {"claim": "cpf", "tables": []}}}),),
         )
 
         assert await scalar(console_api, "SELECT count(*) FROM console.schemas") == 2
@@ -265,12 +265,14 @@ class TestImportConfig:
     ) -> None:
         """Let the row policies of the tables stop an import that reaches beyond the schemas of the token."""
         await seed(console_api)
-        await as_token(console_api, "dp_console", ["sales"], database_role=True)
+        await as_token(
+            console_api, "dp_console", ["default__sales"], database_role=True
+        )
 
         state = await refusal(
             console_api,
             "SELECT console.import_config(%s)",
-            Jsonb({"schemas": {"hr": {"claim": "cpf", "tables": []}}}),
+            Jsonb({"schemas": {"default__hr": {"claim": "cpf", "tables": []}}}),
         )
 
         assert state == INSUFFICIENT
@@ -619,7 +621,7 @@ class TestRulesAreReachedOnlyThroughFunctions:
 
         schemas = document["schemas"]
         assert isinstance(schemas, dict)
-        sales = schemas["sales"]
+        sales = schemas["default__sales"]
         assert isinstance(sales, dict)
         tables = sales["tables"]
         assert isinstance(tables, list)
@@ -716,13 +718,13 @@ class TestClaimChecksReadTheRulesPastTheRoleOfTheTokens:
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
 
         await console_api.connection.execute(
-            b"UPDATE console.schemas SET encrypted = TRUE WHERE name = 'sales'"
+            b"UPDATE console.schemas SET encrypted = TRUE WHERE name = 'default__sales'"
         )
 
         assert (
             await scalar(
                 console_api,
-                "SELECT encrypted FROM console.schemas WHERE name = 'sales'",
+                "SELECT encrypted FROM console.schemas WHERE name = 'default__sales'",
             )
             is True
         )
@@ -735,7 +737,8 @@ class TestClaimChecksReadTheRulesPastTheRoleOfTheTokens:
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
 
         state = await refusal(
-            console_api, "UPDATE console.schemas SET claim = NULL WHERE name = 'sales'"
+            console_api,
+            "UPDATE console.schemas SET claim = NULL WHERE name = 'default__sales'",
         )
 
         assert state == CHECK_VIOLATION
@@ -762,8 +765,8 @@ class TestClaimChecksReadTheRulesPastTheRoleOfTheTokens:
     ) -> None:
         """Say why: the schema needs a claim before its tables can have rules."""
         await seed(console_api)
-        await add_schema(console_api, "open")
-        await add_table(console_api, "p.d.open", "open")
+        await add_schema(console_api, "default__open")
+        await add_table(console_api, "p.d.open", "default__open")
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
 
         state = await refusal(
@@ -783,7 +786,7 @@ class TestProjectDocument:
     async def test_the_projects_form_adds_the_projects_and_names_the_schemas_by_project(
         self, console_api: Postgres
     ) -> None:
-        """Make `sales/orders` the schema `sales_orders`, and keep its table under that name."""
+        """Make `sales/orders` the schema `sales__orders`, and keep its table under that name."""
         await as_token(console_api, "dp_admin", ["*"], database_role=True)
 
         await console_api.connection.execute(
@@ -794,10 +797,10 @@ class TestProjectDocument:
         cursor = await console_api.connection.execute(
             b"SELECT project, short_name, name FROM console.schemas"
         )
-        assert await cursor.fetchall() == [("sales", "orders", "sales_orders")]
+        assert await cursor.fetchall() == [("sales", "orders", "sales__orders")]
         assert (
             await scalar(console_api, "SELECT schema FROM console.tables")
-            == "sales_orders"
+            == "sales__orders"
         )
         assert [
             row[0]
@@ -822,7 +825,7 @@ class TestProjectDocument:
         cursor = await console_api.connection.execute(
             b"SELECT project, short_name, name FROM console.schemas"
         )
-        assert await cursor.fetchall() == [("default", "hr", "hr")]
+        assert await cursor.fetchall() == [("default", "hr", "default__hr")]
 
     async def test_the_export_by_project_imports_without_a_change(
         self, console_api: Postgres
@@ -869,7 +872,7 @@ class TestProjectDocument:
 
         schemas = (await export(console_api))["schemas"]
         assert isinstance(schemas, dict)
-        assert set(schemas) == {"sales_orders"}
+        assert set(schemas) == {"sales__orders"}
 
     @pytest.mark.parametrize(
         ("project", "state"),
@@ -923,13 +926,13 @@ class TestConfigHistory:
         await as_token(console_api, "dp_admin", ["*"], user="lia", database_role=True)
 
         await console_api.connection.execute(
-            "INSERT INTO console.schemas (name, claim) VALUES ('sales', 'cpf')"
+            "INSERT INTO console.schemas (name, claim) VALUES ('default__sales', 'cpf')"
         )
         await console_api.connection.execute(
-            "UPDATE console.schemas SET claim = 'tax' WHERE name = 'sales'"
+            "UPDATE console.schemas SET claim = 'tax' WHERE name = 'default__sales'"
         )
         await console_api.connection.execute(
-            "DELETE FROM console.schemas WHERE name = 'sales'"
+            "DELETE FROM console.schemas WHERE name = 'default__sales'"
         )
 
         cursor = await console_api.connection.execute(
@@ -937,9 +940,9 @@ class TestConfigHistory:
             b"FROM console.config_history ORDER BY id"
         )
         assert await cursor.fetchall() == [
-            ("insert", "schemas", "sales", "lia", None, "cpf"),
-            ("update", "schemas", "sales", "lia", "cpf", "tax"),
-            ("delete", "schemas", "sales", "lia", "tax", None),
+            ("insert", "schemas", "default__sales", "lia", None, "cpf"),
+            ("update", "schemas", "default__sales", "lia", "cpf", "tax"),
+            ("delete", "schemas", "default__sales", "lia", "tax", None),
         ]
 
     async def test_names_a_rule_by_its_table_and_its_column(
@@ -954,8 +957,8 @@ class TestConfigHistory:
         )
 
         assert await cursor.fetchall() == [
-            ("sales", "p.d.orders.cnpj"),
-            ("sales", "p.d.orders.cpf"),
+            ("default__sales", "p.d.orders.cnpj"),
+            ("default__sales", "p.d.orders.cpf"),
         ]
 
     async def test_shows_a_token_the_history_of_its_own_schemas(
@@ -963,13 +966,13 @@ class TestConfigHistory:
     ) -> None:
         """Hide the changes of a schema that the token does not reach."""
         await seed(console_api)
-        await as_token(console_api, "dp_console", ["hr"], database_role=True)
+        await as_token(console_api, "dp_console", ["default__hr"], database_role=True)
 
         cursor = await console_api.connection.execute(
             b"SELECT DISTINCT schema_name FROM console.config_history"
         )
 
-        assert await cursor.fetchall() == [("hr",)]
+        assert await cursor.fetchall() == [("default__hr",)]
 
     async def test_a_token_that_may_not_read_the_configuration_sees_no_history(
         self, console_api: Postgres
@@ -1000,8 +1003,8 @@ class TestProxyConfig:
         assert config == {
             "revision": revision,
             "schemas": {
-                "hr": {"tables": [{"name": "p.d.staff"}]},
-                "sales": {
+                "default__hr": {"tables": [{"name": "p.d.staff"}]},
+                "default__sales": {
                     "tables": [
                         {"name": "p.d.events"},
                         {"name": "p.d.orders", "cache_ttl": 60},
@@ -1024,24 +1027,25 @@ class TestProxyConfig:
     async def test_is_the_same_for_every_token(self, console_api: Postgres) -> None:
         """Give the proxy every schema, whatever the claim of the token that the call carries."""
         await seed(console_api)
-        await as_token(console_api, "dp_api", ["hr"], database_role=True)
+        await as_token(console_api, "dp_api", ["default__hr"], database_role=True)
 
         config = await scalar(console_api, "SELECT console.config()")
 
         assert isinstance(config, dict)
-        assert sorted(config["schemas"]) == ["hr", "sales"]
+        assert sorted(config["schemas"]) == ["default__hr", "default__sales"]
 
     async def test_lists_a_schema_with_no_table_as_an_empty_list(
         self, console_api: Postgres
     ) -> None:
         """Say that the schema exists, so the proxy keeps its cache rules."""
-        await add_schema(console_api, "sales", claim="cpf")
+        await add_schema(console_api, "default__sales", claim="cpf")
 
         config = await scalar(console_api, "SELECT console.config()")
 
         assert isinstance(config, dict)
         assert (
-            json.dumps(config["schemas"], sort_keys=True) == '{"sales": {"tables": []}}'
+            json.dumps(config["schemas"], sort_keys=True)
+            == '{"default__sales": {"tables": []}}'
         )
 
 
@@ -1055,7 +1059,7 @@ class TestProxyScopes:
         """Compare the grants as a set: their order and their subject do not matter."""
         await add_policy_schema(
             console_api,
-            "sales",
+            "default__sales",
             {
                 "alice": [("cras", "1"), ("cras", "2")],
                 "bob": [("cras", "2"), ("cras", "1")],
@@ -1082,12 +1086,12 @@ class TestProxyScopes:
         """Give another scope to a subject that has the same grants in one schema and more in another."""
         await add_policy_schema(
             console_api,
-            "sales",
+            "default__sales",
             {"alice": [("cras", "1")], "bob": [("cras", "1")]},
             "preferred_username",
         )
         await add_policy_schema(
-            console_api, "hr", {"bob": [("cras", "1")]}, "preferred_username"
+            console_api, "default__hr", {"bob": [("cras", "1")]}, "preferred_username"
         )
 
         config = await scalar(console_api, "SELECT console.config()")
@@ -1100,12 +1104,15 @@ class TestProxyScopes:
     async def test_the_scope_changes_with_a_grant(self, console_api: Postgres) -> None:
         """Move the scope of a subject when it gets one more grant."""
         await add_policy_schema(
-            console_api, "sales", {"alice": [("cras", "1")]}, "preferred_username"
+            console_api,
+            "default__sales",
+            {"alice": [("cras", "1")]},
+            "preferred_username",
         )
         before = await scalar(console_api, "SELECT console.scopes() -> 'alice'")
 
         await console_api.connection.execute(
-            "INSERT INTO sales.access_policy VALUES ('alice', 'cras', '2')"
+            "INSERT INTO access.policy VALUES ('alice', 'default.sales', 'cras', '2')"
         )
 
         assert await scalar(console_api, "SELECT console.scopes() -> 'alice'") != before
@@ -1115,21 +1122,26 @@ class TestProxyScopes:
     ) -> None:
         """The proxy keys the cache by the user name, so a schema with another claim must not share entries."""
         await add_policy_schema(
-            console_api, "sales", {"alice": [("cras", "1")]}, "preferred_username"
+            console_api,
+            "default__sales",
+            {"alice": [("cras", "1")]},
+            "preferred_username",
         )
-        await add_policy_schema(console_api, "hr", {"alice": [("cras", "1")]}, "cpf")
+        await add_policy_schema(
+            console_api, "default__hr", {"alice": [("cras", "1")]}, "cpf"
+        )
 
         config = await scalar(console_api, "SELECT console.config()")
 
         assert isinstance(config, dict)
         assert "scopes" not in config
 
-    async def test_no_scope_for_a_schema_without_a_policy_table(
+    async def test_no_scope_for_a_schema_without_a_grant(
         self, console_api: Postgres
     ) -> None:
-        """Leave the key out when no schema has a policy yet."""
+        """Leave the key out when no subject has a grant yet."""
         await add_schema(
-            console_api, "sales", claim="preferred_username", provisioned=False
+            console_api, "default__sales", claim="preferred_username", provisioned=False
         )
 
         config = await scalar(console_api, "SELECT console.config()")
@@ -1155,7 +1167,10 @@ class TestWorkerContract:
         assert {
             name: sorted(table.name for table in schema.tables)
             for name, schema in config.schemas.items()
-        } == {"hr": ["p.d.staff"], "sales": ["p.d.events", "p.d.orders"]}
+        } == {
+            "default__hr": ["p.d.staff"],
+            "default__sales": ["p.d.events", "p.d.orders"],
+        }
 
     async def test_a_partitioned_table_keeps_its_settings_through_the_database(
         self, console_api: Postgres
@@ -1167,7 +1182,9 @@ class TestWorkerContract:
             await read_sync_config(console_api.backend)
         )
 
-        [events] = [t for t in config.schemas["sales"].tables if t.name == "p.d.events"]
+        [events] = [
+            t for t in config.schemas["default__sales"].tables if t.name == "p.d.events"
+        ]
         assert isinstance(events, PartitionedTable)
         assert (events.n, events.fallback, events.ducklake.sort) == (
             4,

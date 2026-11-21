@@ -549,28 +549,27 @@ class TestAggregateDeniesByDefault:
 class TestAggregateRowRules:
     """The function applies the row rules of the table before it aggregates."""
 
-    @pytest.fixture
-    async def ruled(self, aggregate_function: Postgres) -> Postgres:
-        """Install the aggregate function for a table with row rules."""
-        await install_aggregate_function(aggregate_function, has_rls=True, fallbacks=[])
-        await put_state(aggregate_function, ROUTED_TABLE, FULL)
-        return aggregate_function
-
-    async def test_sums_only_the_units_of_the_grants(self, ruled: Postgres) -> None:
+    async def test_sums_only_the_units_of_the_grants(
+        self, ruled_aggregate: Postgres
+    ) -> None:
         """A subject with the unit u1 gets the sums of u1 only."""
-        await grant_unit(ruled, "u")
+        await grant_unit(ruled_aggregate, "u")
 
         answer, _ = await call_aggregate_function(
-            ruled, aggregate(total(), group=["grp"])
+            ruled_aggregate, aggregate(total(), group=["grp"])
         )
 
         assert ordered(answer) == [{"grp": "a", "n": 3}, {"grp": "b", "n": 4}]
 
-    async def test_gives_an_empty_list_without_a_grant(self, ruled: Postgres) -> None:
+    async def test_gives_an_empty_list_without_a_grant(
+        self, ruled_aggregate: Postgres
+    ) -> None:
         """A subject with no grant gets a list with no item, and no header."""
-        await set_setting(ruled, "app.claim_sub", "nobody")
+        await set_setting(ruled_aggregate, "app.claim_sub", "nobody")
 
-        answer, headers = await call_aggregate_function(ruled, aggregate(total()))
+        answer, headers = await call_aggregate_function(
+            ruled_aggregate, aggregate(total())
+        )
 
         assert (answer, headers) == ([], {})
 
@@ -582,45 +581,49 @@ class TestAggregateRowRules:
         ],
     )
     async def test_sums_every_row_for_a_wildcard_claim(
-        self, ruled: Postgres, schemas: str
+        self, ruled_aggregate: Postgres, schemas: str
     ) -> None:
         """A token for every row needs no grant."""
         answer, _ = await call_aggregate_function(
-            ruled,
+            ruled_aggregate,
             aggregate(total()),
-            schemas=schemas.format(schema=ruled.namespace.schema),
+            schemas=schemas.format(schema=ruled_aggregate.namespace.schema),
         )
 
         assert answer == [{"n": 47}]
 
-    async def test_sums_every_row_for_the_wildcard_grant(self, ruled: Postgres) -> None:
+    async def test_sums_every_row_for_the_wildcard_grant(
+        self, ruled_aggregate: Postgres
+    ) -> None:
         """A subject with the grant (*, *) reads every row of the schema."""
-        await set_setting(ruled, "app.claim_sub", "u")
-        await insert_access_policy(ruled, "u", "*", "*")
+        await set_setting(ruled_aggregate, "app.claim_sub", "u")
+        await insert_access_policy(ruled_aggregate, "u", "*", "*")
 
-        answer, _ = await call_aggregate_function(ruled, aggregate(total()))
+        answer, _ = await call_aggregate_function(ruled_aggregate, aggregate(total()))
 
         assert answer == [{"n": 47}]
 
     async def test_gives_an_empty_list_for_a_schema_outside_the_claim(
-        self, ruled: Postgres
+        self, ruled_aggregate: Postgres
     ) -> None:
         """A token for another schema gets no row."""
-        await grant_unit(ruled, "u")
+        await grant_unit(ruled_aggregate, "u")
 
         answer, _ = await call_aggregate_function(
-            ruled, aggregate(total()), schemas="other"
+            ruled_aggregate, aggregate(total()), schemas="other"
         )
 
         assert answer == []
 
     @pytest.mark.parametrize("role", ["dp_policy", "dp_ghost", ""])
     async def test_refuses_a_role_without_read_api(
-        self, ruled: Postgres, role: str
+        self, ruled_aggregate: Postgres, role: str
     ) -> None:
         """A role without read_api gets the same refusal as the table function."""
         with pytest.raises(psycopg.Error) as error:
-            await call_aggregate_function(ruled, aggregate(total()), role=role)
+            await call_aggregate_function(
+                ruled_aggregate, aggregate(total()), role=role
+            )
 
         assert error.value.sqlstate == "42501"
 

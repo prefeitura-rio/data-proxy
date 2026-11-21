@@ -1,5 +1,4 @@
 /** @import { Kubernetes } from 'k6/x/kubernetes' */
-import { sleep } from "k6";
 import {
     checkSql,
     clearProxyCache,
@@ -100,7 +99,6 @@ export function changes(k8s) {
  */
 function fallbackRows(token, k8s) {
     clearProxyCache(k8s);
-    sleep(1);
     const pinned = { "X-DuckLake-Snapshot": snapshotValue(token) };
 
     const localOldest = directPostgrest(
@@ -160,7 +158,6 @@ function fallbackRows(token, k8s) {
  */
 function splitSources(token, k8s) {
     clearProxyCache(k8s);
-    sleep(1);
     const all = rowsPerPartition(token);
 
     const ducklake = rowsPerPartition(token, {

@@ -11,7 +11,7 @@ from sync.executor import Executor
 from sync.sources.bigquery.clients import BigQuery
 from sync.sources.bigquery.partitions import PartitionMetadata, partition_rows
 from sync.templates import render_template
-from sync.types import DatabaseRow, DuckDBParams, TemplateValue
+from sync.types import DatabaseRow, DescribeRow, DuckDBParams, TemplateValue
 from tests.constants import (
     MODIFIED,
     PARQUET,
@@ -269,7 +269,7 @@ class TestDuckdbTemplates:
         rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb).query(
             "duckdb/describe_parquet",
             params=[PARQUET],
-            expect=tuple[str, str],
+            expect=DescribeRow,
         )
         columns = {row[0] for row in rows}
         assert {"cpf", "name"} <= columns

@@ -17,7 +17,7 @@ Feature: The Config tab
   Scenario: A console user has the buttons of the configuration
     Given I sign in as "web_console"
     When I open the "Config" tab
-    Then I see the row of the schema "test"
+    Then I see the row of the schema "default__test"
     And I see the "Add schema" button
     And I see the "Edit" button
     And I see the "Delete" button

@@ -29,7 +29,7 @@ flowchart TD
   agg -->|"no"| table
   agg -->|"yes"| supported{"Group, functions and order<br/>are supported?"}
   supported -->|"no"| postgrest
-  supported -->|"yes"| agg_call["Call table_aggregate<br/>DuckDB groups the rows"]
+  supported -->|"yes"| agg_call["Call table_agg<br/>DuckDB groups the rows"]
   agg_call --> empty{"Answer null, error<br/>or a fallback source?"}
   empty -->|"yes"| postgrest
   empty -->|"no"| answer["Send the answer<br/>and cache it"]
@@ -47,7 +47,7 @@ flowchart TD
 A `select` with aggregates, for example `select=grp,numerador:qty.sum(),total:count()`, runs in DuckDB.
 
 1. The proxy puts the group and the aggregates in the `aggregate` field of `X-DuckLake-Filter`.
-2. It calls `GET /rpc/<table>_aggregate` with the same headers and no query string.
+2. It calls `GET /rpc/<table>_agg` with the same headers and no query string.
 3. The function applies the row policy and the filter, runs the `GROUP BY` in DuckDB and returns the result rows as JSON.
 4. PostgreSQL orders and cuts the rows of the groups.
 
@@ -76,7 +76,7 @@ A complete answer has no `Content-Range` header. It has the same `X-Source` and 
 
 ## Counts
 
-A `GET` of a table with `Prefer: count=exact` and a `limit` counts in DuckDB. The proxy calls `<table>_aggregate` with the filter and `count()`. Then it reads the page with the `limit`, pinned to the snapshot of the count. It builds `Content-Range` and `Preference-Applied`, and sends `206` unless the page has every row. Other counts, `Range`, `HEAD`, an empty page and a table with a fallback source go to PostgREST, which counts every row.
+A `GET` of a table with `Prefer: count=exact` and a `limit` counts in DuckDB. The proxy calls `<table>_agg` with the filter and `count()`. Then it reads the page with the `limit`, pinned to the snapshot of the count. It builds `Content-Range` and `Preference-Applied`, and sends `206` unless the page has every row. Other counts, `Range`, `HEAD`, an empty page and a table with a fallback source go to PostgREST, which counts every row.
 
 <!-- nav:start -->
 ---

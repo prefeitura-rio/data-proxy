@@ -1,7 +1,7 @@
 import http from "k6/http";
 import { sleep } from "k6";
 import {
-    API_URL,
+    DATA_URL,
     authHeaders,
     cacheHeader,
     changeAccessPolicy,
@@ -18,6 +18,7 @@ import {
     scenario,
     sourceHeader,
     stable,
+    waitUntil,
 } from "../lib/index.js";
 
 const { expect, requirePrecondition } = scenario("cache");
@@ -59,7 +60,10 @@ function verifyProxyCache(token, otherToken) {
 
     const probe = [{ subject: "e2e_cache_probe", unit_type: "unit", unit_id: "unit_cache" }];
     expect("a new policy row is stored", changeAccessPolicy("POST", "", probe) === 201);
-    expect("a change of the access policy makes a cached answer stale", cacheHeader(proxyGet(path, token)) === "MISS");
+    expect(
+        "a change of the access policy makes a cached answer stale",
+        waitUntil(30, () => cacheHeader(proxyGet(path, token)) === "MISS", "the proxy to read the new revision"),
+    );
     expect("the new policy row is removed again", changeAccessPolicy("DELETE", "?subject=eq.e2e_cache_probe") < 300);
     sleep(CACHE_TTL_SECONDS + 3);
     expect("an entry expires after the configured lifetime", cacheHeader(proxyGet(path, token)) === "MISS");
@@ -103,7 +107,7 @@ function verifyCoalescing(token) {
     for (let i = 0; i < BURST_REQUESTS; i++) {
         burst.push({
             method: "GET",
-            url: `${API_URL}${path}`,
+            url: `${DATA_URL}${path}`,
             params: { headers: authHeaders(token), tags: { name: "coalesce" } },
         });
     }

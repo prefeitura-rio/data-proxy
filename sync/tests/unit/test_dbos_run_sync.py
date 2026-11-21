@@ -189,24 +189,11 @@ class TestRecordScopeStep:
 
 
 class TestLoadSyncConfig:
-    @pytest.fixture
-    def stored(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-        """Stand in for the database and return the reader of the stored configuration."""
-
-        @asynccontextmanager
-        async def connect(dsn: str) -> AsyncGenerator[None]:
-            yield
-
-        read = AsyncMock(return_value=None)
-        monkeypatch.setattr(Postgres, "connect", connect)
-        monkeypatch.setattr(steps, "read_sync_config", read)
-        return read
-
     async def test_takes_the_configuration_from_the_database(
-        self, stored: AsyncMock
+        self, stored_sync_config: AsyncMock
     ) -> None:
         """Use the document of the tables, and name its revision by the digest of the text."""
-        stored.return_value = DOCUMENT
+        stored_sync_config.return_value = DOCUMENT
 
         loaded = await workflow_body(steps.load_sync_config)()
 
@@ -215,17 +202,19 @@ class TestLoadSyncConfig:
         )
 
     async def test_rejects_a_document_that_the_engine_cannot_use(
-        self, stored: AsyncMock
+        self, stored_sync_config: AsyncMock
     ) -> None:
         """Fail the run at its start, before any work."""
-        stored.return_value = '{"schemas": {"app": 1}}'
+        stored_sync_config.return_value = '{"schemas": {"app": 1}}'
 
         with pytest.raises(ValidationError):
             await workflow_body(steps.load_sync_config)()
 
-    async def test_fails_when_the_database_fails(self, stored: AsyncMock) -> None:
+    async def test_fails_when_the_database_fails(
+        self, stored_sync_config: AsyncMock
+    ) -> None:
         """Raise, so that DBOS retries the step."""
-        stored.side_effect = OperationalError("down")
+        stored_sync_config.side_effect = OperationalError("down")
 
         with pytest.raises(OperationalError):
             await workflow_body(steps.load_sync_config)()

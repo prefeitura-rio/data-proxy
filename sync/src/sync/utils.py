@@ -4,6 +4,7 @@ from hashlib import sha256
 from json import dumps
 from typing import TYPE_CHECKING
 
+from .constants import CHANGES_FUNCTION_SUFFIX, MAX_IDENTIFIER_BYTES
 from .log import logger
 from .settings import settings
 
@@ -15,6 +16,25 @@ if TYPE_CHECKING:
 
 class RemovalLimitError(Exception):
     """A step would remove more things than MAX_REMOVALS allows."""
+
+
+def destination_name(schema: str, table: str) -> str:
+    """Return the name of a table inside its schema, as `<schema>.<table>`."""
+    return f"{schema}.{table}"
+
+
+def truncate_identifier(name: str) -> str:
+    """Cut a name at 63 bytes the way PostgreSQL does, never inside a character."""
+    return name.encode()[:MAX_IDENTIFIER_BYTES].decode(errors="ignore")
+
+
+def changes_function_name(table_name: str) -> str:
+    """Return the name of the change-feed function of one table, as PostgreSQL stores it.
+
+    PostgreSQL cuts an identifier at 63 bytes without an error. The reconcile compares this name with
+    the stored one, so it must cut the same way.
+    """
+    return truncate_identifier(f"{table_name}{CHANGES_FUNCTION_SUFFIX}")
 
 
 def sha256_hex(text: str) -> str:

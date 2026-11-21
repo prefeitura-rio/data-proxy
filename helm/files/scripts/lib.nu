@@ -107,9 +107,9 @@ export def wait-until [
 # Dump one PostgreSQL table to a file using pg_dump.
 @example "Dump one table" {
     dump-table postgres://user:password@host/db {
-        schema: test
-        table: access_policy
-        file: /tmp/access_policy.dump
+        schema: access
+        table: policy
+        file: /tmp/access-policy.dump
     }
 }
 export def dump-table [dsn: string, config: record<schema: string, table: string, file: string>]: nothing -> nothing {
@@ -373,36 +373,49 @@ export def rclone-env [
     }
 }
 
-# The tables that every schema of the data has, and that no other schema has.
-const MARKER_TABLES = [access_policy access_log]
-
 # The schemas of the system, which a removal never touches.
-const SYSTEM_SCHEMAS = [console data_proxy dbos rbac public]
+const SYSTEM_SCHEMAS = [console data_proxy dbos rbac public access]
 
-# Find the schemas that the console no longer lists: the schemas with both marker tables, except the system.
-@example "A schema with both tables and no row in the console" {
-    [[schema table]; [e2e_new access_policy] [e2e_new access_log] [test access_policy] [test access_log]]
-    | orphans test
-} --result [e2e_new]
-export def orphans [...configured: string]: table<schema: string, table: string> -> list<string> {
-    group-by schema
-    | transpose schema rows
-    | where ($MARKER_TABLES | all {|marker| $marker in ($it.rows | get table) })
-    | get schema
+# Find the schemas that the console no longer lists. A schema of the data has the name `<project>__<schema>`, so every
+# schema with that form, except the configured ones, is one that a removal drops.
+@example "A schema with the form and no row in the console" {
+    [default__kept sales__gone public]
+    | orphans default__kept
+} --result [sales__gone]
+export def orphans [...configured: string]: list<string> -> list<string> {
+    where $it =~ '^[a-z][a-z0-9]*__'
     | where $it not-in $SYSTEM_SCHEMAS and $it not-in $configured
     | sort
 }
 
+# The name of the S3 folder of a schema: the short name in the project default, and `<project>_<schema>` in another
+# project.
+@example "A schema of the project default" {
+    legacy-name default__api_bcadastro
+} --result api_bcadastro
+@example "A schema of another project" {
+    legacy-name sales__orders
+} --result sales_orders
+export def legacy-name [schema: string]: nothing -> string {
+    let parts = $schema | split row '__' --number 2
+
+    match $parts {
+        [_] => $schema
+        ['default' $short] => $short
+        [$project $short] => $'($project)_($short)'
+    }
+}
+
 # The remote path of the data files of one schema. It refuses a name that could leave the catalog folder.
 @example "The folder of one schema" {
-    data-prefix bucket ducklake e2e_new
+    data-prefix bucket ducklake default__e2e_new
 } --result 'store:bucket/ducklake/e2e_new'
 export def data-prefix [bucket: string, catalog_path: string, schema: string]: nothing -> string {
     if ($schema | is-empty) or $schema =~ '/|\.\.' {
         fail $'Refusing to purge the data of the schema "($schema)"'
     }
 
-    $'store:($bucket)/($catalog_path)/($schema)'
+    $'store:($bucket)/($catalog_path)/(legacy-name $schema)'
 }
 
 # The fields that a JWKS key of each type needs, next to its kid.
@@ -431,21 +444,21 @@ export def live-executor-ids []: record -> list<string> {
     | get metadata.uid
 }
 
-# The two tables that a backup dumps for one schema, and the remote folder of the day.
-export def backup-plan [schema: string, bucket: string, prefix: string, date: string]: nothing -> record {
+# The two tables that a backup dumps, and the remote folder of the day.
+export def backup-plan [bucket: string, prefix: string, date: string]: nothing -> record {
     {
         dumps: [
-            {table: access_policy, file: $'/tmp/($schema)-access_policy.dump'}
-            {table: access_log, file: $'/tmp/($schema)-access_log.dump'}
+            {table: policy, file: '/tmp/access-policy.dump'}
+            {table: log, file: '/tmp/access-log.dump'}
         ]
-        remote_prefix: $'store:($bucket)/($prefix)/($schema)/($date)'
+        remote_prefix: $'store:($bucket)/($prefix)/($date)'
     }
 }
 
-# The value of the PostgREST setting that lists the schemas it serves. The console comes last, because the first schema is the default profile.
-@example "The console after the data schemas" {
+# The value of the PostgREST setting that lists the schemas it serves. The console and the access schema come last, because the first schema is the default profile.
+@example "The console and the access schema after the data schemas" {
     served-schemas b a
-} --result 'a,b,console'
+} --result 'a,b,console,access'
 export def served-schemas [...names: string]: nothing -> string {
-    ($names | sort) ++ ['console'] | str join ','
+    ($names | sort) ++ ['console' 'access'] | str join ','
 }

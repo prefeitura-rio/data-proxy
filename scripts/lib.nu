@@ -5,7 +5,7 @@ export const IMAGE_TAG_FILE = 'k3d/.tmp/tag'
 export const CLUSTER_NAME = 'data-proxy'
 export const PROFILE = 'k3d-data-proxy'
 export const NAMESPACE = 'data-proxy'
-export const TEST_SCHEMA = 'test'
+export const TEST_SCHEMA = 'default__test'
 
 # The images of the project, one row for each. The CI and the local build read this table.
 export const IMAGES = [

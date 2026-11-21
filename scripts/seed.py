@@ -11,6 +11,7 @@ of a fixture schema, and then run `cluster sync` to synchronize the local releas
 sync image doesn't contain it.
 """
 
+import tomllib
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -22,7 +23,6 @@ from random import seed as set_seed
 from typing import ClassVar, cast
 from uuid import uuid4
 
-import tomllib
 from google.cloud.bigquery import (
     Client,
     LoadJobConfig,

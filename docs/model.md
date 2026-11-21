@@ -19,15 +19,6 @@ erDiagram
 "console.rls" }o--|| "console.tables" : ""
 "data_proxy.scope" }o--|| "console.schemas" : ""
 "console.config_history" }o--|| "console.schemas" : ""
-"rbac.revision" {
-  boolean singleton
-  bigint value
-}
-"rbac.roles" {
-  text name
-  text__ permissions
-  text wrapped
-}
 "data_proxy.state" {
   text table_name
   jsonb state
@@ -43,6 +34,15 @@ erDiagram
   text run_id
   text schema_name
   text table_name
+}
+"rbac.revision" {
+  boolean singleton
+  bigint value
+}
+"rbac.roles" {
+  text name
+  text__ permissions
+  text wrapped
 }
 "console.schemas" {
   text name
@@ -91,13 +91,15 @@ erDiagram
   timestamp_with_time_zone updated_at
   text updated_by
 }
-"test.access_policy" {
+"access.policy" {
   text subject
+  ltree scope
   text unit_type
   text unit_id
 }
-"test.access_log" {
+"access.log" {
   text subject
+  ltree scope
   text unit_type
   text unit_id
   text action
@@ -206,13 +208,13 @@ erDiagram
   text secret_sealed
   timestamp_with_time_zone created_at
 }
-"test.ducklake_metadata" {
+"default__test.ducklake_metadata" {
   varchar key
   varchar value
   varchar scope
   bigint scope_id
 }
-"test.ducklake_schema" {
+"default__test.ducklake_schema" {
   bigint schema_id
   uuid schema_uuid
   bigint begin_snapshot
@@ -221,7 +223,7 @@ erDiagram
   varchar path
   boolean path_is_relative
 }
-"test.ducklake_table" {
+"default__test.ducklake_table" {
   bigint table_id
   uuid table_uuid
   bigint begin_snapshot
@@ -231,7 +233,7 @@ erDiagram
   varchar path
   boolean path_is_relative
 }
-"test.ducklake_data_file" {
+"default__test.ducklake_data_file" {
   bigint data_file_id
   bigint table_id
   bigint begin_snapshot
@@ -249,7 +251,7 @@ erDiagram
   bigint mapping_id
   bigint partial_max
 }
-"test.ducklake_delete_file" {
+"default__test.ducklake_delete_file" {
   bigint delete_file_id
   bigint table_id
   bigint begin_snapshot
@@ -264,13 +266,13 @@ erDiagram
   varchar encryption_key
   bigint partial_max
 }
-"test.ducklake_sort_info" {
+"default__test.ducklake_sort_info" {
   bigint sort_id
   bigint table_id
   bigint begin_snapshot
   bigint end_snapshot
 }
-"test.ducklake_sort_expression" {
+"default__test.ducklake_sort_expression" {
   bigint sort_id
   bigint table_id
   bigint sort_key_index
@@ -297,15 +299,6 @@ erDiagram
 "data_proxy.scope" }o--|| "console.schemas" : ""
 "console.config_history" }o--|| "console.schemas" : ""
 
-"rbac.revision" {
-  boolean singleton
-  bigint value
-}
-"rbac.roles" {
-  text name
-  text__ permissions
-  text wrapped
-}
 "data_proxy.state" {
   text table_name
   jsonb state
@@ -321,6 +314,15 @@ erDiagram
   text run_id
   text schema_name
   text table_name
+}
+"rbac.revision" {
+  boolean singleton
+  bigint value
+}
+"rbac.roles" {
+  text name
+  text__ permissions
+  text wrapped
 }
 "console.schemas" {
   text name
@@ -369,13 +371,15 @@ erDiagram
   timestamp_with_time_zone updated_at
   text updated_by
 }
-"test.access_policy" {
+"access.policy" {
   text subject
+  ltree scope
   text unit_type
   text unit_id
 }
-"test.access_log" {
+"access.log" {
   text subject
+  ltree scope
   text unit_type
   text unit_id
   text action
@@ -384,10 +388,10 @@ erDiagram
 ```
 <!-- diagram:application:end -->
 
-- **Configuration (`console`):** `schemas`, `tables` and `rls` store the sync configuration. A table belongs to one schema, and a row policy rule (`rls`) belongs to one table. The name of a schema can't be a reserved name. `config_history` records every change of these three tables. See [Configuration](console/configuration.md) and [Changes](console/changes.md).
+- **Configuration (`console`):** `schemas`, `tables` and `rls` store the sync configuration. A table belongs to one schema, and a row policy rule (`rls`) belongs to one table. The name of a schema is `<project>__<schema>`. `config_history` records every change of these three tables. See [Configuration](console/configuration.md) and [Changes](console/changes.md).
 - **Engine (`data_proxy`):** `state` has the state of each synced table as JSON. `errors` has the engine errors. `scope` links a workflow to the schemas and tables that a sync run covers. The console views use it to show a user only the sync runs of its own schemas.
 - **Rules (`rbac`):** `roles` has the permissions of each role, filled from `rbac.toml`. `revision` is a single row with a counter. The proxy reads the counter to find a change of the rules.
-- **Access policy (one schema for each source schema):** `access_policy` has the subjects that may read a unit, and `access_log` records each change. A trigger writes the log. See [Authorization](security/authorization.md).
+- **Access policy (`access`):** `policy` has the grants of every project: the subjects that may read a unit, in a scope of one `ltree` column. `log` records each change. A trigger writes the log. See [Authorization](security/authorization.md).
 
 The `data_proxy` and `console` tables don't reference each other with foreign keys. `scope.schema_name` and `config_history.schema_name` carry the name of a schema, and nothing enforces it.
 
@@ -407,13 +411,13 @@ erDiagram
   text secret_sealed
   timestamp_with_time_zone created_at
 }
-"test.ducklake_metadata" {
+"default__test.ducklake_metadata" {
   varchar key
   varchar value
   varchar scope
   bigint scope_id
 }
-"test.ducklake_schema" {
+"default__test.ducklake_schema" {
   bigint schema_id
   uuid schema_uuid
   bigint begin_snapshot
@@ -422,7 +426,7 @@ erDiagram
   varchar path
   boolean path_is_relative
 }
-"test.ducklake_table" {
+"default__test.ducklake_table" {
   bigint table_id
   uuid table_uuid
   bigint begin_snapshot
@@ -432,7 +436,7 @@ erDiagram
   varchar path
   boolean path_is_relative
 }
-"test.ducklake_data_file" {
+"default__test.ducklake_data_file" {
   bigint data_file_id
   bigint table_id
   bigint begin_snapshot
@@ -450,7 +454,7 @@ erDiagram
   bigint mapping_id
   bigint partial_max
 }
-"test.ducklake_delete_file" {
+"default__test.ducklake_delete_file" {
   bigint delete_file_id
   bigint table_id
   bigint begin_snapshot
@@ -465,13 +469,13 @@ erDiagram
   varchar encryption_key
   bigint partial_max
 }
-"test.ducklake_sort_info" {
+"default__test.ducklake_sort_info" {
   bigint sort_id
   bigint table_id
   bigint begin_snapshot
   bigint end_snapshot
 }
-"test.ducklake_sort_expression" {
+"default__test.ducklake_sort_expression" {
   bigint sort_id
   bigint table_id
   bigint sort_key_index
@@ -619,6 +623,7 @@ The diagrams leave out the tables that Data Proxy doesn't read directly. Every D
 | DBOS              | `workflow_events`                       | The latest value of each event that a workflow sets.                  |
 | DBOS              | `workflow_input`                        | The input of each workflow.                                           |
 | DBOS              | `workflow_output`                       | The output of each workflow.                                          |
+| -                 | `goose_db_version`                      | The migrations that goose applied to the catalog database.            |
 | DuckLake metadata | `ducklake_column_mapping`               | Links a file column to a table column when the file has no field IDs. |
 | DuckLake metadata | `ducklake_column_tag`                   | The tags on a column.                                                 |
 | DuckLake metadata | `ducklake_column`                       | The columns of each table, by snapshot.                               |

@@ -21,7 +21,6 @@ const (
 	testClientSecret = "secret-123"
 )
 
-// tokenServer is a fake token endpoint. It answers each client credentials request with token-<n>.
 type tokenServer struct {
 	t         *testing.T
 	expiresIn int
@@ -32,7 +31,6 @@ type tokenServer struct {
 	requests []tokenRequest
 }
 
-// tokenRequest is what the fake token endpoint saw of one request.
 type tokenRequest struct {
 	grantType string
 	clientID  string
@@ -41,9 +39,9 @@ type tokenRequest struct {
 }
 
 // ServeHTTP records the token request and answers it with token-<n>, or with the status that the test set.
-func (s *tokenServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (ts *tokenServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
-		s.t.Errorf("parse the token request: %v", err)
+		ts.t.Errorf("parse the token request: %v", err)
 	}
 
 	clientID, secret, ok := r.BasicAuth()
@@ -51,44 +49,43 @@ func (s *tokenServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		clientID, secret = r.PostForm.Get("client_id"), r.PostForm.Get("client_secret")
 	}
 
-	s.mu.Lock()
-	s.requests = append(s.requests, tokenRequest{
+	ts.mu.Lock()
+	ts.requests = append(ts.requests, tokenRequest{
 		grantType: r.PostForm.Get("grant_type"),
 		clientID:  clientID,
 		secret:    secret,
 		scope:     r.PostForm.Get("scope"),
 	})
-	count := len(s.requests)
-	s.mu.Unlock()
+	count := len(ts.requests)
+	ts.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 
-	if s.status != 0 {
-		w.WriteHeader(s.status)
+	if ts.status != 0 {
+		w.WriteHeader(ts.status)
 
-		if _, err := w.Write([]byte(s.response)); err != nil {
-			s.t.Errorf("write the token response: %v", err)
+		if _, err := w.Write([]byte(ts.response)); err != nil {
+			ts.t.Errorf("write the token response: %v", err)
 		}
 
 		return
 	}
 
 	body := map[string]any{"access_token": fmt.Sprintf("token-%d", count), "token_type": "Bearer"}
-	if s.expiresIn > 0 {
-		body["expires_in"] = s.expiresIn
+	if ts.expiresIn > 0 {
+		body["expires_in"] = ts.expiresIn
 	}
 
 	if err := json.NewEncoder(w).Encode(body); err != nil {
-		s.t.Errorf("write the token response: %v", err)
+		ts.t.Errorf("write the token response: %v", err)
 	}
 }
 
-// count returns the number of token requests that the server saw.
-func (s *tokenServer) count() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (ts *tokenServer) count() int {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
 
-	return len(s.requests)
+	return len(ts.requests)
 }
 
 // newTokenSource starts the fake token endpoint and returns a source for it, with a clock that the test moves.
@@ -161,18 +158,18 @@ func TestNewCredentialsSourceRejects(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			credentials := valid
-			tt.change(&credentials)
+			testCase.change(&credentials)
 
 			source, err := NewCredentialsSource(credentials, nil)
 			if err == nil {
 				t.Fatalf("NewCredentialsSource = %v, want an error", source)
 			}
 
-			if err.Error() != tt.want {
-				t.Errorf("error = %q, want %q", err.Error(), tt.want)
+			if err.Error() != testCase.want {
+				t.Errorf("error = %q, want %q", err.Error(), testCase.want)
 			}
 		})
 	}
@@ -203,38 +200,38 @@ func TestCredentialsSourceRenewsTheToken(t *testing.T) {
 
 	steps := []struct {
 		name     string
-		at       func(expiry time.Time) time.Time
+		callTime func(expiry time.Time) time.Time
 		want     string
 		requests int
 	}{
 		{
 			name:     "a call 31 s before the expiry reuses the token",
-			at:       func(expiry time.Time) time.Time { return expiry.Add(-31 * time.Second) },
+			callTime: func(expiry time.Time) time.Time { return expiry.Add(-31 * time.Second) },
 			want:     "token-1",
 			requests: 1,
 		},
 		{
 			name:     "a call 29 s before the expiry renews it",
-			at:       func(expiry time.Time) time.Time { return expiry.Add(-29 * time.Second) },
+			callTime: func(expiry time.Time) time.Time { return expiry.Add(-29 * time.Second) },
 			want:     "token-2",
 			requests: 2,
 		},
 		{
 			name:     "a call 31 s before the expiry of the new token reuses it",
-			at:       func(expiry time.Time) time.Time { return expiry.Add(-31 * time.Second) },
+			callTime: func(expiry time.Time) time.Time { return expiry.Add(-31 * time.Second) },
 			want:     "token-2",
 			requests: 2,
 		},
 		{
 			name:     "a call after the expiry renews it",
-			at:       func(expiry time.Time) time.Time { return expiry.Add(time.Minute) },
+			callTime: func(expiry time.Time) time.Time { return expiry.Add(time.Minute) },
 			want:     "token-3",
 			requests: 3,
 		},
 	}
 
 	for _, step := range steps {
-		*clock = step.at(source.expiry)
+		*clock = step.callTime(source.expiry)
 
 		got, err := source.Token(context.Background())
 		if err != nil {
@@ -263,8 +260,8 @@ func TestCredentialsSourceKeepsATokenWithoutExpiry(t *testing.T) {
 	server := &tokenServer{}
 	source, clock := newTokenSource(t, server, nil)
 
-	for _, at := range []time.Duration{0, 24 * time.Hour} {
-		*clock = clock.Add(at)
+	for _, elapsed := range []time.Duration{0, 24 * time.Hour} {
+		*clock = clock.Add(elapsed)
 
 		got, err := source.Token(context.Background())
 		if err != nil {
@@ -361,11 +358,11 @@ func TestCredentialsSourceErrors(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			source, _ := newTokenSource(t, tt.server, nil)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			source, _ := newTokenSource(t, testCase.server, nil)
 
-			token, err := source.Token(tt.ctx())
+			token, err := source.Token(testCase.ctx())
 			if err == nil {
 				t.Fatalf("Token = %q, want an error", token)
 			}
@@ -378,7 +375,7 @@ func TestCredentialsSourceErrors(t *testing.T) {
 				t.Errorf("error = %q, want no client secret in it", err.Error())
 			}
 
-			tt.check(t, err)
+			testCase.check(t, err)
 		})
 	}
 }

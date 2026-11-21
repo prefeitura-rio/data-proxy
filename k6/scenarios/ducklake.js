@@ -1,5 +1,4 @@
 /** @import { Kubernetes } from 'k6/x/kubernetes' */
-import { sleep } from "k6";
 import {
     clearProxyCache,
     clientToken,
@@ -112,7 +111,7 @@ function changeFeed() {
     ];
 
     for (const feed of feeds) {
-        const path = `/rpc/dl_changes_${feed.table}?select=change_snapshot_id,change_type,${feed.columns}&start_snapshot=0`;
+        const path = `/rpc/${feed.table}_dl_chg?select=change_snapshot_id,change_type,${feed.columns}&start_snapshot=0`;
         const all = proxyGet(path, token);
         const rows = rowsOf(all);
         const bounded = proxyGet(`${path}&end_snapshot=${latest}`, token);
@@ -161,7 +160,6 @@ function readerMount(token) {
  */
 export function source(token, k8s) {
     clearProxyCache(k8s);
-    sleep(1);
     const response = proxyGet(`/${FULL_TABLE}?select=id&limit=1`, token);
     expect("a table without fallbacks answers 200", response.status === 200);
     expect("a table without fallbacks is served from DuckLake only", sourceHeader(response) === "ducklake");

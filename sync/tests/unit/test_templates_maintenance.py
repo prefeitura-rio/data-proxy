@@ -22,6 +22,7 @@ from tests.constants import (
     TEST_SQL_DIR,
 )
 from tests.fixtures.types import Postgres, Psql
+from tests.helpers.console import names_of_scopes
 from tests.helpers.core import (
     execute_sql,
     fetch_all,
@@ -33,7 +34,7 @@ from tests.helpers.core import (
 )
 from tests.helpers.migrations import migration_sql
 from tests.helpers.rbac import install_rbac
-from tests.helpers.routing import install_table_function, schema_scope_condition
+from tests.helpers.routing import install_table_function
 from tests.helpers.state import (
     initialize_schemas,
     reconcile_one_table,
@@ -55,6 +56,7 @@ class TestMaintenanceTemplates:
         psql.run(
             psql_script(
                 migration_sql("console", "00013_maintenance.sql", schema=schema),
+                migration_sql("console", "00023_function_names.sql", schema=schema),
                 render_template(
                     "postgres/create_view",
                     {"schema": target, "view": Identifier("kept")},
@@ -72,12 +74,12 @@ class TestMaintenanceTemplates:
                 ),
                 render_template(
                     "postgres/create_stub_function",
-                    {"schema": target, "function": Identifier("stale_aggregate")},
+                    {"schema": target, "function": Identifier("stale_agg")},
                     root=TEST_SQL_DIR,
                 ),
                 render_template(
                     "postgres/create_stub_function",
-                    {"schema": target, "function": Identifier("kept_aggregate")},
+                    {"schema": target, "function": Identifier("kept_agg")},
                     root=TEST_SQL_DIR,
                 ),
                 helm_sql(
@@ -96,55 +98,33 @@ class TestMaintenanceTemplates:
             await relation_exists(postgres, schema, "kept"),
             await relation_exists(postgres, schema, "stale"),
             await function_exists(postgres, schema, "stale_fn()"),
-            await function_exists(postgres, schema, "stale_aggregate()"),
-            await function_exists(postgres, schema, "kept_aggregate()"),
+            await function_exists(postgres, schema, "stale_agg()"),
+            await function_exists(postgres, schema, "kept_agg()"),
         ] == [True, False, False, False, True]
 
     async def test_prune_access_log_keeps_only_recent_rows(
         self, postgres: Postgres, psql: Psql
     ) -> None:
-        """Keeps only recent rows."""
-        schema = postgres.namespace.schema
-        target = postgres.namespace.identifier
-        psql.run(
-            psql_script(
-                helm_sql(
-                    "setup_access_policy",
-                    {
-                        "schema": target,
-                        "user_role": Identifier(settings.AUTH_USER_ROLE),
-                        "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
-                        "scope": schema_scope_condition(schema),
-                    },
-                ),
-                migration_sql("console", "00013_maintenance.sql", schema=schema),
-            )
-        )
+        """Keeps only the rows of the log that are newer than the retention."""
         for subject, age in (("stale", "100 days"), ("recent", "1 day")):
-            await execute_sql(
-                postgres,
-                "postgres/insert_access_log",
-                mapping={"schema": target},
-                params={
-                    "subject": subject,
-                    "unit_type": "unit",
-                    "unit_id": "unit_1",
-                    "action": "insert",
-                    "age": age,
-                },
+            await postgres.connection.execute(
+                b"INSERT INTO access.log VALUES (%s, 'sales', 'unit', 'unit_1', 'insert', now() - %s::interval)",
+                (subject, age),
             )
         await postgres.connection.commit()
 
-        psql.run(
-            psql_script(helm_sql("call_prune_access_log", {"schema": target})),
-            {"retention": "90 days", "schema": schema},
-        )
+        try:
+            psql.run(
+                psql_script(helm_sql("call_prune_access_log", {})),
+                {"retention": "90 days"},
+            )
 
-        assert await fetch_all(
-            postgres,
-            "postgres/access_log_entries",
-            mapping={"schema": target},
-        ) == [("recent", "unit", "unit_1", "insert")]
+            assert await fetch_all(
+                postgres, "postgres/access_log_entries", mapping={}
+            ) == [("recent", "unit", "unit_1", "insert")]
+        finally:
+            await postgres.connection.execute(b"CALL access.prune_log('0 seconds')")
+            await postgres.connection.commit()
 
     @pytest.mark.parametrize(
         ("status", "age_days", "kept"),
@@ -370,12 +350,18 @@ class TestSchemaLifecycle:
             == 3
         )
 
-    async def test_create_schema_makes_the_schema_once(
+    async def test_create_schema_makes_the_schema_once_and_lets_the_request_role_use_it(
         self, postgres: Postgres
     ) -> None:
-        """Create a schema, and create it again without error."""
+        """Create a schema and give the request role usage of it, and run it again without an error."""
         name = f"{postgres.namespace.schema}_new"
-        statement = helm_sql("create_schema", {"schema": Identifier(name)}).encode()
+        statement = helm_sql(
+            "create_schema",
+            {
+                "schema": Identifier(name),
+                "user_role": Identifier(settings.AUTH_USER_ROLE),
+            },
+        ).encode()
 
         await postgres.connection.execute(statement)
         await postgres.connection.execute(statement)
@@ -385,6 +371,15 @@ class TestSchemaLifecycle:
                 postgres, "SELECT count(*) FROM pg_namespace WHERE nspname = %s", name
             )
             == 1
+        )
+        assert (
+            await scalar(
+                postgres,
+                "SELECT has_schema_privilege(%s, %s, 'USAGE')",
+                settings.AUTH_USER_ROLE,
+                name,
+            )
+            is True
         )
 
     async def test_remove_schema_drops_the_schema_and_what_the_engine_kept_for_it(
@@ -398,16 +393,25 @@ class TestSchemaLifecycle:
                 """
                 CREATE SCHEMA {gone};
                 CREATE VIEW {gone}.people AS SELECT 1 AS id;
-                CREATE TABLE {gone}.access_policy (subject text);
                 INSERT INTO {app}.state VALUES
                     ('p.d.people', '{{}}'), ('p.d.other', '{{}}');
                 INSERT INTO {app}.scope VALUES
                     ('w1', 'r1', {name}, ''), ('w2', 'r2', 'kept', '');
                 INSERT INTO {app}.errors (reason, fields) VALUES
                     ('table_blocked', '{{"table": "p.d.people"}}'),
-                    ('table_blocked', '{{"table": "p.d.other"}}')
+                    ('table_blocked', '{{"table": "p.d.other"}}');
+                INSERT INTO access.policy VALUES
+                    ('ana', {name}::ltree, 'unit', '1'),
+                    ('ana', {table}::ltree, 'unit', '1'),
+                    ('ana', {kept}::ltree, 'unit', '1')
                 """
-            ).format(gone=Identifier(name), app=app, name=Literal(name))
+            ).format(
+                gone=Identifier(name),
+                app=app,
+                name=Literal(name),
+                table=Literal(f"{name}.people"),
+                kept=Literal(f"{name}_other"),
+            )
         )
         statement = helm_sql(
             "remove_schema",
@@ -437,6 +441,7 @@ class TestSchemaLifecycle:
             ).format(app=app)
         )
         assert await cursor.fetchone() == (["p.d.other"], ["kept"], ["p.d.other"])
+        assert await names_of_scopes(postgres, name) == [f"{name}_other"]
 
     async def test_drop_catalog_schema_drops_the_metadata_schema_and_is_repeatable(
         self, postgres: Postgres
@@ -513,9 +518,7 @@ class TestInstalledObjects:
             await function_exists(
                 postgres, schema, "people_dl_fn(text, text, boolean, text[], text)"
             ),
-            await function_exists(
-                postgres, schema, "dl_changes_people(bigint, bigint)"
-            ),
+            await function_exists(postgres, schema, "people_dl_chg(bigint, bigint)"),
             await function_exists(postgres, schema, "dl_latest_snapshot()"),
             await function_exists(
                 postgres,
@@ -683,7 +686,5 @@ class TestInstalledObjects:
             await function_exists(
                 postgres, schema, "people_dl_fn(text, text, boolean, text[], text)"
             ),
-            await function_exists(
-                postgres, schema, "dl_changes_people(bigint, bigint)"
-            ),
+            await function_exists(postgres, schema, "people_dl_chg(bigint, bigint)"),
         ] == [False, False, False, False]

@@ -118,25 +118,6 @@ function Redis:generations(profile)
 	return tonumber(replies[1]) or 0, tonumber(replies[2]) or 0
 end
 
---- Count one change of the access policy.
----@return boolean counted false if Redis did not answer.
-function Redis:bump_generation()
-	local connection, open_error = self:open()
-	if not connection then
-		warn("connection", open_error)
-		return false
-	end
-
-	local count, incr_error = connection:incr(constants.redis.generation_key)
-	self:release(connection)
-	if not count then
-		warn("write", incr_error)
-		return false
-	end
-
-	return true
-end
-
 --- Store one entry. The entry expires after the TTL.
 ---@param key string Cache key.
 ---@param ttl string|number Lifetime in seconds.

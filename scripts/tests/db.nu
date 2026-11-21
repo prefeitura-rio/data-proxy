@@ -106,6 +106,10 @@ export def "test other-tables-lists-the-tables-that-no-diagram-draws" []: nothin
         {
             name: test.ducklake_x
             type: 'BASE TABLE'
+        }
+        {
+            name: test.ducklake_y
+            type: 'BASE TABLE'
             comment: ''
         }
         {
@@ -120,10 +124,11 @@ export def "test other-tables-lists-the-tables-that-no-diagram-draws" []: nothin
 
     let cases = [
         {
-            name: 'a drawn table, a view and a table without a comment'
+            name: 'a drawn table, a view and a table with no comment or an empty one'
             shown: [dbos.queues]
             expected: [
                 {Group: '-', Table: '`ducklake_x`', Contents: '-'}
+                {Group: '-', Table: '`ducklake_y`', Contents: '-'}
                 {Group: DBOS, Table: '`notifications`', Contents: Messages.}
                 {Group: 'DuckLake metadata', Table: '`ducklake_snapshot`', Contents: Snapshots.}
             ]
@@ -134,6 +139,7 @@ export def "test other-tables-lists-the-tables-that-no-diagram-draws" []: nothin
                 dbos.queues
                 dbos.notifications
                 test.ducklake_x
+                test.ducklake_y
                 test.ducklake_snapshot
             ]
             expected: []

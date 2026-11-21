@@ -211,6 +211,46 @@ class TestSchemaConfiguration:
                 }
             )
 
+    @pytest.mark.parametrize(
+        ("first", "second", "collide"),
+        [
+            pytest.param(
+                "a" * 63 + "x", "a" * 63 + "y", True, id="cut-names-are-equal"
+            ),
+            pytest.param(
+                "a" * 62 + "x", "a" * 62 + "y", False, id="names-differ-before-the-cut"
+            ),
+            pytest.param("orders", "orders_old", False, id="short-names"),
+        ],
+    )
+    def test_rejects_two_tables_with_one_change_feed_function(
+        self, first: str, second: str, collide: bool
+    ) -> None:
+        """PostgreSQL cuts a function name at 63 bytes, so two long table names can share one function."""
+        schemas = {
+            "app": SchemaConfig(
+                tables=[FullTable(name=f"p.d.{first}"), FullTable(name=f"p.d.{second}")]
+            )
+        }
+
+        if collide:
+            with pytest.raises(ValueError, match="change-feed function") as error:
+                SyncConfig(schemas=schemas)
+
+            assert f"p.d.{first}" in str(error.value)
+            assert f"p.d.{second}" in str(error.value)
+        else:
+            SyncConfig(schemas=schemas)
+
+    def test_allows_the_same_long_prefix_in_two_schemas(self) -> None:
+        """A function name is local to its schema."""
+        SyncConfig(
+            schemas={
+                "one": SchemaConfig(tables=[FullTable(name="p.d." + "a" * 52 + "x")]),
+                "two": SchemaConfig(tables=[FullTable(name="p.d." + "a" * 52 + "y")]),
+            }
+        )
+
     def test_rejects_duplicate_table_names(self) -> None:
         """Reject the same source table in two schemas."""
         with pytest.raises(ValueError, match="Duplicate"):

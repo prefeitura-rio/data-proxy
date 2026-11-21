@@ -29,13 +29,11 @@ var (
 // defaultProject is the project that every database has. A resource can't create it.
 const defaultProject = "default"
 
-// projectResource is the data_proxy_project resource. A project groups schemas under one name.
 type projectResource struct {
 	client  *client.Client
 	backoff client.Backoff
 }
 
-// projectModel maps the data_proxy_project resource.
 type projectModel struct {
 	ID        types.String `tfsdk:"id"`
 	Name      types.String `tfsdk:"name"`
@@ -43,12 +41,10 @@ type projectModel struct {
 	UpdatedBy types.String `tfsdk:"updated_by"`
 }
 
-// newProjectResource returns the data_proxy_project resource.
 func newProjectResource() resource.Resource {
 	return &projectResource{backoff: client.DefaultBackoff}
 }
 
-// projectState maps a row of the API to the model.
 func projectState(row client.Project) projectModel {
 	return projectModel{
 		ID:        types.StringValue(row.Name),
@@ -59,12 +55,12 @@ func projectState(row client.Project) projectModel {
 }
 
 // Metadata names the resource with the type name of the provider and the suffix _project.
-func (r *projectResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
+func (pr *projectResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
 	resp.TypeName = req.ProviderTypeName + "_project"
 }
 
 // Schema declares the attributes of the project.
-func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
+func (pr *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Description: "A project that groups schemas. The project `default` exists already, so import it with a data source instead.",
 		Attributes: map[string]schema.Attribute{
@@ -78,7 +74,7 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Required:    true,
 				Validators: []validator.String{
 					stringvalidator.RegexMatches(projectName, "must be a lowercase letter and up to 29 lowercase letters and digits"),
-					stringvalidator.NoneOf(defaultProject),
+					stringvalidator.NoneOf(append([]string{defaultProject}, reservedProjects...)...),
 				},
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
@@ -95,12 +91,12 @@ func (r *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 }
 
 // Configure takes the client that the provider built.
-func (r *projectResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
-	r.client = providerClient(req.ProviderData, &resp.Diagnostics)
+func (pr *projectResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+	pr.client = providerClient(req.ProviderData, &resp.Diagnostics)
 }
 
 // Create adds the project.
-func (r *projectResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+func (pr *projectResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan projectModel
 
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
@@ -109,7 +105,7 @@ func (r *projectResource) Create(ctx context.Context, req resource.CreateRequest
 		return
 	}
 
-	row, err := r.client.CreateProject(ctx, plan.Name.ValueString())
+	row, err := pr.client.CreateProject(ctx, plan.Name.ValueString())
 	if err != nil {
 		addAPIError(&resp.Diagnostics, "Couldn't create the project", "create_config", err)
 
@@ -120,7 +116,7 @@ func (r *projectResource) Create(ctx context.Context, req resource.CreateRequest
 }
 
 // Read refreshes the project, and drops it from the state when it no longer exists.
-func (r *projectResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
+func (pr *projectResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	var state projectModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -131,8 +127,8 @@ func (r *projectResource) Read(ctx context.Context, req resource.ReadRequest, re
 
 	var row client.Project
 
-	err := client.RetryNoRow(ctx, r.backoff, func(ctx context.Context) (err error) {
-		row, err = r.client.GetProject(ctx, state.Name.ValueString())
+	err := client.RetryNoRow(ctx, pr.backoff, func(ctx context.Context) (err error) {
+		row, err = pr.client.GetProject(ctx, state.Name.ValueString())
 
 		return err
 	})
@@ -148,12 +144,12 @@ func (r *projectResource) Read(ctx context.Context, req resource.ReadRequest, re
 }
 
 // Update never runs, because the name is the only attribute and a change of it replaces the project.
-func (r *projectResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
+func (pr *projectResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
 	resp.Diagnostics.AddError("A project can't change", "The name of a project is its only attribute. Report this bug to the developers of the provider.")
 }
 
 // Delete removes the project. The database refuses it while the project has schemas.
-func (r *projectResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+func (pr *projectResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	var state projectModel
 
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
@@ -162,12 +158,12 @@ func (r *projectResource) Delete(ctx context.Context, req resource.DeleteRequest
 		return
 	}
 
-	if err := r.client.DeleteProject(ctx, state.Name.ValueString()); err != nil {
+	if err := pr.client.DeleteProject(ctx, state.Name.ValueString()); err != nil {
 		addAPIError(&resp.Diagnostics, "Couldn't delete the project", "delete_config", err)
 	}
 }
 
 // ImportState reads the project by its name.
-func (r *projectResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+func (pr *projectResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("name"), req, resp)
 }

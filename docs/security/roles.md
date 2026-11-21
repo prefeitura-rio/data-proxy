@@ -6,7 +6,7 @@
 %% Role inheritance
 flowchart TD
   dp_api["<b>dp_api</b><br/>read_api"]
-  dp_policy["<b>dp_policy</b><br/>read_policy<br/>create_policy<br/>edit_policy<br/>delete_policy"]
+  dp_policy["<b>dp_policy</b><br/>read_config<br/>read_policy<br/>create_policy<br/>edit_policy<br/>delete_policy"]
   dp_console["<b>dp_console</b><br/>read_sync<br/>read_config"]
   dp_admin["<b>dp_admin</b><br/>start_sync<br/>control_sync<br/>create_config<br/>edit_config<br/>delete_config<br/>import_config<br/>read_files<br/>read_ducklake"]
   dp_api -->|"inherited by"| dp_console
@@ -25,7 +25,7 @@ The table shows the permissions that each role has, with the inherited ones. The
 | `read_sync`     |          |             | yes          | yes        |
 | `start_sync`    |          |             | yes          | yes        |
 | `control_sync`  |          |             | yes          | yes        |
-| `read_config`   |          |             | yes          | yes        |
+| `read_config`   |          | yes         | yes          | yes        |
 | `create_config` |          |             | yes          | yes        |
 | `edit_config`   |          |             | yes          | yes        |
 | `delete_config` |          |             | yes          | yes        |
@@ -40,7 +40,7 @@ The table shows the permissions that each role has, with the inherited ones. The
 | Role | Inherits | Adds |
 | --- | --- | --- |
 | `dp_api` | | `read_api` |
-| `dp_policy` | | `read_policy`, `create_policy`, `edit_policy`, `delete_policy` |
+| `dp_policy` | | `read_config`, `read_policy`, `create_policy`, `edit_policy`, `delete_policy` |
 | `dp_console` | `dp_api` | `read_sync`, `read_config` |
 | `dp_admin` | `dp_console`, `dp_policy` | `start_sync`, `control_sync`, `create_config`, `edit_config`, `delete_config`, `import_config`, `read_files`, `read_ducklake` |
 

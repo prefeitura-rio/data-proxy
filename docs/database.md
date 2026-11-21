@@ -14,10 +14,11 @@ A schema is an API that PostgREST serves, a rule that the APIs share, or private
 | `console` | API, served | The views, the functions, and the three configuration tables that the web app uses. |
 | `data_proxy` | Private | The `state`, `errors`, and `scope` tables of the engine, the routing and reload functions, `sees()` (which workflows a token sees), and the maintenance procedures. |
 | `dbos` | Private, owned by DBOS | The workflow tables. |
-| One schema for each source schema | API, served | `access_policy`, `access_log`, and the views and functions of the synced tables. |
+| `access` | API, served | The table `policy`, which stores the grants of every project, and the table `log`, which records each change. A scope of one `ltree` column says what a grant covers. |
+| One schema for each source schema | API, served | The views and the functions of the synced tables. |
 | `public`, `duckdb` | Defaults | The goose version table, the extensions, and the objects of `pg_duckdb`. |
 
-A source schema has a physical name, which is `<project>_<short name>`, or the short name in the project `default`. It can't have the name `console`, `rbac`, `data_proxy`, `dbos`, `public`, `duckdb` or `information_schema`, and its name can't start with `pg_`. A check on `console.schemas` refuses these names.
+A source schema has a physical name, which is `<project>__<short name>`, also in the project `default`. The name always has two underscores, so it never equals the name of a schema of the system. The S3 folder of its files is the short name in `default`, and `<project>_<short name>` in another project. A check on `console.schemas` refuses these names.
 
 The `ducklake` database contains one metadata schema for each source schema, with the same name. It's a separate database because the catalog has its own owner, `ops`, and its own read-only login, `duckdb`.
 
@@ -29,6 +30,7 @@ DBOS stays in the application database. The console views join `dbos.workflow_st
 | --- | --- |
 | `postgis` | BigQuery `GEOGRAPHY` support. |
 | `pg_duckdb` | Executes DuckDB scans and reads SeaweedFS Parquet. |
+| `ltree` | The paths of projects, schemas and tables in the view `console.catalog`. |
 
 The function `data_proxy.pre_request()` isn't an extension. It mirrors the JSON Web Token (JWT) claims into PostgreSQL session settings.
 
@@ -38,11 +40,10 @@ Each configured schema contains metadata and views:
 
 | Object | Purpose |
 | --- | --- |
-| `<schema>.access_policy` | Active access grants. |
-| `<schema>.access_log` | Append-only audit trail of grant changes. |
 | `<schema>.<table>` | PostgreSQL view over the table function. |
 | `<schema>.<table>_fn()` | `SECURITY DEFINER` function that checks row-level security (RLS), plans the sources, and reads them. |
-| `<schema>.<table>_aggregate()` | `SECURITY DEFINER` function that applies RLS and runs the aggregate of a request inside DuckDB. It answers `null` for a request that the table function must serve. A table with a name longer than 53 bytes has none. |
+| `<schema>.<table>_agg()` | `SECURITY DEFINER` function that applies RLS and runs the aggregate of a request inside DuckDB. It answers `null` for a request that the table function must serve. A table with a name longer than 59 bytes has none. |
+| `<schema>.<table>_dl_chg(bigint, bigint)` | `SECURITY DEFINER` function that returns the DuckLake change feed of the table, with the same schema scope and row policy. |
 | `<schema>.<table>_dl_fn(text, text, boolean, text[], text)` | Private `SECURITY DEFINER` helper that reads DuckLake at one snapshot, with the columns and the tail that the request needs. |
 | `<schema>.<table>_bq_fn(text, text)` | Private `SECURITY DEFINER` helper that reads the schema source (BigQuery today) when a partitioned table sets `fallback: true`. |
 

@@ -16,8 +16,7 @@ viewpoints:
       - console.config_history
       - data_proxy.*
       - rbac.*
-      - '*.access_policy'
-      - '*.access_log'
+      - access.*
   - name: workflow
     desc: DBOS workflow tables
     tables:

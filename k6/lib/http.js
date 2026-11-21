@@ -2,7 +2,7 @@
 import http from "k6/http";
 import { scenario } from "./check.js";
 import { rememberRequest } from "./log.js";
-import { API_URL, FULL_TABLE, HOST, POSTGREST_URL, PROXY_ADMIN_URL, SCHEMA } from "./env.js";
+import { API_URL, FULL_TABLE, HOST, POSTGREST_URL, PROXY_ADMIN_URL, SCHEMA, schemaPath } from "./env.js";
 
 const ducklake = scenario("ducklake");
 
@@ -50,7 +50,7 @@ export function authHeaders(token) {
  */
 export function proxyGet(path, token, extra = {}) {
     return rememberRequest(
-        http.get(`${API_URL}${path}`, {
+        http.get(`${API_URL}${schemaPath(extra["Accept-Profile"] ?? SCHEMA)}${path}`, {
             headers: { ...authHeaders(token), ...extra },
             tags: { name: `proxy:${path.split("?")[0]}` },
         }),

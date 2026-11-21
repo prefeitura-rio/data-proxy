@@ -1,5 +1,6 @@
 /** @import { Kubernetes } from 'k6/x/kubernetes' */
 import { consoleCall, postgrestCall } from "./console.js";
+import { dataFolder } from "./env.js";
 import { cronJobPodSpec, rcloneStore, runCommandJob, sqlEquals } from "./kubernetes.js";
 
 const PROVISION_CRONJOB = "data-proxy-provision";
@@ -26,7 +27,7 @@ function succeeds(run) {
  * @param {string} subject
  */
 export function removeSchemaFromConsole(schema, table, subject) {
-    postgrestCall(schema, "DELETE", `/access_policy?subject=eq.${subject}`, "admin");
+    postgrestCall("access", "DELETE", `/policy?subject=eq.${subject}`, "admin");
     consoleCall("DELETE", `/tables?name=eq.${table}`, "admin");
     consoleCall("DELETE", `/schemas?name=eq.${schema}`, "admin");
 }
@@ -68,7 +69,7 @@ export function catalogSchemaGone(k8s, schema) {
 export function filesGone(k8s, schema) {
     const podSpec = cronJobPodSpec(k8s, PROVISION_CRONJOB);
     const scheme = '"$([ "$S3_USE_SSL" = true ] && echo https || echo http)://$S3_ENDPOINT"';
-    const prefix = `store:$S3_BUCKET/$DUCKLAKE_CATALOG_PATH/${schema}`;
+    const prefix = `store:$S3_BUCKET/$DUCKLAKE_CATALOG_PATH/${dataFolder(schema)}`;
 
     return succeeds(() =>
         runCommandJob(
@@ -105,7 +106,7 @@ export function catalogTableGone(k8s, schema, table) {
 export function tableFilesGone(k8s, schema, table) {
     const podSpec = cronJobPodSpec(k8s, PROVISION_CRONJOB);
     const scheme = '"$([ "$S3_USE_SSL" = true ] && echo https || echo http)://$S3_ENDPOINT"';
-    const prefix = `store:$S3_BUCKET/$DUCKLAKE_CATALOG_PATH/${schema}/main/${table}`;
+    const prefix = `store:$S3_BUCKET/$DUCKLAKE_CATALOG_PATH/${dataFolder(schema)}/main/${table}`;
 
     return succeeds(() =>
         runCommandJob(

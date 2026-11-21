@@ -27,7 +27,8 @@ export const nothing = () => undefined;
  */
 export const createSchema = () =>
     consoleCall("POST", "/schemas", "admin", {
-        name: PROBE_SCHEMA,
+        project: "default",
+        short_name: PROBE_SCHEMA.replace("default__", ""),
         source: "bigquery",
         settings: { project: "probe" },
     });
@@ -42,18 +43,18 @@ export const removeGrantProbeSchema = () =>
 /**
  * @returns {K6Response}
  */
-export const createPolicy = () => postgrestCall(SCHEMA, "POST", "/access_policy", "admin", policyRow);
+export const createPolicy = () => postgrestCall("access", "POST", "/policy", "admin", policyRow);
 
 /**
  * @returns {K6Response}
  */
 export const removePolicy = () =>
-    postgrestCall(SCHEMA, "DELETE", `/access_policy?subject=eq.${PROBE_SUBJECT}`, "admin");
+    postgrestCall("access", "DELETE", `/policy?subject=eq.${PROBE_SUBJECT}`, "admin");
 
-export const PROBE_SCHEMA = "e2e_probe";
-export const GRANT_PROBE_SCHEMA = "grant_probe";
+export const PROBE_SCHEMA = "default__e2e_probe";
+export const GRANT_PROBE_SCHEMA = "default__grant_probe";
 export const PROBE_SUBJECT = "e2e_rbac_probe";
-export const policyRow = { subject: PROBE_SUBJECT, unit_type: "unit", unit_id: "unit_probe" };
+export const policyRow = { scope: SCHEMA.replace("__", "."), subject: PROBE_SUBJECT, unit_type: "unit", unit_id: "unit_probe" };
 
 /**
  * The permissions that a role holds in a rules file: its own and those of the roles that it inherits, at any depth.

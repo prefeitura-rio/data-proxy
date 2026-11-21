@@ -29,28 +29,28 @@ var (
 )
 
 // Metadata names the data source with the type name of the provider and its suffix.
-func (d *lookup[T]) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
-	resp.TypeName = req.ProviderTypeName + "_" + d.suffix
+func (l *lookup[T]) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_" + l.suffix
 }
 
 // Schema declares the attributes of the data source.
-func (d *lookup[T]) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
-	resp.Schema = schema.Schema{Description: d.description, Attributes: d.attributes}
+func (l *lookup[T]) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	resp.Schema = schema.Schema{Description: l.description, Attributes: l.attributes}
 }
 
 // ConfigValidators returns the validators that compare several attributes.
-func (d *lookup[T]) ConfigValidators(context.Context) []datasource.ConfigValidator {
-	return d.validators
+func (l *lookup[T]) ConfigValidators(context.Context) []datasource.ConfigValidator {
+	return l.validators
 }
 
 // Configure takes the client that the provider built.
-func (d *lookup[T]) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
-	d.client = providerClient(req.ProviderData, &resp.Diagnostics)
+func (l *lookup[T]) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	l.client = providerClient(req.ProviderData, &resp.Diagnostics)
 }
 
 // Read fills the model from the API and stores it in the state.
-func (d *lookup[T]) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
-	if d.client == nil {
+func (l *lookup[T]) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
+	if l.client == nil {
 		resp.Diagnostics.AddError("Unconfigured provider", "The data source has no client, because the provider isn't configured.")
 
 		return
@@ -64,8 +64,8 @@ func (d *lookup[T]) Read(ctx context.Context, req datasource.ReadRequest, resp *
 		return
 	}
 
-	if err := d.read(ctx, d.client, &model); err != nil {
-		addAPIError(&resp.Diagnostics, "Couldn't read "+d.suffix, d.permission, err)
+	if err := l.read(ctx, l.client, &model); err != nil {
+		addAPIError(&resp.Diagnostics, "Couldn't read "+l.suffix, l.permission, err)
 
 		return
 	}

@@ -7,12 +7,19 @@ import { can } from '#lib/permissions.js';
 import { writeMessage } from '#lib/messages.js';
 import { api, need } from '#lib/server/api.js';
 import type { Result } from '#lib/server/postgrest.js';
-import { AccessLogRow, PolicyRow, SchemaName } from '#lib/types.js';
+import { AccessLogRow, CatalogPath, PolicyRow, ProjectRow } from '#lib/types.js';
 import type { Actions, PageServerLoad } from './$types';
 
 const PAGE = 50;
 const LOG_PAGE = 20;
 const ACTIONS = ['insert', 'update', 'delete'];
+const ACCESS = 'access';
+
+/** The scope that stands for every project and every schema: the empty ltree path. */
+const ALL = '*';
+
+const toPath = (scope: string) => (scope === ALL ? '' : scope);
+const ProjectName = v.pick(ProjectRow, ['name']);
 
 export const load: PageServerLoad = async ({ locals, parent, url }) => {
 	const { permissions } = await parent();
@@ -22,13 +29,21 @@ export const load: PageServerLoad = async ({ locals, parent, url }) => {
 	}
 
 	const client = api(locals.session);
-	const schemas = need(await client.get('/schemas?select=name&order=name', v.array(SchemaName))).map((row) => row.name);
-	const schema = url.searchParams.get('schema') ?? schemas[0] ?? null;
+	const [projects, catalog] = await Promise.all([
+		client.get('/projects?select=name&order=name', v.array(ProjectName)),
+		client.get('/catalog?select=path&path=not.is.null&order=path', v.array(CatalogPath))
+	]);
+	const scopes = [
+		...(can(permissions, 'grant_all') ? [ALL] : []),
+		...need(projects).map((row) => row.name),
+		...need(catalog).map((row) => row.path)
+	];
+	const scope = url.searchParams.get('scope') ?? scopes[0] ?? null;
 
-	if (schema === null || !schemas.includes(schema)) {
+	if (scope === null || !scopes.includes(scope)) {
 		return {
-			schemas,
-			schema: null,
+			scopes,
+			scope: null,
 			policy: [],
 			policyTotal: 0,
 			policyPage: pageOf(url.searchParams, PAGE),
@@ -43,24 +58,25 @@ export const load: PageServerLoad = async ({ locals, parent, url }) => {
 	const logPage = pageOf(url.searchParams, LOG_PAGE, 'log_page');
 	const action = url.searchParams.get('action') ?? '';
 	const actionFilter = ACTIONS.includes(action) ? `&action=eq.${action}` : '';
+	const scopeFilter = `&scope=eq.${encodeURIComponent(toPath(scope))}`;
 	const [policy, log] = await Promise.all([
 		client.page(
-			`/access_policy?order=subject,unit_type,unit_id&${rangeQuery(policyPage)}${containsFilter(['subject', 'unit_id'], url.searchParams.get('q') ?? '')}`,
+			`/policy?order=subject,unit_type,unit_id&${rangeQuery(policyPage)}${scopeFilter}${containsFilter(['subject', 'unit_id'], url.searchParams.get('q') ?? '')}`,
 			v.array(PolicyRow),
-			schema
+			ACCESS
 		),
 		client.page(
-			`/access_log?order=changed_at.desc&${rangeQuery(logPage)}${actionFilter}${containsFilter(['subject'], url.searchParams.get('log_subject') ?? '')}`,
+			`/log?order=changed_at.desc&${rangeQuery(logPage)}${scopeFilter}${actionFilter}${containsFilter(['subject'], url.searchParams.get('log_subject') ?? '')}`,
 			v.array(AccessLogRow),
-			schema
+			ACCESS
 		)
 	]);
 	const policyRows = need(policy);
 	const logRows = need(log);
 
 	return {
-		schemas,
-		schema,
+		scopes,
+		scope,
 		policy: policyRows.rows,
 		policyTotal: policyRows.total,
 		policyPage,
@@ -83,12 +99,12 @@ const addedMessage = (asked: number, added: number) =>
 	added === asked ? 'Saved.' : `Saved ${added}, skipped ${asked - added} that already exist.`;
 
 const match = (form: FormData, prefix: string) =>
-	['subject', 'unit_type', 'unit_id']
+	['scope', 'subject', 'unit_type', 'unit_id']
 		.map((column) => `${column}=eq.${encodeURIComponent(text(form, `${prefix}${column}`))}`)
 		.join('&');
 
 export const actions: Actions = {
-	add: async ({ locals, request, url }) => {
+	add: async ({ locals, request }) => {
 		const form = await request.formData();
 		const units = parseUnits(text(form, 'unit_type'), text(form, 'unit_id'));
 
@@ -96,12 +112,13 @@ export const actions: Actions = {
 			return fail(400, { message: units.message });
 		}
 
+		const scope = toPath(text(form, 'scope'));
 		const subject = text(form, 'subject');
 		const result = await api(locals.session).post(
-			'/access_policy',
-			units.rows.map((row) => ({ subject, ...row })),
-			url.searchParams.get('schema') ?? undefined,
-			{ skipDuplicates: ['subject', 'unit_type', 'unit_id'] }
+			'/policy',
+			units.rows.map((row) => ({ scope, subject, ...row })),
+			ACCESS,
+			{ skipDuplicates: ['subject', 'scope', 'unit_type', 'unit_id'] }
 		);
 
 		if (!result.ok) {
@@ -110,7 +127,7 @@ export const actions: Actions = {
 
 		return { toast: addedMessage(units.rows.length, Array.isArray(result.data) ? result.data.length : 0) };
 	},
-	edit: async ({ locals, request, url }) => {
+	edit: async ({ locals, request }) => {
 		const form = await request.formData();
 		const units = parseUnits(text(form, 'unit_type'), text(form, 'unit_id'));
 
@@ -124,20 +141,15 @@ export const actions: Actions = {
 
 		return done(
 			await api(locals.session).patch(
-				`/access_policy?${match(form, 'old_')}`,
-				{ subject: text(form, 'subject'), ...units.rows[0] },
-				url.searchParams.get('schema') ?? undefined
+				`/policy?${match(form, 'old_')}`,
+				{ scope: text(form, 'old_scope'), subject: text(form, 'subject'), ...units.rows[0] },
+				ACCESS
 			)
 		);
 	},
-	remove: async ({ locals, request, url }) => {
+	remove: async ({ locals, request }) => {
 		const form = await request.formData();
 
-		return done(
-			await api(locals.session).delete(
-				`/access_policy?${match(form, 'old_')}`,
-				url.searchParams.get('schema') ?? undefined
-			)
-		);
+		return done(await api(locals.session).delete(`/policy?${match(form, 'old_')}`, ACCESS));
 	}
 };

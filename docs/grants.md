@@ -14,11 +14,11 @@ This page describes the PostgreSQL roles, the security of the functions, the pus
 
 `configure-db` creates `anon`, the `dp_*` roles and `serving` as `ops`, so a new role in `rbac.toml` needs no chart change.
 
-The Secret of a login has the name `<release>-cnpg-<role>`: `-cnpg-ops`, `-cnpg-serving` and `-cnpg-duckdb`. After an upgrade of an install that used the old names, the chart creates the new Secrets with new generated passwords. The old names are the Secrets `-cnpg-authenticator` and `-duckdb`, and the login `postgrest`. `configure-db` creates the `serving` login and sets its password, `provision` records `pgrst.db_schemas` on it, and the PgDog users Secret carries it. The old login, the old Secrets and the old DuckDB secret files `ducklake_reader_pg` and `ducklake_reader` stay until someone deletes them.
+The Secret of a login has the name `<release>-cnpg-<role>`: `-cnpg-ops`, `-cnpg-serving` and `-cnpg-duckdb`. `configure-db` creates the `serving` login and sets its password, `provision` records `pgrst.db_schemas` on it, and the PgDog users Secret carries it.
 
 ## Security and predicate pushdown
 
-The PostgreSQL functions are `SECURITY DEFINER` and read `access_policy` using the request claim settings. They build the allowed-row predicate and pass it into the DuckDB SQL query. This enforces RLS before the Parquet scan returns rows.
+The PostgreSQL functions are `SECURITY DEFINER` and read `access.policy` using the request claim settings. They build the allowed-row predicate and pass it into the DuckDB SQL query. This enforces RLS before the Parquet scan returns rows.
 
 An `rls` rule on a list column, such as `ARRAY<STRING>`, gives a row to a user. At least one value of the list must match a grant.
 

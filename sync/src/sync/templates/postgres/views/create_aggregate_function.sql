@@ -5,6 +5,7 @@
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "schema_literal": "SQL literal of the schema name, for the schemas claim check.",
+    "scope_path": "SQL literal of the ltree path of the table, for the grants of access.policy.",
     "app_schema": "PostgreSQL schema that holds the routing functions.",
     "function": "PostgreSQL function being created.",
     "dl_function": "Private DuckLake helper function.",
@@ -52,7 +53,7 @@ BEGIN
 
   v_subject := current_setting('{{ claim_setting }}', true);
 
-{{ rls_where_clause(schema, schema_literal, rls_mappings, true) }}
+{{ rls_where_clause(schema_literal, scope_path, rls_mappings, true) }}
   IF v_where IS NULL THEN
     RETURN '[]'::json;
   END IF;

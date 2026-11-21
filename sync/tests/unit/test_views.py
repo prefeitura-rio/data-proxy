@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from psycopg.sql import Identifier
+from pydantic import ValidationError
 
 import sync.views.mappings as utils
 import sync.views.reconcile as views_module
@@ -20,6 +21,7 @@ from sync.settings import settings
 from sync.templates import render_template
 from sync.types import TemplateValue
 from sync.views import stages
+from tests.fixtures.types import NoFallbackSource, RecordedConnection
 from tests.helpers.core import exactly
 
 
@@ -64,12 +66,10 @@ class TestSourceMappings:
     @pytest.mark.parametrize(
         ("table_name", "expected"),
         [
-            pytest.param("people", "dl_changes_people", id="short-name"),
+            pytest.param("people", "people_dl_chg", id="short-name"),
+            pytest.param("t" * 56, "t" * 56 + "_dl_chg", id="exactly-63-bytes-is-kept"),
             pytest.param(
-                "t" * 52, "dl_changes_" + "t" * 52, id="exactly-63-bytes-is-kept"
-            ),
-            pytest.param(
-                "t" * 60, ("dl_changes_" + "t" * 60)[:63], id="longer-name-is-cut"
+                "t" * 60, ("t" * 60 + "_dl_chg")[:63], id="longer-name-is-cut"
             ),
         ],
     )
@@ -77,9 +77,7 @@ class TestSourceMappings:
         self, table_name: str, expected: str
     ) -> None:
         """PostgreSQL stores an identifier of at most 63 bytes, so the reconcile must look for that name."""
-        table = FullTable(name=f"p.app.{table_name}")
-
-        assert utils.changes_function_name(table) == expected
+        assert utils.changes_function_name(table_name) == expected
         assert len(expected.encode()) <= 63
 
     def test_desires_one_view_per_table(self) -> None:
@@ -227,12 +225,10 @@ class TestAggregateFunction:
     @pytest.mark.parametrize(
         ("table_name", "expected"),
         [
-            pytest.param("people", "people_aggregate", id="short-name"),
-            pytest.param(
-                "a" * 53, f"{'a' * 53}_aggregate", id="longest-name-that-fits"
-            ),
-            pytest.param("a" * 54, None, id="one-byte-too-long"),
-            pytest.param("é" * 27, None, id="bytes-not-characters"),
+            pytest.param("people", "people_agg", id="short-name"),
+            pytest.param("a" * 59, f"{'a' * 59}_agg", id="longest-name-that-fits"),
+            pytest.param("a" * 60, None, id="one-byte-too-long"),
+            pytest.param("é" * 30, None, id="bytes-not-characters"),
         ],
     )
     def test_names_the_function_only_when_the_name_fits(
@@ -245,7 +241,7 @@ class TestAggregateFunction:
         ("table_name", "has_mapping"),
         [
             pytest.param("people", True, id="short-name"),
-            pytest.param("a" * 54, False, id="name-too-long"),
+            pytest.param("a" * 60, False, id="name-too-long"),
         ],
     )
     def test_maps_the_function_of_a_table_with_a_short_name(
@@ -261,7 +257,7 @@ class TestAggregateFunction:
         assert (mapping is not None) is has_mapping
         if mapping is not None:
             assert mapping["max_rows"] == str(settings.AGGREGATE_MAX_ROWS)
-            assert mapping["function"].as_string(None) == f'"{table_name}_aggregate"'  # type: ignore[union-attr]
+            assert mapping["function"].as_string(None) == f'"{table_name}_agg"'  # type: ignore[union-attr]
             assert mapping["dl_function"].as_string(None) == f'"{table_name}_dl_fn"'  # type: ignore[union-attr]
 
     @pytest.mark.parametrize(
@@ -355,7 +351,7 @@ class TestAggregateFunction:
         ("table_name", "rendered"),
         [
             pytest.param("people", True, id="short-name"),
-            pytest.param("a" * 54, False, id="name-too-long"),
+            pytest.param("a" * 60, False, id="name-too-long"),
         ],
     )
     def test_puts_the_function_in_the_serving_signature(
@@ -387,7 +383,7 @@ class TestAggregateFunction:
             pytest.param(
                 "people", ["postgres/views/create_aggregate_function"], id="short-name"
             ),
-            pytest.param("a" * 54, [], id="name-too-long"),
+            pytest.param("a" * 60, [], id="name-too-long"),
         ],
     )
     async def test_creates_the_function_only_for_a_short_name(
@@ -410,8 +406,8 @@ class TestAggregateFunction:
     @pytest.mark.parametrize(
         ("view_name", "expected"),
         [
-            pytest.param("people", '"people_aggregate"', id="short-name"),
-            pytest.param("a" * 54, "", id="name-too-long"),
+            pytest.param("people", '"people_agg"', id="short-name"),
+            pytest.param("a" * 60, "", id="name-too-long"),
         ],
     )
     async def test_drops_the_function_with_the_view(
@@ -479,7 +475,7 @@ CONFIGURED_FUNCTIONS: Final = frozenset(
     {
         ("app", "dl_latest_snapshot"),
         ("app", "dl_table_files"),
-        ("app", "dl_changes_people"),
+        ("app", "people_dl_chg"),
     }
 )
 
@@ -583,3 +579,44 @@ class TestReconciliationChange:
         await context.reconcile()
 
         assert context.postgrest_reload_required is True
+
+
+class TestColumnTypesFromDuckdb:
+    """The description of a source comes back as the name and the type of each column."""
+
+    @pytest.fixture
+    def source(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Replace the registry with a source that needs no extension."""
+
+        def configure(*_: object) -> NoFallbackSource:
+            return NoFallbackSource()
+
+        monkeypatch.setattr(utils.sources, "configure", configure)
+
+    @pytest.mark.usefixtures("source")
+    async def test_keeps_the_name_and_the_type_of_each_row_of_a_describe(self) -> None:
+        """DuckDB describes a column with six fields, and the function reads the first two."""
+        connection = RecordedConnection(
+            rows=[
+                ("id", "BIGINT", "YES", None, None, None),
+                ("name", "VARCHAR", "YES", None, None, None),
+            ]
+        )
+
+        columns = await utils.column_types_from_duckdb(
+            connection,  # type: ignore[arg-type]
+            FullTable(name="p.d.people"),
+        )
+
+        assert columns == [("id", "BIGINT"), ("name", "VARCHAR")]
+
+    @pytest.mark.usefixtures("source")
+    async def test_refuses_a_describe_with_fewer_fields(self) -> None:
+        """A row of two fields is not what DuckDB describes, so the run stops with the field count."""
+        connection = RecordedConnection(rows=[("id", "BIGINT")])
+
+        with pytest.raises(ValidationError, match="missing"):
+            await utils.column_types_from_duckdb(
+                connection,  # type: ignore[arg-type]
+                FullTable(name="p.d.people"),
+            )

@@ -1,6 +1,6 @@
 /** @import { Kubernetes } from 'k6/x/kubernetes' */
 import {
-    API_URL,
+    DATA_URL,
     authHeaders,
     BIG_TABLE,
     checkSql,
@@ -159,7 +159,7 @@ export function topology(k8s) {
     verifyStandbys(k8s);
     seedAccessPolicy();
     waitForAccessPolicyReplication(userToken());
-    const read = uncachedReads(API_URL, authHeaders(userToken()));
+    const read = uncachedReads(DATA_URL, authHeaders(userToken()));
 
     expect(
         "every read through the proxy succeeds",

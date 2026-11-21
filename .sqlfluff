@@ -97,3 +97,6 @@ grace_seconds = 120
 schema_argument = "'pic'"
 schema_literal = "'pic'"
 max_rows = "1000"
+scope_path = "'pic.people'"
+old = "'people_old'"
+new = "'people_new'"

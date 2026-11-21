@@ -1,15 +1,16 @@
 # Using the API
 
-Data Proxy exposes synced tables through [PostgREST](https://docs.postgrest.org/). Use a JSON Web Token (JWT) and select the target schema with `Accept-Profile`.
+Data Proxy exposes synced tables through [PostgREST](https://docs.postgrest.org/). Use a JSON Web Token (JWT) and name the project and the schema in the path: `/<project>/<schema>/<table>`.
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
-  "${BASE_URL}/participants?select=region_id,name&limit=20"
+  "${BASE_URL}/my_project/my_schema/participants?select=region_id,name&limit=20"
 ```
 
 ## Request routing
+
+The proxy reads the first two segments of the path as the project and the schema. It answers 404 when the configuration has no such schema. The segments `access`, `console`, `rbac`, `dbos`, `public`, `duckdb`, `rpc`, `docs` and `v1` never name a project. The proxy replaces any `Accept-Profile` header that the client sends.
 
 The proxy sends every request to the `postgrest` Deployment, which connects through PgDog. PgDog sends a `GET` to a standby and every write to the primary. See [Topology](operations/topology.md).
 
@@ -25,7 +26,7 @@ ${BASE_URL}/docs
 
 The page can list table and column names without exposing data. Use its Authorize control with the token value only. The page adds `Bearer `.
 
-The schema selector lists the schemas of the console. A sync worker updates the list after each schema change and at the start of every sync run. Reload the page to see the change, which takes about a minute.
+The schema selector lists the schemas of the console as `<project>__<schema>`. The page calls the path `/<project>/<schema>/` of the chosen schema. A sync worker updates the list after each schema change and at the start of every sync run. Reload the page to see the change, which takes about a minute.
 
 ## Querying
 
@@ -45,13 +46,12 @@ Use `Prefer: count=exact` to request a total. Read the total from `Content-Range
 
 ## DuckLake change feed
 
-Each configured table exposes a read-only RPC named `dl_changes_<table>` in its target schema. PostgreSQL cuts a name at 63 bytes, so the RPC of a table with a very long name has the cut name. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID and typed row columns.
+Each configured table exposes a read-only RPC named `<table>_dl_chg` in its target schema. PostgreSQL cuts a name at 63 bytes, so the RPC of a table with a very long name has the cut name. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID and typed row columns.
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
-  --get "${BASE_URL}/rpc/dl_changes_participants" \
+  --get "${BASE_URL}/my_project/my_schema/rpc/participants_dl_chg" \
   --data-urlencode "start_snapshot=12" \
   --data-urlencode "end_snapshot=15"
 ```
@@ -61,9 +61,8 @@ Use the schema RPC `dl_latest_snapshot` to get the current cursor before or afte
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
   --request POST \
-  "${BASE_URL}/rpc/dl_latest_snapshot"
+  "${BASE_URL}/my_project/my_schema/rpc/dl_latest_snapshot"
 ```
 
 Snapshot bounds are inclusive. The feed returns deleted rows as preimages. The same schema scope and row policy apply to change rows, including deleted preimages. DuckLake keeps the snapshot history for seven days, so consumers must advance their cursor within that window. Compaction preserves change history, but snapshot expiration removes history that references expired snapshots.
@@ -91,9 +90,8 @@ Send `X-DuckLake-Snapshot` to read DuckLake as of one snapshot. A pinned request
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
   --header "X-DuckLake-Snapshot: 42" \
-  "${BASE_URL}/my_table?limit=20"
+  "${BASE_URL}/my_project/my_schema/my_table?limit=20"
 ```
 
 An unknown or expired snapshot returns `404`, and a value that's not a whole number returns `400`. DuckLake keeps the snapshot history for seven days. A table that has no published data and no fallback also returns `404`.

@@ -22,7 +22,6 @@ const ConsoleProfile = "console"
 // DefaultTimeout limits one request when New gets no HTTP client.
 const DefaultTimeout = 30 * time.Second
 
-// maxErrorBody limits how much of an error response the client reads.
 const maxErrorBody = 1 << 20
 
 // maxBody limits how much of a successful response the client reads. A longer body cannot come from a page that
@@ -70,8 +69,8 @@ func OrderBy(column string, descending bool) Filter {
 }
 
 // Limit returns at most n rows.
-func Limit(n int) Filter {
-	return Filter{column: "limit", value: strconv.Itoa(n), raw: true}
+func Limit(rows int) Filter {
+	return Filter{column: "limit", value: strconv.Itoa(rows), raw: true}
 }
 
 // Client sends requests to one PostgREST endpoint.
@@ -128,7 +127,6 @@ func checkAddress(what, raw string, parsed *url.URL) error {
 	return nil
 }
 
-// isLoopback reports whether the host is localhost or a loopback IP address.
 func isLoopback(host string) bool {
 	if host == "localhost" {
 		return true
@@ -338,7 +336,6 @@ func (c *Client) do(ctx context.Context, r request, out any) error {
 	return nil
 }
 
-// target builds the address of a request from the endpoint, the path and the filters, in the order given.
 func (c *Client) target(r request) (string, error) {
 	path := r.path
 

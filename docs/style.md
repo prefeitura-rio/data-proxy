@@ -600,13 +600,14 @@ The Terraform provider of Data Proxy is a Go module in `terraform/`, with its ow
 ### Code
 
 - **GO-01** Keep the calls to PostgREST in `internal/client`, with no import of the Terraform Plugin Framework. The resources and the data sources call the client. [must, review]
-- **GO-02** Write a doc comment above each package, type, function, method and test helper, exported or not. Start it with the name, in one sentence. Comment other lines only to give a reason that the code can't show. [must, golangci-lint]
+- **GO-02** Write a doc comment on the package and on each exported name, starting with the name. Comment other lines only to give a reason that the code can't show. [must, golangci-lint]
 - **GO-03** Pass a `context.Context` as the first argument of each function that does I/O. Never store it in a struct. [must, review]
 - **GO-04** Wrap an error with `fmt.Errorf` and `%w`, and say the step that failed, such as `decode the row of %s: %w`. [must, review]
 - **GO-05** Give each kind of error that a caller handles a sentinel value, and check it with `errors.Is`. Don't compare the text of an error. [must, review]
 - **GO-06** Return an error. Never call `panic` or `os.Exit` outside `main.go`. [must, review]
 - **GO-07** Validate an input before the request, such as an empty filter of a `Patch` or a `Delete`, so a bad input never reaches PostgREST. [must, review]
 - **GO-08** Mark a secret attribute of a schema `Sensitive`, and never put a token or a secret in an error or a log. [must, review]
+- **GO-14** Name a receiver and a variable of a named type with one or two letters of the type, such as `gr` for `grantResource`. Give a value of an unnamed or interface type a descriptive name, such as `testCase`. [must, review]
 
 ```go
 ✅ return fmt.Errorf("decode the row of %s: %w", table, err)
@@ -617,13 +618,13 @@ The Terraform provider of Data Proxy is a Go module in `terraform/`, with its ow
 
 - **GO-09** Keep `tf:lint:go` green. It fails when `gofmt` would change a file, and it runs `golangci-lint`. [must, golangci-lint]
 - **GO-10** Keep `tf:test:unit` green. It runs `go test ./...` without `TF_ACC`, so the acceptance tests don't run. [must, devenv]
-- **GO-11** Write a table of cases with a `name` field, and run each case with `t.Run(tt.name, ...)`. [must, review]
+- **GO-11** Write a table of cases with a `name` field, and run each case with `t.Run(testCase.name, ...)`. [must, review]
 - **GO-12** Test the client against an `httptest` server. Test a delay with a fake clock, never with a real wait. [must, review]
 - **GO-13** Name a Go file with one word, and keep one test file for it with the same name and the suffix `_test`. Put a helper that several test files share in `provider_test.go` or `client_test.go`. `main.go` has no test. [should, review]
 
 ```go
-for _, tt := range tests {
-    t.Run(tt.name, func(t *testing.T) {
+for _, testCase := range testCases {
+    t.Run(testCase.name, func(t *testing.T) {
         ...
     })
 }
@@ -744,7 +745,7 @@ Applies to: `docs/**`, `README.md`, `AGENTS.md`, `STYLEGUIDE.md`.
 
 - **DOC-11** Write the documents in `docs/`. The home page is `docs/index.md`, and each folder has an `index.md` that lists its pages. [must, review]
 - **DOC-12** Name a file with one word, and use two words only if one word is unclear. [should, review]
-- **DOC-13** Give each topic one page, and link to it from the other pages. Keep a page near 800 words. `docs:lint:style` fails above 1000, unless the page is on a list in `scripts/docs.nu`. [must, devenv]
+- **DOC-13** Give each topic one page, and link to it from the other pages. [must, review]
 - **DOC-14** Link to a page with a relative link such as `[Roles](../security/roles.md#roles)`. Write the heading slug in lower case with hyphens. Start a link in the same folder with `./`. Link to a folder with its `index.md`. [must, devenv]
 - **DOC-15** Run `docs:lint:links` after you move a page or a heading. Marksman completes and follows the links in the editor, but it doesn't flag a broken one. [must, devenv]
 - **DOC-16** End every page with the navigation block (Previous, Next, Index and Home) that `docs:build:nav` writes. Don't edit the block by hand. [must, devenv]

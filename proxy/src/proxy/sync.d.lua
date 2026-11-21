@@ -23,6 +23,7 @@
 --- The table settings that the proxy reads from sync.json.
 ---@class SyncConfig
 ---@field tables table<string, TableSettings> Settings by short table name.
+---@field schemas table<string, boolean> The physical names of the schemas. A request names one as `project/schema`.
 ---@field disabled_endpoints string[] Path prefixes that are never cached.
 ---@field revision integer|nil The revision of the access policy and the rules that the document carries.
 ---@field scopes table<string, string>|nil The scope of each subject. Subjects with the same scope have the same grants.

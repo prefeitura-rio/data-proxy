@@ -2,7 +2,7 @@ import * as v from 'valibot';
 import { error, fail } from '@sveltejs/kit';
 import { list, optional, text, whole } from '#lib/forms.js';
 import { containsFilter, pageOf, rangeQuery } from '#lib/list.js';
-import { schemaPayload } from '#lib/projects.js';
+import { projectProblem, schemaPayload, schemaProblem } from '#lib/projects.js';
 import { parseRules } from '#lib/rules.js';
 import { can } from '#lib/permissions.js';
 import { writeMessage } from '#lib/messages.js';
@@ -123,9 +123,10 @@ function parseJson(text: string): unknown {
 
 export const actions: Actions = {
 	createProject: async ({ locals, request }) => {
-		const form = await request.formData();
+		const name = text(await request.formData(), 'name');
+		const problem = projectProblem(name);
 
-		return done(await api(locals.session).post('/projects', { name: text(form, 'name') }));
+		return problem ? fail(400, { message: problem }) : done(await api(locals.session).post('/projects', { name }));
 	},
 	deleteProject: async ({ locals, request }) => {
 		const name = encodeURIComponent(text(await request.formData(), 'name'));
@@ -133,9 +134,10 @@ export const actions: Actions = {
 		return done(await api(locals.session).delete(`/projects?name=eq.${name}`));
 	},
 	createSchema: async ({ locals, request }) => {
-		const form = await request.formData();
+		const payload = schemaPayload(await request.formData());
+		const problem = schemaProblem(payload.project, payload.short_name);
 
-		return done(await api(locals.session).post('/schemas', schemaPayload(form)));
+		return problem ? fail(400, { message: problem }) : done(await api(locals.session).post('/schemas', payload));
 	},
 	updateSchema: async ({ locals, request }) => {
 		const form = await request.formData();

@@ -1,10 +1,17 @@
 """Read the goose migrations of the repository, so that a test can run them in its own transaction."""
 
+import asyncio
+import os
 import re
+import shutil
+import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Final
 
+from tests.constants import POSTGRES_URL
+
+GOOSE: Final = shutil.which("goose")
 MIGRATIONS: Final = Path(__file__).parents[3] / "migrations"
 ENVSUB: Final = re.compile(r"\$\{(\w+)\}")
 ROLES: Final = {
@@ -99,3 +106,35 @@ def description_lines(text: str) -> list[str]:
             break
 
     return lines
+
+
+def scratch_url(name: str) -> str:
+    """Return the connection string of a scratch database."""
+    return f"{POSTGRES_URL}/{name}"
+
+
+async def goose(
+    folder: str,
+    name: str,
+    *command: str,
+    env: Mapping[str, str] = ROLES,
+) -> subprocess.CompletedProcess[str]:
+    """Run goose on a scratch database, with the role names that the migrations fill into their grants."""
+    return await asyncio.to_thread(
+        subprocess.run,
+        [
+            str(GOOSE),
+            "-dir",
+            str(MIGRATIONS / folder),
+            "postgres",
+            scratch_url(name),
+            *command,
+        ],
+        env={
+            **{k: v for k, v in os.environ.items() if not k.startswith("AUTH_")},
+            **env,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )

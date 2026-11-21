@@ -1,10 +1,10 @@
 {
   "revision": 7,
   "schemas": {
-    "hr": {
+    "default__hr": {
       "tables": [{ "name": "p.d.staff" }]
     },
-    "sales": {
+    "default__sales": {
       "tables": [{ "name": "p.d.events" }, { "name": "p.d.orders", "cache_ttl": 60 }]
     }
   }

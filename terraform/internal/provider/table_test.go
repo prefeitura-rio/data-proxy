@@ -197,24 +197,24 @@ func TestTableCreate(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := newTestTable(t, tt.steps)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			res := newTestTable(t, testCase.steps)
 			s := resourceSchema(t, res)
 			resp := resource.CreateResponse{State: nullState(s)}
 
-			res.Create(context.Background(), resource.CreateRequest{Plan: planOf(t, s, tableConfig(t, tt.rules...))}, &resp)
+			res.Create(context.Background(), resource.CreateRequest{Plan: planOf(t, s, tableConfig(t, testCase.rules...))}, &resp)
 
 			got := summaries(diagnosticsOf(resp.Diagnostics))
 
 			switch {
-			case tt.wantSummary != "" && (len(got) != 1 || got[0] != tt.wantSummary):
-				t.Fatalf("diagnostics = %v, want %q", got, tt.wantSummary)
-			case tt.wantSummary == "" && len(got) != 0:
+			case testCase.wantSummary != "" && (len(got) != 1 || got[0] != testCase.wantSummary):
+				t.Fatalf("diagnostics = %v, want %q", got, testCase.wantSummary)
+			case testCase.wantSummary == "" && len(got) != 0:
 				t.Fatalf("diagnostics = %v, want none", got)
 			}
 
-			if tt.wantSummary == "Couldn't create the table" {
+			if testCase.wantSummary == "Couldn't create the table" {
 				return
 			}
 
@@ -222,8 +222,8 @@ func TestTableCreate(t *testing.T) {
 
 			resp.State.Get(context.Background(), &state)
 
-			if state.ID.ValueString() != "sales.orders" || len(state.RLS) != tt.wantRules {
-				t.Errorf("id = %q, rules = %d, want sales.orders and %d rules", state.ID.ValueString(), len(state.RLS), tt.wantRules)
+			if state.ID.ValueString() != "sales.orders" || len(state.RLS) != testCase.wantRules {
+				t.Errorf("id = %q, rules = %d, want sales.orders and %d rules", state.ID.ValueString(), len(state.RLS), testCase.wantRules)
 			}
 		})
 	}
@@ -255,9 +255,9 @@ func TestTableRead(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := newTestTable(t, tt.steps)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			res := newTestTable(t, testCase.steps)
 			s := resourceSchema(t, res)
 			state := stateOf(t, s, tableConfig(t))
 			resp := resource.ReadResponse{State: state}
@@ -267,11 +267,11 @@ func TestTableRead(t *testing.T) {
 			got := summaries(diagnosticsOf(resp.Diagnostics))
 
 			switch {
-			case tt.wantSummary != "":
-				if len(got) != 1 || got[0] != tt.wantSummary {
-					t.Fatalf("diagnostics = %v, want %q", got, tt.wantSummary)
+			case testCase.wantSummary != "":
+				if len(got) != 1 || got[0] != testCase.wantSummary {
+					t.Fatalf("diagnostics = %v, want %q", got, testCase.wantSummary)
 				}
-			case tt.wantRemoved:
+			case testCase.wantRemoved:
 				if !resp.State.Raw.IsNull() {
 					t.Errorf("state = %v, want it removed", resp.State.Raw)
 				}
@@ -320,12 +320,12 @@ func TestTableUpdate(t *testing.T) {
 		{name: "reports a refused update", plan: twoRules(), steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}}, wantSummary: "Couldn't update the table"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := newTestTable(t, tt.steps)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			res := newTestTable(t, testCase.steps)
 			s := resourceSchema(t, res)
 			state := stateOf(t, s, withName(tableConfig(t, twoRules()...)))
-			plan := planOf(t, s, withName(tableConfig(t, tt.plan...)))
+			plan := planOf(t, s, withName(tableConfig(t, testCase.plan...)))
 			resp := resource.UpdateResponse{State: state}
 
 			res.Update(context.Background(), resource.UpdateRequest{Plan: plan, State: state}, &resp)
@@ -333,13 +333,13 @@ func TestTableUpdate(t *testing.T) {
 			got := summaries(diagnosticsOf(resp.Diagnostics))
 
 			switch {
-			case tt.wantSummary != "" && (len(got) != 1 || got[0] != tt.wantSummary):
-				t.Fatalf("diagnostics = %v, want %q", got, tt.wantSummary)
-			case tt.wantSummary == "" && len(got) != 0:
+			case testCase.wantSummary != "" && (len(got) != 1 || got[0] != testCase.wantSummary):
+				t.Fatalf("diagnostics = %v, want %q", got, testCase.wantSummary)
+			case testCase.wantSummary == "" && len(got) != 0:
 				t.Fatalf("diagnostics = %v, want none", got)
 			}
 
-			if tt.wantSummary == "Couldn't update the table" {
+			if testCase.wantSummary == "Couldn't update the table" {
 				return
 			}
 
@@ -347,8 +347,8 @@ func TestTableUpdate(t *testing.T) {
 
 			resp.State.Get(context.Background(), &saved)
 
-			if len(saved.RLS) != tt.wantRules {
-				t.Errorf("row policies in the state = %d, want %d", len(saved.RLS), tt.wantRules)
+			if len(saved.RLS) != testCase.wantRules {
+				t.Errorf("row policies in the state = %d, want %d", len(saved.RLS), testCase.wantRules)
 			}
 		})
 	}
@@ -373,9 +373,9 @@ func TestTableDelete(t *testing.T) {
 		{name: "reports a refused delete", steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}}, wantSummary: "Couldn't delete the table"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := newTestTable(t, tt.steps)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			res := newTestTable(t, testCase.steps)
 			s := resourceSchema(t, res)
 			state := stateOf(t, s, withName(tableConfig(t)))
 			resp := resource.DeleteResponse{State: state}
@@ -385,9 +385,9 @@ func TestTableDelete(t *testing.T) {
 			got := summaries(diagnosticsOf(resp.Diagnostics))
 
 			switch {
-			case tt.wantSummary != "" && (len(got) != 1 || got[0] != tt.wantSummary):
-				t.Fatalf("diagnostics = %v, want %q", got, tt.wantSummary)
-			case tt.wantSummary == "" && len(got) != 0:
+			case testCase.wantSummary != "" && (len(got) != 1 || got[0] != testCase.wantSummary):
+				t.Fatalf("diagnostics = %v, want %q", got, testCase.wantSummary)
+			case testCase.wantSummary == "" && len(got) != 0:
 				t.Fatalf("diagnostics = %v, want none", got)
 			}
 		})
@@ -409,20 +409,20 @@ func TestTableValidateConfig(t *testing.T) {
 		{name: "an unknown strategy", strategy: types.StringUnknown(), n: types.Int64Value(3), fallback: types.BoolValue(true)},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			res := newTestTable(t, nil)
 			s := resourceSchema(t, res)
 			model := tableConfig(t)
-			model.Strategy, model.N, model.Fallback = tt.strategy, tt.n, tt.fallback
+			model.Strategy, model.N, model.Fallback = testCase.strategy, testCase.n, testCase.fallback
 			config := tfsdk.Config{Schema: s, Raw: planOf(t, s, model).Raw}
 			resp := resource.ValidateConfigResponse{}
 
 			res.(resource.ResourceWithValidateConfig).ValidateConfig(context.Background(), resource.ValidateConfigRequest{Config: config}, &resp)
 
 			got := summaries(diagnosticsOf(resp.Diagnostics))
-			if strings.Join(got, ",") != strings.Join(tt.want, ",") {
-				t.Errorf("diagnostics = %v, want %v", got, tt.want)
+			if strings.Join(got, ",") != strings.Join(testCase.want, ",") {
+				t.Errorf("diagnostics = %v, want %v", got, testCase.want)
 			}
 		})
 	}
@@ -438,20 +438,20 @@ func TestTableImportReadsByName(t *testing.T) {
 		{name: "a table in a project with a dash", id: "my-project.dataset.table"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
 			res := newTestTable(t, nil)
 			s := resourceSchema(t, res)
 			resp := resource.ImportStateResponse{State: nullState(s)}
 
-			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: tt.id}, &resp)
+			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: testCase.id}, &resp)
 
 			var state tableModel
 
 			resp.State.Get(context.Background(), &state)
 
-			if state.Name.ValueString() != tt.id {
-				t.Errorf("name = %q, want %q", state.Name.ValueString(), tt.id)
+			if state.Name.ValueString() != testCase.id {
+				t.Errorf("name = %q, want %q", state.Name.ValueString(), testCase.id)
 			}
 		})
 	}
@@ -470,10 +470,10 @@ func TestSameRules(t *testing.T) {
 		{name: "no rules", right: nil},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := sameRules(a, tt.right); got != tt.want {
-				t.Errorf("sameRules = %t, want %t", got, tt.want)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := sameRules(a, testCase.right); got != testCase.want {
+				t.Errorf("sameRules = %t, want %t", got, testCase.want)
 			}
 		})
 	}
@@ -628,12 +628,12 @@ func TestAccRLSHelpersAreNotServed(t *testing.T) {
 		t.Fatalf("add the project: %v", err)
 	}
 
-	schemaRow := map[string]any{"name": project + "_orders", "project": project, "short_name": "orders", "claim": "preferred_username"}
+	schemaRow := map[string]any{"project": project, "short_name": "orders", "claim": "preferred_username"}
 	if err := apiClient.Insert(ctx, client.ConsoleProfile, "schemas", schemaRow, nil); err != nil {
 		t.Fatalf("add the schema: %v", err)
 	}
 
-	tableRow := map[string]any{"name": table, "schema": project + "_orders"}
+	tableRow := map[string]any{"name": table, "schema": project + "__orders"}
 	if err := apiClient.Insert(ctx, client.ConsoleProfile, "tables", tableRow, nil); err != nil {
 		t.Fatalf("add the table: %v", err)
 	}
@@ -650,16 +650,16 @@ func TestAccRLSHelpersAreNotServed(t *testing.T) {
 		{name: "replace_rls is served", function: "replace_rls", args: map[string]any{"table_name": table, "groups": []any{}}},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := apiClient.RPC(ctx, client.ConsoleProfile, tt.function, tt.args, nil)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			err := apiClient.RPC(ctx, client.ConsoleProfile, testCase.function, testCase.args, nil)
 
-			if tt.wantErr == nil && err != nil {
-				t.Fatalf("RPC(%s) = %v, want no error", tt.function, err)
+			if testCase.wantErr == nil && err != nil {
+				t.Fatalf("RPC(%s) = %v, want no error", testCase.function, err)
 			}
 
-			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
-				t.Fatalf("RPC(%s) = %v, want %v", tt.function, err, tt.wantErr)
+			if testCase.wantErr != nil && !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("RPC(%s) = %v, want %v", testCase.function, err, testCase.wantErr)
 			}
 		})
 	}

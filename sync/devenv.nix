@@ -56,8 +56,6 @@
               S3_SECRET_KEY=${data.credentials.storage.admin.secretKey}
             '';
 
-            packages = with pkgs; [ sqlfluff ];
-
             git-hooks.hooks = {
               ruff.enable = true;
               ruff-format.enable = true;
@@ -108,11 +106,11 @@
               "sync:lint:sql" = utils.nuTask {
                 description = "Lint the SQL templates and the migrations.";
                 exec = ''
-                  sqlfluff lint --dialect postgres sync/src/sync/templates/postgres helm/files/templates sync/tests/templates/postgres migrations
+                  uv run sqlfluff lint --dialect postgres sync/src/sync/templates/postgres helm/files/templates sync/tests/templates/postgres migrations
                   goose -dir migrations/console validate
                   goose -dir migrations/ducklake validate
-                  sqlfluff lint --dialect duckdb sync/src/sync/templates/duckdb sync/tests/templates/duckdb sync/tests/templates/bigquery
-                  sqlfluff lint --dialect bigquery sync/src/sync/templates/bigquery
+                  uv run sqlfluff lint --dialect duckdb sync/src/sync/templates/duckdb sync/tests/templates/duckdb sync/tests/templates/bigquery
+                  uv run sqlfluff lint --dialect bigquery sync/src/sync/templates/bigquery
                 '';
                 execIfModified = utils.mkInputs [
                   ".sqlfluff"

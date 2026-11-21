@@ -31,7 +31,41 @@ export const POLICY_REPLICATION_POLL_INTERVAL_SECONDS = Number(__ENV.POLICY_REPL
 export const POLICY_REPLICATION_TIMEOUT_SECONDS = Number(__ENV.POLICY_REPLICATION_TIMEOUT_SECONDS || "120");
 export const POLL_INTERVAL = 2;
 export const POSTGREST_URL = __ENV.POSTGREST_URL || "http://data-proxy-postgrest.data-proxy.svc.cluster.local:3000";
-export const SCHEMA = "test";
+export const SCHEMA = "default__test";
+
+/**
+ * The path prefix of a schema, from its physical name: `default__test` is `/default/test`.
+ * @param {string} schema
+ * @returns {string}
+ */
+export const schemaPath = (schema) => `/${schema.replace("__", "/")}`;
+
+/**
+ * The S3 folder of the data files of a schema, under the catalog path. It keeps the name that the schema had before it
+ * carried its project: the short name in the project default, and `<project>_<schema>` in another one.
+ * @param {string} schema
+ * @returns {string}
+ */
+export const dataFolder = (schema) => {
+    const [project, short] = schema.split("__");
+
+    if (short === undefined) return schema;
+
+    return project === "default" ? short : `${project}_${short}`;
+};
+
+/**
+ * The project and the short name of a schema, from its physical name, as the console takes them.
+ * @param {string} schema
+ * @returns {{ project: string, short_name: string }}
+ */
+export const schemaIdentity = (schema) => {
+    const [project = "default", short = schema] = schema.split("__");
+
+    return { project, short_name: short };
+};
+
+export const DATA_URL = `${API_URL}${schemaPath(SCHEMA)}`;
 export const SNAPSHOT_SOURCE = __ENV.SNAPSHOT_SOURCE || "rj-ia-desenvolvimento.dev.snapshot_table";
 export const SNAPSHOT_TABLE = "snapshot_table";
 export const STATE_DATABASE = "DBOS_SYSTEM_DATABASE_URL";
@@ -50,7 +84,7 @@ export const CLUSTER_SCALER = "data-proxy-cluster-autoscaler";
 export const HEAVY_LIMIT_MIN = 1000;
 export const LOAD_TABLES = ["full_table", "multi_rls_table", "partitioned_table", "big_table"];
 export const LOAD_TOKEN_REFRESH_SECONDS = 30;
-export const NEW_SCHEMA = "e2e_new";
+export const NEW_SCHEMA = "default__e2e_new";
 export const NEW_SCHEMA_SOURCE = "rj-ia-desenvolvimento.dev.new_schema_table";
 export const NEW_SCHEMA_UNIT_1_IDS = Array.from({ length: 10 }, (_, index) => 1 + 5 * index);
 export const PARALLEL_READS = 10;

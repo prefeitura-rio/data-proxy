@@ -44,3 +44,18 @@ export function parseUnits(unitType: string, unitIdText: string): Parsed {
 
 	return { ok: true, rows: ids.map((unit_id) => ({ unit_type: type, unit_id })) };
 }
+
+/** The scopes that cover a path of the catalog: the empty scope and each prefix of the path. */
+export const scopesOf = (path: string) => {
+	const labels = path.split('.');
+
+	return ['', ...labels.map((_, index) => labels.slice(0, index + 1).join('.'))];
+};
+
+/** The path of a table in the rows of the catalog of its schema, or the path of the schema if the table has none. */
+export const explainPath = (entries: { table_name: string | null; path: string | null }[], table: string | null) => {
+	const name = table?.split('.').pop();
+	const own = name ? entries.find((entry) => entry.table_name === name)?.path : null;
+
+	return own ?? entries.find((entry) => entry.table_name === null)?.path ?? null;
+};

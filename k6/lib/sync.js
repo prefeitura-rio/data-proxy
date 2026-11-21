@@ -1,6 +1,6 @@
 /** @import { Response as K6Response } from 'k6/http' */
 import http from "k6/http";
-import { API_URL, PARTITION_COLUMN, PARTITIONED_TABLE, SYNCED_PARTITIONS, TABLES } from "./env.js";
+import { DATA_URL, PARTITION_COLUMN, PARTITIONED_TABLE, SYNCED_PARTITIONS, TABLES } from "./env.js";
 import { waitUntil } from "./wait.js";
 import { authHeaders, proxyGet, rowsOf, safeJson } from "./http.js";
 import { userToken } from "./auth.js";
@@ -18,7 +18,7 @@ function postgrestMetric(metric, label, path, token, extract) {
     return {
         metric,
         label,
-        url: `${API_URL}${path}`,
+        url: `${DATA_URL}${path}`,
         params: { headers: authHeaders(token), tags: { name: metric } },
         extract,
     };
