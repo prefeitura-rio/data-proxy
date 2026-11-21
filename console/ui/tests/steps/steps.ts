@@ -650,6 +650,22 @@ When(
 	}
 );
 
+When('I explain the subject {string} in the editor', async ({ page }, subject: string) => {
+	const panel = page.locator('dialog[open]').getByTestId('rule-explain');
+
+	await panel.getByText('Explain for a subject').click();
+	await panel.locator('input[name=explain_subject]').fill(subject);
+	await panel.getByRole('button', { name: 'Explain' }).click();
+});
+
+Then('the explanation says {string}', async ({ page }, text: string) => {
+	await expect(page.getByTestId('rule-explain-rows')).toHaveText(text);
+});
+
+Then('the explanation lists {string}', async ({ page }, text: string) => {
+	await expect(page.locator('dialog[open]').getByTestId('rule-explain')).toContainText(text);
+});
+
 Then('the editor says {string}', async ({ page }, text: string) => {
 	await expect(page.getByTestId('rule-sentence')).toHaveText(text);
 });
