@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.20.0 - 2026-11-21
+
+### Features
+
+- **console**: explain the row rules of a table for one subject (#54) (301d75f)
+
+
+- - -
+
 ## helm-v2.19.0 - 2026-11-21
 
 ### Features
