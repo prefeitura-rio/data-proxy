@@ -4,15 +4,18 @@
 	import FormDialog from '#lib/components/FormDialog.svelte';
 	import type { Submission } from '#lib/enhance.svelte.js';
 	import * as rules from '#lib/rules.js';
+	import RuleExplain from './RuleExplain.svelte';
 	import RuleRow from './RuleRow.svelte';
 
 	let {
 		table,
+		schema,
 		stored,
 		submission,
 		onclose
 	}: {
 		table: string | null;
+		schema: string;
 		stored: rules.Stored[];
 		submission: Submission;
 		onclose: () => void;
@@ -177,6 +180,7 @@
 		{/if}
 
 		<p class="rounded-box bg-base-200 p-3 text-sm" data-testid="rule-sentence">{sentence}</p>
+		<RuleExplain editor={rules.asEditor(groups)} {schema} />
 		<p class="sr-only" aria-live="polite">{announce}</p>
 	</div>
 </FormDialog>
