@@ -540,15 +540,17 @@ func TestRLSBlockRoundTripsBothForms(t *testing.T) {
 // tableAccConfig returns a schema with a claim and a table in it, with the row policies that the caller gives.
 func tableAccConfig(project, table string, cacheTTL int, rules ...[2]string) string {
 	blocks := ""
+
 	var blocksSb543 strings.Builder
 	for _, rule := range rules {
-		blocksSb543.WriteString(fmt.Sprintf(`
+		fmt.Fprintf(&blocksSb543, `
   rls {
     column_name = %q
     unit_type   = %q
   }
-`, rule[0], rule[1]))
+`, rule[0], rule[1])
 	}
+
 	blocks += blocksSb543.String()
 
 	return schemaConfig(project, "orders", "preferred_username") + fmt.Sprintf(`

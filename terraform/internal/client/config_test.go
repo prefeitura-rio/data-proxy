@@ -9,13 +9,6 @@ import (
 	"testing"
 )
 
-// ptr returns a pointer to a copy of the value.
-//
-//go:fix inline
-func ptr[T any](value T) *T {
-	return new(value)
-}
-
 // The rows that the test server answers: a project, a schema and a table.
 const (
 	projectRow = `{"name":"sales","updated_at":"2026-01-01T00:00:00Z","updated_by":"terraform"}`
@@ -358,6 +351,7 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 			steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
 			run: func(ctx context.Context, c *Client) error {
 				_, err := c.ExportConfig(ctx)
+
 				return err
 			},
 			wantKind: ErrForbidden,
@@ -368,6 +362,7 @@ func TestConfigOperationsReportErrors(t *testing.T) {
 			steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
 			run: func(ctx context.Context, c *Client) error {
 				_, err := c.SyncConfig(ctx)
+
 				return err
 			},
 			wantKind: ErrForbidden,

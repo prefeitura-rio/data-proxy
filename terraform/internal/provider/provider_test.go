@@ -163,13 +163,6 @@ func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) 
 	}
 }
 
-// ptr returns a pointer to a copy of the value.
-//
-//go:fix inline
-func ptr[T any](value T) *T {
-	return new(value)
-}
-
 // diagnostic is a comparable copy of a Terraform diagnostic: its attribute path, summary and detail.
 type diagnostic struct {
 	path    string
