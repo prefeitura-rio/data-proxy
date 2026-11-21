@@ -654,6 +654,19 @@ Then('the editor says {string}', async ({ page }, text: string) => {
 	await expect(page.getByTestId('rule-sentence')).toHaveText(text);
 });
 
+When('I delete the first condition in the editor', async ({ page }) => {
+	await page
+		.locator('dialog[open]')
+		.getByRole('button', { name: /^Delete the condition/ })
+		.first()
+		.click();
+});
+
+/** The Config page polls while a schema is new, because the test stack runs no sync to create it. Wait for one poll. */
+When('the page refreshes its data while the editor is open', async ({ page }) => {
+	await page.waitForResponse((response) => response.url().includes('__data.json'), { timeout: 15_000 });
+});
+
 When('I save the row rules', async ({ page }) => {
 	await saveRules(page);
 });

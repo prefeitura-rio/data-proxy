@@ -102,6 +102,22 @@ Feature: Scenarios that add, change and delete a schema of their own
     And I delete the project "e2eproj"
     Then I see no project "e2eproj"
 
+  Scenario: A refresh of the page does not undo an edit of the row rules
+    Given I sign in as "web_root"
+    When I open the "Config" tab
+    And I add the schema "other_refresh"
+    And I edit the schema "other_refresh" with claim "cpf"
+    And I add the table "p.d.refresh" to the schema "other_refresh"
+    And I add a row rule for the table "p.d.refresh" on column "id" with unit type "cpf"
+    And I open the row rules of "p.d.refresh"
+    And I delete the first condition in the editor
+    And the page refreshes its data while the editor is open
+    And I save the row rules
+    Then I see no row rule on "p.d.refresh"
+    When I delete the table "p.d.refresh"
+    And I delete the schema "other_refresh" by typing its name
+    Then I see no row of the schema "other_refresh"
+
   Scenario: Row rules combine with and, and the cards survive a reload
     Given I sign in as "web_root"
     When I open the "Config" tab
