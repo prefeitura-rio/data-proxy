@@ -31,6 +31,7 @@ from tests.helpers.console import (
 from tests.helpers.core import scalar
 
 INSUFFICIENT = "42501"
+UNDEFINED_FUNCTION = "42883"
 CHECK_VIOLATION = "23514"
 
 
@@ -548,6 +549,90 @@ class TestRulesAreReachedOnlyThroughFunctions:
         )
 
         assert state == INSUFFICIENT
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            pytest.param(
+                "SELECT console.write_rls('p.d.orders', '[]'::jsonb)",
+                id="write_rls-in-the-exposed-schema",
+            ),
+            pytest.param(
+                "SELECT * FROM console.groups()", id="groups-in-the-exposed-schema"
+            ),
+        ],
+    )
+    async def test_the_helpers_are_not_in_the_schema_that_the_api_exposes(
+        self, console_api: Postgres, call: str
+    ) -> None:
+        """PostgREST serves the schema console, so a helper there is a route that skips the checks."""
+        await seed(console_api)
+        await as_token(console_api, "dp_console", ["*"], database_role=True)
+
+        state = await refusal(console_api, call)
+
+        assert state == UNDEFINED_FUNCTION
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            pytest.param(
+                "SELECT data_proxy.write_rls('p.d.orders', '[]'::jsonb)", id="write_rls"
+            ),
+            pytest.param("SELECT * FROM data_proxy.groups()", id="groups"),
+        ],
+    )
+    async def test_the_public_has_no_right_on_the_helpers(
+        self, console_api: Postgres, call: str
+    ) -> None:
+        """Only the functions that check the token may call the helpers, so a role outside them is refused."""
+        await seed(console_api)
+        await console_api.connection.execute(
+            "CREATE ROLE stranger NOLOGIN; GRANT USAGE ON SCHEMA data_proxy TO stranger; SET LOCAL ROLE stranger"
+        )
+
+        state = await refusal(console_api, call)
+
+        assert state == INSUFFICIENT
+
+    async def test_a_token_without_the_write_permissions_changes_no_rule(
+        self, console_api: Postgres
+    ) -> None:
+        """replace_rls is the only way to write, and it refuses a token without create and delete."""
+        await seed(console_api)
+        await as_token(console_api, "dp_api", ["*"], database_role=True)
+
+        state = await refusal(
+            console_api,
+            "SELECT console.replace_rls('p.d.orders', '[]'::jsonb)",
+        )
+
+        assert state == INSUFFICIENT
+
+    async def test_the_owner_without_a_claim_reads_every_rule_in_sync_config(
+        self, console_api: Postgres
+    ) -> None:
+        """The sync worker and the helm jobs read the configuration with no token, so they must still see the rules."""
+        await seed(console_api)
+
+        document = await export(console_api)
+
+        schemas = document["schemas"]
+        assert isinstance(schemas, dict)
+        sales = schemas["sales"]
+        assert isinstance(sales, dict)
+        tables = sales["tables"]
+        assert isinstance(tables, list)
+        orders = next(
+            table
+            for table in tables
+            if isinstance(table, dict) and table["name"] == "p.d.orders"
+        )
+        assert isinstance(orders, dict)
+        assert orders["rls"] == [
+            {"conditions": [{"column": "cpf", "unit_type": "cpf"}]},
+            {"conditions": [{"column": "cnpj", "unit_type": "cnpj"}]},
+        ]
 
     async def test_rules_gives_the_groups_of_a_table_with_no_number(
         self, console_api: Postgres

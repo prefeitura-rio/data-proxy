@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ArrowDownToLine, ArrowUpFromLine, Plus } from '@lucide/svelte';
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import FormDialog from '#lib/components/FormDialog.svelte';
 	import type { Submission } from '#lib/enhance.svelte.js';
 	import * as rules from '#lib/rules.js';
@@ -29,9 +29,10 @@
 	let announce = $state('');
 	let box = $state<HTMLElement>();
 
+	/** Load the rules when the dialog opens. A refresh of the page gives a new `stored`, and it must not undo an edit. */
 	$effect(() => {
 		if (table !== null) {
-			groups = rules.startGroups(stored, newId);
+			groups = untrack(() => rules.startGroups(stored, newId));
 			announce = '';
 		}
 	});

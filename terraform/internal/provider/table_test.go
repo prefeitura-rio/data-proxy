@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -597,6 +598,66 @@ func TestAccTableResource(t *testing.T) {
 			},
 		},
 	})
+}
+
+// TestAccRLSHelpersAreNotServed checks over HTTP that a token reaches the rules only through rules() and replace_rls().
+// The helpers write_rls and groups live in a schema that PostgREST does not serve, so each one is a 404.
+func TestAccRLSHelpersAreNotServed(t *testing.T) {
+	testAccPreCheck(t)
+
+	project := testAccName()
+	table := "p.d." + testAccName()
+
+	testAccCleanup(t, "projects", client.Eq("name", project))
+	testAccCleanup(t, "schemas", client.Eq("project", project))
+	testAccCleanup(t, "tables", client.Eq("name", table))
+
+	apiClient, err := testAccClient()
+	if err != nil {
+		t.Fatalf("testAccClient: %v", err)
+	}
+
+	ctx := context.Background()
+
+	if err := apiClient.Insert(ctx, client.ConsoleProfile, "projects", map[string]any{"name": project}, nil); err != nil {
+		t.Fatalf("add the project: %v", err)
+	}
+
+	schemaRow := map[string]any{"name": project + "_orders", "project": project, "short_name": "orders", "claim": "preferred_username"}
+	if err := apiClient.Insert(ctx, client.ConsoleProfile, "schemas", schemaRow, nil); err != nil {
+		t.Fatalf("add the schema: %v", err)
+	}
+
+	tableRow := map[string]any{"name": table, "schema": project + "_orders"}
+	if err := apiClient.Insert(ctx, client.ConsoleProfile, "tables", tableRow, nil); err != nil {
+		t.Fatalf("add the table: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		function string
+		args     map[string]any
+		wantErr  error
+	}{
+		{name: "write_rls is not served", function: "write_rls", args: map[string]any{"table_name": table, "groups": []any{}}, wantErr: client.ErrNotFound},
+		{name: "groups is not served", function: "groups", wantErr: client.ErrNotFound},
+		{name: "rules is served", function: "rules"},
+		{name: "replace_rls is served", function: "replace_rls", args: map[string]any{"table_name": table, "groups": []any{}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := apiClient.RPC(ctx, client.ConsoleProfile, tt.function, tt.args, nil)
+
+			if tt.wantErr == nil && err != nil {
+				t.Fatalf("RPC(%s) = %v, want no error", tt.function, err)
+			}
+
+			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+				t.Fatalf("RPC(%s) = %v, want %v", tt.function, err, tt.wantErr)
+			}
+		})
+	}
 }
 
 func TestAccTableResourceKeepsAGroupOfConditionsInOneBlock(t *testing.T) {
