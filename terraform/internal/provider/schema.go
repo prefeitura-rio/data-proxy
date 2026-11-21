@@ -38,11 +38,13 @@ const (
 	schemaDeleteTimeout = 10 * time.Minute
 )
 
+// schemaResource is the resource data_proxy_schema.
 type schemaResource struct {
 	client  *client.Client
 	backoff client.Backoff
 }
 
+// schemaModel is the Terraform state of a schema.
 type schemaModel struct {
 	ID                 types.String   `tfsdk:"id"`
 	Project            types.String   `tfsdk:"project"`
@@ -58,6 +60,7 @@ type schemaModel struct {
 	Timeouts           timeouts.Value `tfsdk:"timeouts"`
 }
 
+// newSchemaResource makes the resource data_proxy_schema.
 func newSchemaResource() resource.Resource {
 	return &schemaResource{backoff: client.DefaultBackoff}
 }

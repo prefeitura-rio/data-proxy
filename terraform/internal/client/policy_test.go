@@ -82,11 +82,13 @@ func TestIsNotProvisioned(t *testing.T) {
 	}
 }
 
+// noWait replaces the wait between two checks. It counts the calls and returns a fixed error.
 type noWait struct {
 	calls int
 	err   error
 }
 
+// wait counts the call and returns the error of the test without a delay.
 func (nw *noWait) wait(context.Context, time.Duration) error {
 	nw.calls++
 
@@ -212,6 +214,7 @@ func TestWaitDeprovisioned(t *testing.T) {
 	}
 }
 
+// checkWait fails the test unless the error is empty, or contains the wanted text.
 func checkWait(t *testing.T, err error, want string) {
 	t.Helper()
 

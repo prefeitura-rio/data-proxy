@@ -13,6 +13,7 @@ import (
 	"terraform-provider-data-proxy/internal/client"
 )
 
+// projectDataModel is the state of the data source data_proxy_project.
 type projectDataModel struct {
 	ID        types.String `tfsdk:"id"`
 	Name      types.String `tfsdk:"name"`
@@ -20,6 +21,7 @@ type projectDataModel struct {
 	UpdatedBy types.String `tfsdk:"updated_by"`
 }
 
+// schemaDataModel is the state of the data source data_proxy_schema.
 type schemaDataModel struct {
 	ID        types.String `tfsdk:"id"`
 	Project   types.String `tfsdk:"project"`
@@ -33,11 +35,13 @@ type schemaDataModel struct {
 	UpdatedBy types.String `tfsdk:"updated_by"`
 }
 
+// documentModel is the state of a data source that returns one JSON document.
 type documentModel struct {
 	ID       types.String `tfsdk:"id"`
 	Document types.String `tfsdk:"document"`
 }
 
+// healthModel is the state of the data source data_proxy_schema_health.
 type healthModel struct {
 	ID           types.String `tfsdk:"id"`
 	Name         types.String `tfsdk:"name"`
@@ -45,6 +49,7 @@ type healthModel struct {
 	ViewCount    types.Int64  `tfsdk:"view_count"`
 }
 
+// syncStateModel is the state of the data source data_proxy_table_sync_state.
 type syncStateModel struct {
 	ID             types.String `tfsdk:"id"`
 	Name           types.String `tfsdk:"name"`
@@ -54,6 +59,7 @@ type syncStateModel struct {
 	PartitionCount types.Int64  `tfsdk:"partition_count"`
 }
 
+// historyEntryModel is one change in the data source data_proxy_config_history.
 type historyEntryModel struct {
 	ChangedAt  types.String `tfsdk:"changed_at"`
 	ChangedBy  types.String `tfsdk:"changed_by"`
@@ -65,6 +71,7 @@ type historyEntryModel struct {
 	NewRow     types.String `tfsdk:"new_row"`
 }
 
+// historyModel is the state of the data source data_proxy_config_history.
 type historyModel struct {
 	ID      types.String        `tfsdk:"id"`
 	Schema  types.String        `tfsdk:"schema"`
@@ -72,16 +79,20 @@ type historyModel struct {
 	Entries []historyEntryModel `tfsdk:"entries"`
 }
 
+// defaultHistoryLimit is the number of history entries that the data source reads if no limit is set.
 const defaultHistoryLimit = 100
 
+// computedString makes a read-only text attribute.
 func computedString(description string) schema.StringAttribute {
 	return schema.StringAttribute{Description: description, Computed: true}
 }
 
+// requiredString makes a text attribute that the configuration must set.
 func requiredString(description string) schema.StringAttribute {
 	return schema.StringAttribute{Description: description, Required: true}
 }
 
+// updatedAttributes adds the columns updated_at and updated_by to a set of attributes.
 func updatedAttributes(attributes map[string]schema.Attribute) map[string]schema.Attribute {
 	attributes["updated_at"] = computedString("When the row last changed.")
 	attributes["updated_by"] = computedString("Who last changed the row.")
@@ -89,6 +100,7 @@ func updatedAttributes(attributes map[string]schema.Attribute) map[string]schema
 	return attributes
 }
 
+// newProjectDataSource makes the data source data_proxy_project.
 func newProjectDataSource() datasource.DataSource {
 	return &lookup[projectDataModel]{
 		suffix:      "project",
@@ -116,6 +128,7 @@ func newProjectDataSource() datasource.DataSource {
 	}
 }
 
+// newSchemaDataSource makes the data source data_proxy_schema.
 func newSchemaDataSource() datasource.DataSource {
 	return &lookup[schemaDataModel]{
 		suffix:      "schema",
@@ -172,6 +185,7 @@ func newSchemaDataSource() datasource.DataSource {
 	}
 }
 
+// newTableDataSource makes the data source data_proxy_table.
 func newTableDataSource() datasource.DataSource {
 	return &lookup[tableModel]{
 		suffix:      "table",
@@ -224,6 +238,7 @@ func newTableDataSource() datasource.DataSource {
 	}
 }
 
+// newExportConfigDataSource makes the data source data_proxy_export_config.
 func newExportConfigDataSource() datasource.DataSource {
 	return documentSource("export_config", "Exports the configuration as a JSON document grouped by project, which includes the empty projects.",
 		func(ctx context.Context, apiClient *client.Client) ([]byte, error) {
@@ -231,11 +246,13 @@ func newExportConfigDataSource() datasource.DataSource {
 		})
 }
 
+// newSyncConfigDataSource makes the data source data_proxy_sync_config.
 func newSyncConfigDataSource() datasource.DataSource {
 	return documentSource("sync_config", "Reads the flat configuration that the sync engine reads, with the physical schema names as keys.",
 		func(ctx context.Context, apiClient *client.Client) ([]byte, error) { return apiClient.SyncConfig(ctx) })
 }
 
+// documentSource makes a data source that returns one JSON document that fetch reads.
 func documentSource(suffix, description string, fetch func(context.Context, *client.Client) ([]byte, error)) datasource.DataSource {
 	return &lookup[documentModel]{
 		suffix:      suffix,
@@ -258,6 +275,7 @@ func documentSource(suffix, description string, fetch func(context.Context, *cli
 	}
 }
 
+// newSchemaHealthDataSource makes the data source data_proxy_schema_health.
 func newSchemaHealthDataSource() datasource.DataSource {
 	return &lookup[healthModel]{
 		suffix:      "schema_health",
@@ -287,6 +305,7 @@ func newSchemaHealthDataSource() datasource.DataSource {
 	}
 }
 
+// newTableSyncStateDataSource makes the data source data_proxy_table_sync_state.
 func newTableSyncStateDataSource() datasource.DataSource {
 	return &lookup[syncStateModel]{
 		suffix:      "table_sync_state",
@@ -320,6 +339,7 @@ func newTableSyncStateDataSource() datasource.DataSource {
 	}
 }
 
+// newConfigHistoryDataSource makes the data source data_proxy_config_history.
 func newConfigHistoryDataSource() datasource.DataSource {
 	return &lookup[historyModel]{
 		suffix:      "config_history",

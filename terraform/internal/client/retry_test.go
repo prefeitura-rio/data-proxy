@@ -9,15 +9,18 @@ import (
 	"time"
 )
 
+// fakeClock is a clock that moves only when the code waits, so a test needs no real delay.
 type fakeClock struct {
 	current time.Time
 	waits   []time.Duration
 }
 
+// now returns the time of the fake clock.
 func (fc *fakeClock) now() time.Time {
 	return fc.current
 }
 
+// wait records the duration, moves the fake clock forward and returns at once.
 func (fc *fakeClock) wait(_ context.Context, duration time.Duration) error {
 	fc.waits = append(fc.waits, duration)
 	fc.current = fc.current.Add(duration)
@@ -25,8 +28,10 @@ func (fc *fakeClock) wait(_ context.Context, duration time.Duration) error {
 	return nil
 }
 
+// errOther is an error that the retry does not handle.
 var errOther = errors.New("other")
 
+// retryOnMissingRow returns the error of a read that finds no row, which the retry handles.
 func retryOnMissingRow() error {
 	return fmt.Errorf("no row of projects matches the filters: %w", ErrNoRow)
 }

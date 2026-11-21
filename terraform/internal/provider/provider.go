@@ -34,15 +34,18 @@ const (
 
 var _ provider.Provider = (*dataProxyProvider)(nil)
 
+// dataProxyProvider is the Terraform provider. It holds the version of the build.
 type dataProxyProvider struct {
 	version string
 }
 
+// settings is what the configuration of the provider gives: the endpoint and the credentials.
 type settings struct {
 	endpoint    string
 	credentials client.Credentials
 }
 
+// providerModel is the configuration block of the provider.
 type providerModel struct {
 	Endpoint     types.String `tfsdk:"endpoint"`
 	TokenURL     types.String `tfsdk:"token_url"`
@@ -205,6 +208,7 @@ func readSettings(ctx context.Context, config providerModel, getenv func(string)
 	return values, diagnostics
 }
 
+// splitScopes splits a list of scopes at each comma or space.
 func splitScopes(value string) []string {
 	return strings.FieldsFunc(value, func(r rune) bool {
 		return r == ',' || unicode.IsSpace(r)

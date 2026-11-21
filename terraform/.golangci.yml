@@ -1,12 +1,18 @@
 version: "2"
 linters:
-  default: standard
-  enable:
-    - bodyclose
-    - errorlint
-    - godoclint
-    - noctx
-    - revive
+  default: all
+  disable:
+    # A struct literal does not need every field. The Terraform framework models and the request types set only what they use.
+    - exhaustruct
+    - exhaustruct_v5
+    # The PostgREST API names its columns in snake_case, so the JSON tags cannot be camelCase.
+    - tagliatelle
+    # The module has no import allowlist, so the rule reports every import.
+    - depguard
+    # Replaced by wsl_v5, which stays on.
+    - wsl
+    # Replaced by gomodguard_v2, which stays on.
+    - gomodguard
   exclusions:
     rules:
       - linters:
@@ -14,19 +20,15 @@ linters:
         text: 'godoc \("Test'
   settings:
     godoclint:
-      default: none
-      enable:
-        - pkg-doc
-        - single-pkg-doc
-        - start-with-name
-        - require-doc
-        - deprecated
+      default: all
       options:
+        max-len:
+          length: 120
         require-doc:
           ignore-exported: false
-          ignore-unexported: true
+          ignore-unexported: false
         start-with-name:
-          include-unexported: false
+          include-unexported: true
     revive:
       rules:
         - name: exported

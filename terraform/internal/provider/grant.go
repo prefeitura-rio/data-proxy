@@ -29,11 +29,13 @@ var (
 // `project.schema.table`. A table is a label of the ltree column.
 var grantScope = regexp.MustCompile(`^(\*|[a-z][a-z0-9]{0,29}(\.[a-z][a-z0-9_]{0,55}(\.[A-Za-z0-9_-]{1,56})?)?)$`)
 
+// grantResource is the resource data_proxy_grant. It adds and removes one row of access.policy.
 type grantResource struct {
 	client  *client.Client
 	backoff client.Backoff
 }
 
+// grantModel is the Terraform state of a grant.
 type grantModel struct {
 	ID       types.String `tfsdk:"id"`
 	Scope    types.String `tfsdk:"scope"`
@@ -42,10 +44,12 @@ type grantModel struct {
 	UnitID   types.String `tfsdk:"unit_id"`
 }
 
+// newGrantResource makes the resource data_proxy_grant.
 func newGrantResource() resource.Resource {
 	return &grantResource{backoff: client.DefaultBackoff}
 }
 
+// grantID joins the four columns of a grant into its ID.
 func grantID(grant client.Grant) string {
 	return strings.Join([]string{grant.Scope, grant.Subject, grant.UnitType, grant.UnitID}, "/")
 }
@@ -72,6 +76,7 @@ func parseGrantID(id string) (client.Grant, error) {
 	return grant, nil
 }
 
+// grantFromModel reads the grant that the state or the plan describes.
 func grantFromModel(model grantModel) client.Grant {
 	return client.Grant{
 		Scope:    model.Scope.ValueString(),

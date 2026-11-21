@@ -21,6 +21,7 @@ const (
 	testClientSecret = "secret-123"
 )
 
+// tokenServer is a fake identity provider. It records each request and answers with a fixed response.
 type tokenServer struct {
 	t         *testing.T
 	expiresIn int
@@ -31,6 +32,7 @@ type tokenServer struct {
 	requests []tokenRequest
 }
 
+// tokenRequest is the form that the token request sent to the fake identity provider.
 type tokenRequest struct {
 	grantType string
 	clientID  string
@@ -81,6 +83,7 @@ func (ts *tokenServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// count returns how many requests the server received.
 func (ts *tokenServer) count() int {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()

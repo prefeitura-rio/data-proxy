@@ -108,6 +108,7 @@ func jsonRaw(value types.String) json.RawMessage {
 	return json.RawMessage(value.ValueString())
 }
 
+// sameJSON reports whether two texts hold the same JSON value, whatever their layout.
 func sameJSON(left, right string) bool {
 	var leftValue, rightValue any
 
@@ -118,14 +119,17 @@ func sameJSON(left, right string) bool {
 	return reflect.DeepEqual(leftValue, rightValue)
 }
 
+// jsonKind is a validator that accepts a JSON object, or a JSON array if array is true.
 type jsonKind struct {
 	array bool
 }
 
+// jsonObject makes a validator that accepts a text with a JSON object.
 func jsonObject() validator.String {
 	return jsonKind{}
 }
 
+// jsonArray makes a validator that accepts a text with a JSON array.
 func jsonArray() validator.String {
 	return jsonKind{array: true}
 }

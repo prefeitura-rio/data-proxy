@@ -57,6 +57,7 @@ func retryNoRow(
 	}
 }
 
+// waitFor sleeps for the duration, or returns the error of the context if it ends first.
 func waitFor(ctx context.Context, duration time.Duration) error {
 	timer := time.NewTimer(duration)
 	defer timer.Stop()

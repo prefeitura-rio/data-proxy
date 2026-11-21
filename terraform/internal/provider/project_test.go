@@ -13,8 +13,10 @@ import (
 	"terraform-provider-data-proxy/internal/client"
 )
 
+// projectRowJSON is the row that the fake API answers for the project sales.
 const projectRowJSON = `{"name":"sales","updated_at":"2026-01-01T00:00:00Z","updated_by":"terraform"}`
 
+// newTestProject makes the project resource with no retry delay, and with a client that follows the steps.
 func newTestProject(t *testing.T, steps []step) resource.Resource {
 	t.Helper()
 
@@ -24,6 +26,7 @@ func newTestProject(t *testing.T, steps []step) resource.Resource {
 	return configured(t, testProject, newStepClient(t, steps))
 }
 
+// summaries returns the summary text of each diagnostic.
 func summaries(diagnostics []diagnostic) []string {
 	list := make([]string, 0, len(diagnostics))
 	for _, item := range diagnostics {

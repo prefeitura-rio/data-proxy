@@ -13,6 +13,7 @@ import (
 	"terraform-provider-data-proxy/internal/client"
 )
 
+// schemaRowJSON is the row that the fake API answers for the schema orders of the project sales.
 const schemaRowJSON = `{"name":"sales_orders","project":"sales","short_name":"orders","source":"bigquery","settings":{"b":1,"a":2},` +
 	`"claim":"preferred_username","encrypted":false,"updated_at":"2026-01-01T00:00:00Z","updated_by":"terraform"}`
 
@@ -23,6 +24,7 @@ var (
 	probeGoneStep   = step{method: "GET", uri: "/", profile: "sales_orders", status: 406, response: `{"code":"PGRST106","message":"The schema must be one of the following"}`}
 )
 
+// newTestSchema makes the schema resource with no retry delay, and with a client that follows the steps.
 func newTestSchema(t *testing.T, steps []step) resource.Resource {
 	t.Helper()
 
@@ -32,6 +34,7 @@ func newTestSchema(t *testing.T, steps []step) resource.Resource {
 	return configured(t, testSchema, newStepClient(t, steps))
 }
 
+// schemaPlan returns the planned model of a new schema. The create timeout is the text that the test passes.
 func schemaPlan(createTimeout string) schemaModel {
 	return schemaModel{
 		ID:                 types.StringUnknown(),
@@ -49,6 +52,7 @@ func schemaPlan(createTimeout string) schemaModel {
 	}
 }
 
+// schemaState returns the model of a schema that exists. The arguments set the deletion protection and the delete timeout.
 func schemaState(protected bool, deleteTimeout string) schemaModel {
 	model := schemaPlan("")
 	applySchemaRow(&model, client.Schema{

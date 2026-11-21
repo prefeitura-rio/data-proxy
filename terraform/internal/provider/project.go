@@ -29,11 +29,13 @@ var (
 // defaultProject is the project that every database has. A resource can't create it.
 const defaultProject = "default"
 
+// projectResource is the resource data_proxy_project.
 type projectResource struct {
 	client  *client.Client
 	backoff client.Backoff
 }
 
+// projectModel is the Terraform state of a project.
 type projectModel struct {
 	ID        types.String `tfsdk:"id"`
 	Name      types.String `tfsdk:"name"`
@@ -41,10 +43,12 @@ type projectModel struct {
 	UpdatedBy types.String `tfsdk:"updated_by"`
 }
 
+// newProjectResource makes the resource data_proxy_project.
 func newProjectResource() resource.Resource {
 	return &projectResource{backoff: client.DefaultBackoff}
 }
 
+// projectState copies a row of the API into the state of a project.
 func projectState(row client.Project) projectModel {
 	return projectModel{
 		ID:        types.StringValue(row.Name),

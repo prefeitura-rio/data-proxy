@@ -9,6 +9,7 @@ import (
 	"testing"
 )
 
+// ptr returns a pointer to a copy of the value.
 func ptr[T any](value T) *T {
 	return &value
 }

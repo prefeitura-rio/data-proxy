@@ -22,6 +22,7 @@ const ConsoleProfile = "console"
 // DefaultTimeout limits one request when New gets no HTTP client.
 const DefaultTimeout = 30 * time.Second
 
+// maxErrorBody limits how much of an error response the client reads, so a wrong endpoint cannot fill the memory.
 const maxErrorBody = 1 << 20
 
 // maxBody limits how much of a successful response the client reads. A longer body cannot come from a page that
@@ -127,6 +128,7 @@ func checkAddress(what, raw string, parsed *url.URL) error {
 	return nil
 }
 
+// isLoopback reports whether the host is localhost or a loopback address, where the client accepts plain HTTP.
 func isLoopback(host string) bool {
 	if host == "localhost" {
 		return true
@@ -336,6 +338,7 @@ func (c *Client) do(ctx context.Context, r request, out any) error {
 	return nil
 }
 
+// target builds the URL path of a request: the table, or the function of an RPC call, with the query of its filters.
 func (c *Client) target(r request) (string, error) {
 	path := r.path
 

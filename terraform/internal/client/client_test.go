@@ -14,6 +14,7 @@ import (
 	"time"
 )
 
+// staticToken is a token source that returns a fixed token and a fixed error.
 type staticToken struct {
 	token string
 	err   error
@@ -24,6 +25,7 @@ func (t staticToken) Token(context.Context) (string, error) {
 	return t.token, t.err
 }
 
+// captured is one request that the test server received.
 type captured struct {
 	method  string
 	uri     string
@@ -63,6 +65,7 @@ func newServer(t *testing.T, status int, response string) (*Client, *[]captured)
 	return c, &requests
 }
 
+// row is the JSON row that the request tests read and write.
 type row struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`

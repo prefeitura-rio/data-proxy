@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// The kinds of an Error, for errors.Is.
+// The kinds of an Error, for [errors.Is].
 var (
 	// ErrConflict is a unique or foreign key violation, or an HTTP 409.
 	ErrConflict = errors.New("conflict")
@@ -66,11 +66,12 @@ func (e *Error) Error() string {
 	return text.String()
 }
 
-// Unwrap returns the kind of the error, so that errors.Is(err, ErrConflict) works.
+// Unwrap returns the kind of the error, so that [errors.Is] finds the kind.
 func (e *Error) Unwrap() error {
 	return e.kind
 }
 
+// body is the JSON error that PostgREST sends with a failed request.
 type body struct {
 	Code    string  `json:"code"`
 	Message string  `json:"message"`

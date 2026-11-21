@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// accessProfile is the profile of the schema access, which holds the grants.
 const accessProfile = "access"
 
 // Grant is a row of access.policy. The scope is `*` for every project, or `project`, `project.schema` or
@@ -19,11 +20,13 @@ type Grant struct {
 	UnitID   string `json:"unit_id"`
 }
 
+// provisionInterval is the time between two checks while the client waits for the sync.
 const provisionInterval = 2 * time.Second
 
 // everyScope is the scope that stands for every project. The database stores it as the empty path.
 const everyScope = "*"
 
+// scopePath turns the scope of a grant into the path that the database stores: the scope * is the empty path.
 func scopePath(scope string) string {
 	if scope == everyScope {
 		return ""
@@ -32,6 +35,7 @@ func scopePath(scope string) string {
 	return scope
 }
 
+// scopeOf turns a stored path into the scope of a grant: the empty path is the scope *.
 func scopeOf(path string) string {
 	if path == "" {
 		return everyScope
@@ -40,6 +44,7 @@ func scopeOf(path string) string {
 	return path
 }
 
+// grantBody builds the JSON body that adds a grant.
 func grantBody(grant Grant) map[string]string {
 	return map[string]string{
 		"scope":     scopePath(grant.Scope),
@@ -49,6 +54,7 @@ func grantBody(grant Grant) map[string]string {
 	}
 }
 
+// grantFilters builds the filters that select one grant by its four columns.
 func grantFilters(grant Grant) []Filter {
 	return []Filter{
 		Eq("scope", scopePath(grant.Scope)),
@@ -100,6 +106,7 @@ func IsNotProvisioned(err error) bool {
 	return apiErr.Status == http.StatusNotFound || apiErr.Status == http.StatusNotAcceptable
 }
 
+// served reports whether PostgREST serves the schema. A schema that is not provisioned gives false and no error.
 func (c *Client) served(ctx context.Context, schema string) (bool, error) {
 	err := c.do(ctx, request{method: http.MethodGet, profile: schema, rpc: true}, nil)
 
@@ -119,6 +126,7 @@ func (c *Client) WaitProvisioned(ctx context.Context, schema string) error {
 	return c.waitProvisioned(ctx, schema, waitFor)
 }
 
+// waitProvisioned polls until the schema is ready. The wait function sleeps between two checks, so a test can replace it.
 func (c *Client) waitProvisioned(ctx context.Context, schema string, wait func(context.Context, time.Duration) error) error {
 	for {
 		ready, err := c.isReady(ctx, schema)
@@ -136,6 +144,7 @@ func (c *Client) waitProvisioned(ctx context.Context, schema string, wait func(c
 	}
 }
 
+// isReady reports whether the sync has created the schema and PostgREST serves it.
 func (c *Client) isReady(ctx context.Context, schema string) (bool, error) {
 	health, err := c.GetHealth(ctx, schema)
 
@@ -157,6 +166,7 @@ func (c *Client) WaitDeprovisioned(ctx context.Context, schema string) error {
 	return c.waitDeprovisioned(ctx, schema, waitFor)
 }
 
+// waitDeprovisioned polls until PostgREST no longer serves the schema. The wait function sleeps between two checks.
 func (c *Client) waitDeprovisioned(ctx context.Context, schema string, wait func(context.Context, time.Duration) error) error {
 	for {
 		ready, err := c.served(ctx, schema)

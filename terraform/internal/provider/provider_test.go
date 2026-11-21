@@ -133,6 +133,7 @@ func TestSchemaServedOverProtocol(t *testing.T) {
 	}
 }
 
+// model builds the provider configuration. A nil text is a null value.
 func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) providerModel {
 	text := func(value *string) types.String {
 		if value == nil {
@@ -162,16 +163,19 @@ func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) 
 	}
 }
 
+// ptr returns a pointer to a copy of the value.
 func ptr[T any](value T) *T {
 	return &value
 }
 
+// diagnostic is a comparable copy of a Terraform diagnostic: its attribute path, summary and detail.
 type diagnostic struct {
 	path    string
 	summary string
 	detail  string
 }
 
+// diagnosticsOf converts the diagnostics of a response into diagnostic values.
 func diagnosticsOf(diagnostics diag.Diagnostics) []diagnostic {
 	var got []diagnostic
 
@@ -188,6 +192,7 @@ func diagnosticsOf(diagnostics diag.Diagnostics) []diagnostic {
 	return got
 }
 
+// fullEnv sets every variable of the provider environment, so a test can check that the environment fills each setting.
 var fullEnv = map[string]string{
 	EnvEndpoint:     "https://env.example.com",
 	EnvTokenURL:     "https://id.env.example.com/token",
@@ -383,6 +388,7 @@ func TestSplitScopes(t *testing.T) {
 	}
 }
 
+// configure runs the Configure step of the provider with the attributes, and returns the response.
 func configure(t *testing.T, attributes map[string]tftypes.Value) provider.ConfigureResponse {
 	t.Helper()
 
@@ -414,6 +420,7 @@ func configure(t *testing.T, attributes map[string]tftypes.Value) provider.Confi
 	return resp
 }
 
+// apiRequest is one request that the fake API received, with the headers that the tests check.
 type apiRequest struct {
 	method         string
 	uri            string
@@ -422,6 +429,7 @@ type apiRequest struct {
 	authorization  string
 }
 
+// fakeAPI holds the addresses of the fake identity provider and the fake PostgREST API, and the requests that they got.
 type fakeAPI struct {
 	tokenURL string
 	endpoint string
@@ -764,7 +772,7 @@ func TestTestAccName(t *testing.T) {
 	})
 }
 
-// cleanupRecorder is a testing.TB that keeps the cleanups and the errors of testAccCleanup.
+// cleanupRecorder is a [testing.TB] that keeps the cleanups and the errors of testAccCleanup.
 type cleanupRecorder struct {
 	testing.TB
 

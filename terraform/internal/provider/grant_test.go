@@ -14,6 +14,7 @@ import (
 	"terraform-provider-data-proxy/internal/client"
 )
 
+// newTestGrant makes the grant resource with no retry delay, and with a client that follows the steps.
 func newTestGrant(t *testing.T, steps []step) resource.Resource {
 	t.Helper()
 
@@ -23,6 +24,7 @@ func newTestGrant(t *testing.T, steps []step) resource.Resource {
 	return configured(t, testGrant, newStepClient(t, steps))
 }
 
+// grantConfig returns the model of a grant. The ID is the one that the test passes.
 func grantConfig(id types.String) grantModel {
 	return grantModel{
 		ID:       id,
