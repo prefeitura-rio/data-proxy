@@ -34,9 +34,9 @@
             exec = ''
               use lib.nu [fail]
 
-              let unformatted = gofmt -l . | lines
-              if ($unformatted | is-not-empty) {
-                  fail $"gofmt would change these files: ($unformatted | str join ', ')"
+              let unformatted = golangci-lint fmt --diff-colored=false --diff ./... | complete
+              if ($unformatted.stdout | str trim | is-not-empty) {
+                  fail "gofumpt would change a file. Run `golangci-lint fmt ./...` in terraform/."
               }
               golangci-lint run ./...
             '';

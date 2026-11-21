@@ -4,13 +4,12 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"terraform-provider-data-proxy/internal/client"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 // projectRowJSON is the row that the fake API answers for the project sales.

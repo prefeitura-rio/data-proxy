@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"terraform-provider-data-proxy/internal/client"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 // newTestGrant makes the grant resource with no retry delay, and with a client that follows the steps.

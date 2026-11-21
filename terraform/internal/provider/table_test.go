@@ -9,14 +9,13 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"terraform-provider-data-proxy/internal/client"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 // The rows that the test server gives for the table sales.orders and its row policies.

@@ -6,14 +6,13 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"slices"
+	"terraform-provider-data-proxy/internal/client"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 // staticToken is a token source that always returns the same token.

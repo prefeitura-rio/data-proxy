@@ -2,11 +2,10 @@ package provider
 
 import (
 	"context"
+	"terraform-provider-data-proxy/internal/client"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 // lookup is a data source that reads one object of the API into the model T. The name of the data source, its

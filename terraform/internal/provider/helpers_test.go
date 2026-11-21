@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"terraform-provider-data-proxy/internal/client"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 func TestCompactJSON(t *testing.T) {

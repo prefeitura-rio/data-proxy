@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"terraform-provider-data-proxy/internal/client"
 	"unicode"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -15,8 +16,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 // TypeName is the prefix of the resource and data source names.

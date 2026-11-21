@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"terraform-provider-data-proxy/internal/client"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 // schemaRowJSON is the row that the fake API answers for the schema orders of the project sales.

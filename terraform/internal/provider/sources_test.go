@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"terraform-provider-data-proxy/internal/client"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -11,8 +12,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
 	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 func TestProjectDataSource(t *testing.T) {

@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"terraform-provider-data-proxy/internal/client"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 // readConfig is the permission that every resource and data source needs. Configure checks it once, and the

@@ -616,7 +616,7 @@ The Terraform provider of Data Proxy is a Go module in `terraform/`, with its ow
 
 ### Tooling and tests
 
-- **GO-09** Keep `tf:lint:go` green. It fails when `gofmt` would change a file, and it runs `golangci-lint`. [must, golangci-lint]
+- **GO-09** Keep `tf:lint:go` green. It fails when `gofumpt` would change a file, and it runs `golangci-lint`. [must, golangci-lint]
 - **GO-10** Keep `tf:test:unit` green. It runs `go test ./...` without `TF_ACC`, so the acceptance tests don't run. [must, devenv]
 - **GO-11** Write a table of cases with a `name` field, and run each case with `t.Run(testCase.name, ...)`. [must, review]
 - **GO-12** Test the client against an `httptest` server. Test a delay with a fake clock, never with a real wait. [must, review]

@@ -2,12 +2,11 @@ package provider
 
 import (
 	"context"
+	"terraform-provider-data-proxy/internal/client"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 var (

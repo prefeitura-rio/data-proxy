@@ -67,7 +67,7 @@ devenv --profile repo tasks run repo:lint repo:test:unit
 | `console:lint:ui`, `nb:lint:ts` | The app and the notebooks: `svelte-check`, ESLint and Prettier. |
 | `chart:lint:helm`, `chart:lint:toml` | The chart and `rbac.toml`. |
 | `ci:lint:wf`, `ctr:lint:files`, `nu:lint:scripts` | Workflows, container files and Nushell scripts. |
-| `tf:lint:go`, `tf:test:unit` | The provider: `gofmt`, `golangci-lint` and `go test`. |
+| `tf:lint:go`, `tf:test:unit` | The provider: `gofumpt`, `golangci-lint` and `go test`. |
 | `docs:lint:code` | The style rules that a pattern can check, and the last 50 commit subjects. |
 | `docs:lint:style`, `docs:lint:links`, `docs:lint:nav`, `docs:lint:llms` | The style page, the links, the page order and `llms.txt`. |
 | `nix:lint:closure`, `nix:lint:cmd` | The profile sizes and the `devenv` commands in the docs. |

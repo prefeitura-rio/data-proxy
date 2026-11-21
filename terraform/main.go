@@ -5,10 +5,9 @@ import (
 	"context"
 	"flag"
 	"log"
+	"terraform-provider-data-proxy/internal/provider"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
-
-	"terraform-provider-data-proxy/internal/provider"
 )
 
 // version and address are set at build time with -ldflags "-X main.version=<version> -X main.address=<address>".

@@ -6,11 +6,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"terraform-provider-data-proxy/internal/client"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 // deleteError returns the error of a DELETE that the server answers with the status and the body.

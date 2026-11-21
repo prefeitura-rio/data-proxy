@@ -6,12 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"terraform-provider-data-proxy/internal/client"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
-
-	"terraform-provider-data-proxy/internal/client"
 )
 
 // providerClient returns the client that the provider gave to a resource or a data source. It returns nil before the
