@@ -18,6 +18,7 @@ from sync.models import (
     PartitionChange,
     PartitionedTable,
     PartitionedTablePlan,
+    RlsRule,
     SchemaConfig,
     SourceConfig,
     SyncConfig,
@@ -229,7 +230,15 @@ class TestSchemaConfiguration:
                         tables=[
                             FullTable(
                                 name="p.d.t",
-                                rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                                rls=[
+                                    RlsRule(
+                                        conditions=[
+                                            UnitMapping(
+                                                column="unit_id", unit_type="unit"
+                                            )
+                                        ]
+                                    )
+                                ],
                             )
                         ]
                     )
@@ -455,7 +464,8 @@ class TestTableSignatureFields:
         """Resync a table when its row rules change."""
         without = FullTable(name="p.d.t")
         with_rule = FullTable(
-            name="p.d.t", rls=[UnitMapping(column="cpf", unit_type="cpf")]
+            name="p.d.t",
+            rls=[RlsRule(conditions=[UnitMapping(column="cpf", unit_type="cpf")])],
         )
 
         assert without.config_signature_fields()["rls"] is None

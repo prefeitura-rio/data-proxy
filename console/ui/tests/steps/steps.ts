@@ -570,41 +570,124 @@ Then('the table {name} shows cache TTL {string}', async ({ page }, table: string
 	).toBeVisible();
 });
 
+/** The card of one table in the list of row rules. */
+const rulesOf = (page: Page, table: string) =>
+	page.locator('li', { has: page.getByRole('heading', { name: table, exact: true }) });
+
+/** Open the editor of the row rules of one table. */
+async function openRules(page: Page, table: string) {
+	await rulesOf(page, table).getByRole('button', { name: 'Edit' }).click();
+	await expect(page.locator('dialog[open]')).toBeVisible();
+}
+
+/** Save the editor, and wait for the toast. */
+async function saveRules(page: Page) {
+	await saved(page, () => page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click());
+}
+
 When(
 	'I add a row rule for the table {name} on column {string} with unit type {string}',
 	async ({ page }, table: string, column: string, unit: string) => {
-		await page.locator('form[action="?/createRls"] select[name=table_name]').selectOption(table);
-		await page.locator('form[action="?/createRls"] input[name=column_name]').fill(column);
-		await page.locator('form[action="?/createRls"] input[name=unit_type]').fill(unit);
-		await saved(page, () => page.getByRole('button', { name: 'Add rule' }).click());
+		await openRules(page, table);
+		await page.locator('dialog[open]').getByRole('button', { name: 'Add a condition', exact: true }).click();
+		await page.locator('dialog[open] [data-list=any] input[name=column]').last().fill(column);
+		await page.locator('dialog[open] [data-list=any] input[name=unit_type]').last().fill(unit);
+		await saveRules(page);
 	}
 );
 
 When('I change the unit type of the rule on {name} to {string}', async ({ page }, table: string, unit: string) => {
-	await page
-		.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id `) })
-		.getByRole('button', { name: 'Edit' })
-		.click();
-	await page.locator('dialog[open] input[name=unit_type]').fill(unit);
-	await page.locator('dialog[open]').getByRole('button', { name: 'Save' }).click();
+	await openRules(page, table);
+	await page.locator('dialog[open] [data-list=any] input[name=unit_type]').first().fill(unit);
+	await saveRules(page);
 });
 
 Then('I see a row rule on {name} with unit type {string}', async ({ page }, table: string, unit: string) => {
-	await expect(
-		page.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id ${unit}`) })
-	).toBeVisible();
+	await expect(rulesOf(page, table)).toContainText(`matches one of their ${unit} units`);
 });
 
 When('I delete the row rule of {name}', async ({ page }, table: string) => {
+	await openRules(page, table);
 	await page
-		.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id `) })
-		.getByRole('button', { name: 'Delete' })
+		.locator('dialog[open]')
+		.getByRole('button', { name: /^Delete the condition/ })
+		.first()
 		.click();
-	await page.locator('dialog[open]').getByRole('button', { name: 'Delete' }).click();
+	await saveRules(page);
 });
 
 Then('I see no row rule on {name}', async ({ page }, table: string) => {
-	await expect(page.getByRole('row', { name: new RegExp(`^${table.replaceAll('.', '\\.')} id `) })).toHaveCount(0);
+	await expect(rulesOf(page, table)).toContainText('No rule');
+});
+
+/** Fill the focused condition: the field that has the focus is the column, and Tab moves to the unit type. */
+async function typeCondition(page: Page, column: string, unit: string) {
+	await page.keyboard.type(column);
+	await page.keyboard.press('Tab');
+	await page.keyboard.type(unit);
+}
+
+When(
+	'I build the row rules of {name} with the keyboard: region_id of region and unit_id of unit, or area of area',
+	async ({ page }, table: string) => {
+		await openRules(page, table);
+		const dialog = page.locator('dialog[open]');
+
+		await dialog.getByRole('button', { name: 'Add a condition', exact: true }).focus();
+		await page.keyboard.press('Enter');
+		await expect(dialog.locator('[data-list=any] input[name=column]').last()).toBeFocused();
+		await typeCondition(page, 'region_id', 'region');
+
+		await dialog.getByRole('button', { name: 'Must also match something new' }).focus();
+		await page.keyboard.press('Enter');
+		await expect(dialog.locator('[data-card]').first().locator('input[name=column]').nth(1)).toBeFocused();
+		await typeCondition(page, 'unit_id', 'unit');
+
+		await dialog.getByRole('button', { name: 'Add a condition', exact: true }).first().focus();
+		await page.keyboard.press('Enter');
+		await expect(dialog.locator('[data-list=any] input[name=column]').last()).toBeFocused();
+		await typeCondition(page, 'area', 'area');
+	}
+);
+
+Then('the editor says {string}', async ({ page }, text: string) => {
+	await expect(page.getByTestId('rule-sentence')).toHaveText(text);
+});
+
+When('I delete the first condition in the editor', async ({ page }) => {
+	await page
+		.locator('dialog[open]')
+		.getByRole('button', { name: /^Delete the condition/ })
+		.first()
+		.click();
+});
+
+/** The Config page polls while a schema is new, because the test stack runs no sync to create it. Wait for one poll. */
+When('the page refreshes its data while the editor is open', async ({ page }) => {
+	await page.waitForResponse((response) => response.url().includes('__data.json'), { timeout: 15_000 });
+});
+
+When('I save the row rules', async ({ page }) => {
+	await saveRules(page);
+});
+
+When('I open the row rules of {name}', async ({ page }, table: string) => {
+	await openRules(page, table);
+});
+
+Then(
+	'I see {string} with the columns {string} and {string}',
+	async ({ page }, heading: string, first: string, second: string) => {
+		const card = page.locator('dialog[open] [data-card]').first();
+
+		await expect(card.getByText(heading)).toBeVisible();
+		await expect(card.locator('input[name=column]').nth(0)).toHaveValue(first);
+		await expect(card.locator('input[name=column]').nth(1)).toHaveValue(second);
+	}
+);
+
+When('I close the editor', async ({ page }) => {
+	await page.locator('dialog[open]').getByRole('button', { name: 'Cancel' }).click();
 });
 
 When('I delete the table {name}', async ({ page }, table: string) => {

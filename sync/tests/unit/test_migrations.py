@@ -67,7 +67,7 @@ class TestClaimChecksUnderConcurrency:
 
 
 GOOSE = shutil.which("goose")
-CONSOLE_WRITES = {"projects", "rls", "schemas", "tables"}
+CONSOLE_WRITES = {"projects", "schemas", "tables"}
 
 
 async def relations_with(pg: Postgres, privilege: str, *, any_column: bool) -> set[str]:
@@ -100,6 +100,7 @@ class TestGrantsOfTheMigrations:
             SELECT count(*) FROM pg_class AS c
             INNER JOIN pg_namespace AS n ON c.relnamespace = n.oid
             WHERE n.nspname = 'console' AND c.relkind IN ('r', 'p', 'v')
+                AND c.relname <> 'rls'
                 AND NOT has_table_privilege('dp_api', c.oid, 'SELECT')
             """
         )
@@ -109,6 +110,12 @@ class TestGrantsOfTheMigrations:
                 rbac, "SELECT has_schema_privilege('dp_api', 'console', 'USAGE')"
             )
             is True
+        )
+        assert (
+            await scalar(
+                rbac, "SELECT has_table_privilege('dp_api', 'console.rls', 'SELECT')"
+            )
+            is False
         )
         assert await relations_with(rbac, "INSERT", any_column=True) == CONSOLE_WRITES
         assert await relations_with(rbac, "DELETE", any_column=False) == CONSOLE_WRITES
@@ -358,6 +365,28 @@ class TestMigrationRun:
         assert "AFTER INSERT OR DELETE ON console.schemas" in str(
             await trigger_definition()
         )
+
+    async def test_the_rule_group_migration_goes_down_and_up_again(
+        self, scratch_databases: tuple[str, str]
+    ) -> None:
+        """Drop the column and the replace function on the way down, and bring both back on the way up."""
+        app, _ = scratch_databases
+        await goose("console", app, "up")
+
+        async def parts() -> tuple[bool, bool]:
+            async with await AsyncConnection.connect(scratch_url(app)) as connection:
+                cursor = await connection.execute(
+                    b"SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'console' AND table_name = 'rls' AND column_name = 'rule_group'), to_regprocedure('console.replace_rls(text, jsonb)') IS NOT NULL"
+                )
+                row = await cursor.fetchone()
+                assert row is not None
+                return (bool(row[0]), bool(row[1]))
+
+        assert await parts() == (True, True)
+        assert (await goose("console", app, "down")).returncode == 0
+        assert await parts() == (False, False)
+        assert (await goose("console", app, "up")).returncode == 0
+        assert await parts() == (True, True)
 
 
 class TestMigrationFiles:

@@ -2,11 +2,14 @@ package provider
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 
 	"terraform-provider-data-proxy/internal/client"
 )
@@ -177,33 +180,52 @@ func TestSchemaRead(t *testing.T) {
 	}
 }
 
+// TestSchemaUpdate checks an update that the server accepts, and one that it refuses.
 func TestSchemaUpdate(t *testing.T) {
-	res := newTestSchema(t, []step{{
-		method: "PATCH", uri: "/schemas?name=eq.sales_orders", profile: "console", response: "[" + schemaRowJSON + "]",
-		body: `{"source":"bigquery","settings":{"a":2,"b":1},"claim":"preferred_username","encrypted":false}`,
-	}})
-	s := resourceSchema(t, res)
-	plan := schemaState(true, "")
-	resp := resource.UpdateResponse{State: stateOf(t, s, plan)}
-
-	res.Update(context.Background(), resource.UpdateRequest{Plan: planOf(t, s, plan), State: stateOf(t, s, plan)}, &resp)
-
-	if got := diagnosticsOf(resp.Diagnostics); len(got) != 0 {
-		t.Fatalf("diagnostics = %+v, want none", got)
+	tests := []struct {
+		name        string
+		step        step
+		wantSummary string
+		wantDetail  string
+	}{
+		{
+			name: "the server accepts the write",
+			step: step{
+				method: "PATCH", uri: "/schemas?name=eq.sales_orders", profile: "console", response: "[" + schemaRowJSON + "]",
+				body: `{"source":"bigquery","settings":{"a":2,"b":1},"claim":"preferred_username","encrypted":false}`,
+			},
+		},
+		{
+			name:        "the server refuses the write",
+			step:        step{status: 400, response: `{"code":"23514","message":"The name of schema sales_orders can't change"}`},
+			wantSummary: "Couldn't update the schema",
+			wantDetail:  "can't change",
+		},
 	}
-}
 
-func TestSchemaUpdateReportsARefusedWrite(t *testing.T) {
-	res := newTestSchema(t, []step{{status: 400, response: `{"code":"23514","message":"The name of schema sales_orders can't change"}`}})
-	s := resourceSchema(t, res)
-	plan := schemaState(true, "")
-	resp := resource.UpdateResponse{State: stateOf(t, s, plan)}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := newTestSchema(t, []step{tt.step})
+			s := resourceSchema(t, res)
+			plan := schemaState(true, "")
+			resp := resource.UpdateResponse{State: stateOf(t, s, plan)}
 
-	res.Update(context.Background(), resource.UpdateRequest{Plan: planOf(t, s, plan), State: stateOf(t, s, plan)}, &resp)
+			res.Update(context.Background(), resource.UpdateRequest{Plan: planOf(t, s, plan), State: stateOf(t, s, plan)}, &resp)
 
-	got := diagnosticsOf(resp.Diagnostics)
-	if len(got) != 1 || got[0].summary != "Couldn't update the schema" || !strings.Contains(got[0].detail, "can't change") {
-		t.Fatalf("diagnostics = %+v, want the refused update", got)
+			got := diagnosticsOf(resp.Diagnostics)
+
+			if tt.wantSummary == "" {
+				if len(got) != 0 {
+					t.Fatalf("diagnostics = %+v, want none", got)
+				}
+
+				return
+			}
+
+			if len(got) != 1 || got[0].summary != tt.wantSummary || !strings.Contains(got[0].detail, tt.wantDetail) {
+				t.Fatalf("diagnostics = %+v, want %q with %q", got, tt.wantSummary, tt.wantDetail)
+			}
+		})
 	}
 }
 
@@ -248,18 +270,123 @@ func TestSchemaDelete(t *testing.T) {
 	}
 }
 
+// TestSchemaImportKeepsDeletionProtection checks that an imported schema has its name and deletion protection.
 func TestSchemaImportKeepsDeletionProtection(t *testing.T) {
-	res := newTestSchema(t, nil)
-	s := resourceSchema(t, res)
-	resp := resource.ImportStateResponse{State: nullState(s)}
-
-	res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: "sales_orders"}, &resp)
-
-	var state schemaModel
-
-	resp.State.Get(context.Background(), &state)
-
-	if state.Name.ValueString() != "sales_orders" || !state.DeletionProtection.ValueBool() {
-		t.Errorf("state = %+v, want the name and deletion protection", state)
+	tests := []struct {
+		name string
+		id   string
+	}{
+		{name: "a physical name", id: "sales_orders"},
+		{name: "a name with a project prefix", id: "proj_orders"},
 	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := newTestSchema(t, nil)
+			s := resourceSchema(t, res)
+			resp := resource.ImportStateResponse{State: nullState(s)}
+
+			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: tt.id}, &resp)
+
+			var state schemaModel
+
+			resp.State.Get(context.Background(), &state)
+
+			if state.Name.ValueString() != tt.id || !state.DeletionProtection.ValueBool() {
+				t.Errorf("state = %+v, want the name %q and deletion protection", state, tt.id)
+			}
+		})
+	}
+}
+
+func TestAccSchemaResource(t *testing.T) {
+	project := testAccName()
+	testAccCleanup(t, "projects", client.Eq("name", project))
+	testAccCleanup(t, "schemas", client.Eq("project", project))
+
+	physical := project + "_orders"
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{
+				Config: schemaConfig(project, "orders", "preferred_username"),
+				Check: acc.ComposeAggregateTestCheckFunc(
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "name", physical),
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "id", physical),
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "source", "bigquery"),
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "claim", "preferred_username"),
+				),
+			},
+			{
+				Config: schemaConfig(project, "orders", "email"),
+				Check:  acc.TestCheckResourceAttr("data_proxy_schema.this", "claim", "email"),
+			},
+			{
+				ResourceName:            "data_proxy_schema.this",
+				ImportState:             true,
+				ImportStateVerify:       true,
+				ImportStateVerifyIgnore: []string{"deletion_protection", "timeouts"},
+			},
+			{
+				Config: schemaConfig(project, "invoices", "email"),
+				Check:  acc.TestCheckResourceAttr("data_proxy_schema.this", "name", project+"_invoices"),
+			},
+		},
+	})
+}
+
+func TestAccSchemaResourceInTheDefaultProject(t *testing.T) {
+	short := testAccName()
+	testAccCleanup(t, "schemas", client.Eq("name", short))
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{
+				Config: fmt.Sprintf(`
+resource "data_proxy_schema" "this" {
+  provider            = data-proxy
+  short_name          = %q
+  deletion_protection = false
+
+  timeouts {
+    create = "0s"
+    delete = "0s"
+  }
+}
+`, short),
+				Check: acc.ComposeAggregateTestCheckFunc(
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "project", "default"),
+					acc.TestCheckResourceAttr("data_proxy_schema.this", "name", short),
+				),
+			},
+		},
+	})
+}
+
+func TestAccSchemaResourceRefusesAReservedName(t *testing.T) {
+	testAccCleanup(t, "schemas", client.Eq("name", "dbos"))
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		Steps: []acc.TestStep{
+			{
+				Config: `
+resource "data_proxy_schema" "this" {
+  provider   = data-proxy
+  short_name = "dbos"
+
+  timeouts {
+    create = "0s"
+  }
+}
+`,
+				ExpectError: regexp.MustCompile(`Couldn't create the schema`),
+			},
+		},
+	})
 }

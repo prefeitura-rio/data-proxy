@@ -56,8 +56,19 @@ resource "data_proxy_table" "orders" {
   sort     = ["order_id"]
 
   rls {
-    column_name = "unit_id"
-    unit_type   = "unit"
+    column_name = "area"
+    unit_type   = "area"
+  }
+
+  rls {
+    condition {
+      column_name = "region_id"
+      unit_type   = "region"
+    }
+    condition {
+      column_name = "unit_id"
+      unit_type   = "unit"
+    }
   }
 }
 ```
@@ -66,9 +77,9 @@ resource "data_proxy_table" "orders" {
 - `strategy`: `full` (default) or `partitioned`. `n` and `fallback` need `partitioned`.
 - `cache_ttl`: the seconds that the proxy caches an answer.
 - `partitioning`: a JSON array of partition transforms. `sort`: a list of columns.
-- `rls`: the row policies in order. The schema needs a `claim`, or the database refuses them.
+- `rls`: a row policy. The schema needs a `claim`, or the database refuses it. Policies are alternatives. Write one condition as `column_name` and `unit_type`. Write two or more conditions that all must match as `condition` blocks. The two forms do not mix, and one `condition` block is refused. The order of the blocks stays the same.
 
-A change of `rls` deletes the policies of the table and adds them again, in two calls. It isn't atomic. A change of the strategy, the partitioning, the sort or the policies makes the next sync rebuild the table. Import with the name.
+A change of `rls` replaces the policies of the table in one call, so a failure leaves the old policies. A change of the strategy, the partitioning, the sort or the policies makes the next sync rebuild the table. Import with the name.
 
 ## `data_proxy_access_policy`
 

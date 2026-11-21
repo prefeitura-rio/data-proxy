@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
 	"terraform-provider-data-proxy/internal/client"
 )
@@ -257,13 +260,69 @@ func TestAccessPolicyImport(t *testing.T) {
 	})
 }
 
+// TestAccessPolicyUpdateNeverRuns checks that an update gives one error, because an access policy has nothing that can change.
 func TestAccessPolicyUpdateNeverRuns(t *testing.T) {
-	res := newTestAccessPolicy(t, nil)
-	resp := resource.UpdateResponse{}
-
-	res.Update(context.Background(), resource.UpdateRequest{}, &resp)
-
-	if got := summaries(diagnosticsOf(resp.Diagnostics)); len(got) != 1 || got[0] != "An access policy can't change" {
-		t.Errorf("diagnostics = %v, want the error of an update", got)
+	tests := []struct {
+		name string
+	}{
+		{name: "an empty request"},
 	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := newTestAccessPolicy(t, nil)
+			resp := resource.UpdateResponse{}
+
+			res.Update(context.Background(), resource.UpdateRequest{}, &resp)
+
+			if got := summaries(diagnosticsOf(resp.Diagnostics)); len(got) != 1 || got[0] != "An access policy can't change" {
+				t.Errorf("diagnostics = %v, want the error of an update", got)
+			}
+		})
+	}
+}
+
+func TestAccAccessPolicyResource(t *testing.T) {
+	subject := testAccName() + "@example.org"
+
+	config := fmt.Sprintf(`
+resource "data_proxy_access_policy" "this" {
+  provider  = data-proxy
+  schema    = %q
+  subject   = %q
+  unit_type = "unit"
+  unit_id   = "1"
+}
+`, testAccProvisionedSchema, subject)
+
+	destroyed := func(*terraform.State) error {
+		apiClient, err := testAccClient()
+		if err != nil {
+			return err
+		}
+
+		rows, err := apiClient.ListAccessPolicy(context.Background(), testAccProvisionedSchema, client.AccessPolicy{Subject: subject, UnitType: ptr("unit"), UnitID: ptr("1")})
+		if err != nil {
+			return err
+		}
+
+		if len(rows) != 0 {
+			return fmt.Errorf("the row of %s still exists after the destroy", subject)
+		}
+
+		return nil
+	}
+
+	acc.Test(t, acc.TestCase{
+		PreCheck:                 func() { testAccPreCheck(t) },
+		ProtoV6ProviderFactories: testAccProviderFactories,
+		CheckDestroy:             destroyed,
+		Steps: []acc.TestStep{
+			{
+				Config: config,
+				Check:  acc.TestCheckResourceAttr("data_proxy_access_policy.this", "id", fmt.Sprintf("%s/%s/unit/1", testAccProvisionedSchema, subject)),
+			},
+			{ResourceName: "data_proxy_access_policy.this", ImportState: true, ImportStateVerify: true, ImportStateVerifyIdentifierAttribute: "id"},
+		},
+	})
 }

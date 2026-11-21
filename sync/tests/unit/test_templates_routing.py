@@ -663,6 +663,115 @@ class TestTableFunction:
 
         assert found == expected
 
+    @pytest.mark.parametrize(
+        ("rules", "grants", "expected"),
+        [
+            pytest.param(
+                [("a", "ta", None), ("b", "tb", None)],
+                [("ta", "x")],
+                [1, 2],
+                id="alone-rules-join-with-or",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1)],
+                [("ta", "x"), ("tb", "y")],
+                [1],
+                id="group-needs-both-columns",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1)],
+                [("ta", "x")],
+                [],
+                id="group-without-one-grant-drops-out",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1), ("c", "tc", 2)],
+                [("ta", "x"), ("tc", "z")],
+                [3],
+                id="a-dropped-group-leaves-the-other-group",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1), ("c", "tc", 2)],
+                [("ta", "x"), ("tb", "y"), ("tc", "z")],
+                [1, 3],
+                id="two-groups-join-with-or",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1), ("c", "tc", None)],
+                [("tc", "z")],
+                [3],
+                id="a-plain-rule-beside-a-dropped-group",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1)],
+                [("*", "*")],
+                [1, 2, 3],
+                id="wildcard-grant-reads-everything",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "tb", 1)],
+                [],
+                [],
+                id="no-grant-reads-nothing",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("b", "ta", 1)],
+                [("ta", "x")],
+                [],
+                id="same-unit-type-in-a-group-needs-both-columns-to-hold-a-grant",
+            ),
+            pytest.param(
+                [("a", "ta", 1), ("c", "ta", 1)],
+                [("ta", "q"), ("ta", "x")],
+                [1, 2],
+                id="same-unit-type-in-a-group-matches-any-granted-value-in-each-column",
+            ),
+        ],
+    )
+    async def test_view_function_combines_grouped_rules_with_and_inside_a_group(
+        self,
+        table_function: Postgres,
+        rules: list[tuple[str, str, int | None]],
+        grants: list[tuple[str, str]],
+        expected: list[int],
+    ) -> None:
+        """A group needs a grant for every rule in it, and groups are alternatives. A group with a missing grant never widens the filter."""
+        mappings: list[dict[str, str]] = [
+            {
+                "column": column,
+                "unit_type": unit_type,
+                "duckdb_type": "VARCHAR",
+                "group": "" if group is None else str(group),
+            }
+            for column, unit_type, group in rules
+        ]
+        await install_table_function(
+            table_function, has_rls=True, fallbacks=[], rules=mappings
+        )
+        await put_state(table_function, ROUTED_TABLE, FULL)
+        await set_setting(table_function, "app.claim_sub", "u")
+        for unit_type, unit_id in grants:
+            await insert_access_policy(table_function, "u", unit_type, unit_id)
+
+        rows, _ = await call_table_function(table_function)
+
+        found: list[int] = []
+
+        if len(rows) > 0:
+            duck = duckdb.connect()
+            duck.execute("CREATE TABLE t(id INT, a VARCHAR, b VARCHAR, c VARCHAR)")
+            duck.execute(
+                "INSERT INTO t VALUES (1, 'x', 'y', 'q'), (2, 'x', 'n', 'q'), (3, 'n', 'n', 'z')"
+            )
+            found = [
+                row[0]
+                for row in duck.execute(
+                    f"SELECT id FROM t {rows[-1][1]} ORDER BY id"
+                ).fetchall()
+            ]
+
+        assert found == expected
+
     async def test_view_function_passes_an_empty_predicate_to_the_wildcard_schema_claim(
         self, table_function: Postgres
     ) -> None:

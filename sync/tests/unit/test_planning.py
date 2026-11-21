@@ -13,6 +13,7 @@ from sync.models import (
     FullTable,
     PartitionChange,
     PartitionedTable,
+    RlsRule,
     SchemaConfig,
     Strategy,
     SyncConfig,
@@ -436,11 +437,19 @@ class TestTableSignature:
         [
             pytest.param(
                 FullTable(
-                    name="p.d.t", rls=[UnitMapping(column="id", unit_type="unit")]
+                    name="p.d.t",
+                    rls=[
+                        RlsRule(conditions=[UnitMapping(column="id", unit_type="unit")])
+                    ],
                 ),
                 None,
                 FullTable(
-                    name="p.d.t", rls=[UnitMapping(column="id", unit_type="region")]
+                    name="p.d.t",
+                    rls=[
+                        RlsRule(
+                            conditions=[UnitMapping(column="id", unit_type="region")]
+                        )
+                    ],
                 ),
                 None,
                 id="rls",

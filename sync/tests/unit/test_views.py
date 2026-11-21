@@ -11,6 +11,7 @@ import sync.views.reconcile as views_module
 from sync.models import (
     FullTable,
     PartitionedTable,
+    RlsRule,
     SchemaConfig,
     SyncConfig,
     UnitMapping,
@@ -120,7 +121,11 @@ class TestSourceMappings:
                 FullTable(
                     name="p.d.people",
                     resolved_source="bigquery",
-                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                    rls=[
+                        RlsRule(
+                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
+                        )
+                    ],
                 ),
                 [],
                 ["unit_id"],
@@ -266,7 +271,11 @@ class TestAggregateFunction:
                 FullTable(
                     name="p.d.people",
                     resolved_source="bigquery",
-                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                    rls=[
+                        RlsRule(
+                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
+                        )
+                    ],
                 ),
                 "postgres/views/create_function",
                 utils.table_function_mapping,
@@ -278,7 +287,11 @@ class TestAggregateFunction:
                     name="p.d.people",
                     resolved_source="bigquery",
                     fallback=True,
-                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                    rls=[
+                        RlsRule(
+                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
+                        )
+                    ],
                 ),
                 "postgres/views/create_function",
                 utils.table_function_mapping,
@@ -289,7 +302,11 @@ class TestAggregateFunction:
                 FullTable(
                     name="p.d.people",
                     resolved_source="bigquery",
-                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                    rls=[
+                        RlsRule(
+                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
+                        )
+                    ],
                 ),
                 "postgres/views/create_aggregate_function",
                 utils.aggregate_function_mapping,
@@ -300,7 +317,11 @@ class TestAggregateFunction:
                 FullTable(
                     name="p.d.people",
                     resolved_source="bigquery",
-                    rls=[UnitMapping(column="unit_id", unit_type="unit")],
+                    rls=[
+                        RlsRule(
+                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
+                        )
+                    ],
                 ),
                 "postgres/create_table_changes_function",
                 utils.table_changes_function_mapping,

@@ -1,55 +1,80 @@
 package provider
 
 import (
-	"errors"
-	"fmt"
-	"slices"
-	"strings"
+	"context"
 
-	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/datasource"
+	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"terraform-provider-data-proxy/internal/client"
 )
 
-// readConfig is the permission that every resource and data source needs. Configure checks it once, and the
-// database checks the write permissions on each request.
-const readConfig = "read_config"
+var (
+	_ datasource.DataSource              = (*permissionsDataSource)(nil)
+	_ datasource.DataSourceWithConfigure = (*permissionsDataSource)(nil)
+)
 
-// addAPIError adds an error for a failed request. When the database refused it, the detail names permission.
-func addAPIError(diagnostics *diag.Diagnostics, summary, permission string, err error) {
-	detail := err.Error()
-
-	switch {
-	case errors.Is(err, client.ErrForbidden) && permission != "":
-		detail = fmt.Sprintf("The token lacks the %s permission, or the schema isn't in the claim of the token. "+
-			"Give the client a role that has %s. The API answered: %s", permission, permission, err)
-	case errors.Is(err, client.ErrForbidden):
-		detail = "The database refused the request. The API answered: " + err.Error()
-	case errors.Is(err, client.ErrUnauthorized):
-		detail = "The API refused the token. Check that the API trusts the identity provider of token_url. " +
-			"The API answered: " + err.Error()
-	}
-
-	diagnostics.AddError(summary, detail)
+// permissionsDataSource is the data_proxy_permissions data source. It reads the permissions of the token.
+type permissionsDataSource struct {
+	client *client.Client
 }
 
-// checkReadConfig returns an error that lists the permissions of the token when it lacks read_config.
-func checkReadConfig(clientID string, permissions []string) diag.Diagnostics {
-	var diagnostics diag.Diagnostics
+// permissionsModel maps the data_proxy_permissions data source.
+type permissionsModel struct {
+	Permissions types.Set `tfsdk:"permissions"`
+}
 
-	if slices.Contains(permissions, readConfig) {
-		return diagnostics
+// newPermissionsDataSource returns the data_proxy_permissions data source.
+func newPermissionsDataSource() datasource.DataSource {
+	return &permissionsDataSource{}
+}
+
+// Metadata names the data source with the type name of the provider and the suffix _permissions.
+func (d *permissionsDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+	resp.TypeName = req.ProviderTypeName + "_permissions"
+}
+
+// Schema declares the computed set of permissions of the token.
+func (d *permissionsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
+	resp.Schema = schema.Schema{
+		Description: "Reads the permissions of the token of the provider, from GET /rpc/permissions.",
+		Attributes: map[string]schema.Attribute{
+			"permissions": schema.SetAttribute{
+				Description: "The permissions of the token, the names of rbac.toml such as read_config and create_config.",
+				ElementType: types.StringType,
+				Computed:    true,
+			},
+		},
+	}
+}
+
+// Configure takes the client that the provider built. It does nothing before the provider is configured.
+func (d *permissionsDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+	d.client = providerClient(req.ProviderData, &resp.Diagnostics)
+}
+
+// Read stores the permissions of the token in the state.
+func (d *permissionsDataSource) Read(ctx context.Context, _ datasource.ReadRequest, resp *datasource.ReadResponse) {
+	if d.client == nil {
+		resp.Diagnostics.AddError("Unconfigured provider", "The data source has no client, because the provider isn't configured.")
+
+		return
 	}
 
-	held := "none"
-	if len(permissions) > 0 {
-		held = strings.Join(permissions, ", ")
+	permissions, err := d.client.Permissions(ctx)
+	if err != nil {
+		addAPIError(&resp.Diagnostics, "Couldn't read the permissions of the token", "", err)
+
+		return
 	}
 
-	diagnostics.AddError("Missing "+readConfig+" permission",
-		fmt.Sprintf("The token of the client %q lacks the %s permission, and the provider needs it to read the configuration. "+
-			"Give the client a role that has %s, such as dp_console or dp_admin. The token has these permissions: %s.",
-			clientID, readConfig, readConfig, held))
+	set, diagnostics := types.SetValueFrom(ctx, types.StringType, permissions)
+	resp.Diagnostics.Append(diagnostics...)
 
-	return diagnostics
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Diagnostics.Append(resp.State.Set(ctx, permissionsModel{Permissions: set})...)
 }
