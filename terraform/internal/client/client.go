@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -29,10 +28,15 @@ const maxErrorBody = 1 << 20
 // the provider asks for, so it is a wrong endpoint or a filter that matches too much.
 const maxBody = 64 << 20
 
-// reservedParameters are the query parameters of PostgREST. A filter on a column with one of these names would not
-// filter the rows, so a Patch or a Delete would touch the whole table.
-var reservedParameters = map[string]struct{}{
-	"select": {}, "columns": {}, "order": {}, "limit": {}, "offset": {}, "on_conflict": {}, "and": {}, "or": {}, "not": {},
+// isReservedParameter reports whether PostgREST reads the name as a query parameter. A filter on a column with one of
+// these names would not filter the rows, so a Patch or a Delete would touch the whole table.
+func isReservedParameter(name string) bool {
+	switch name {
+	case "select", "columns", "order", "limit", "offset", "on_conflict", "and", "or", "not":
+		return true
+	default:
+		return false
+	}
 }
 
 // TokenSource gives the JWT that the client sends with each request.
@@ -88,16 +92,17 @@ func New(endpoint string, tokens TokenSource, httpClient *http.Client) (*Client,
 		return nil, fmt.Errorf("parse the endpoint: %w", err)
 	}
 
-	if err := checkAddress("endpoint", endpoint, parsed); err != nil {
+	err = checkAddress("endpoint", endpoint, parsed)
+	if err != nil {
 		return nil, err
 	}
 
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
-		return nil, fmt.Errorf("endpoint %q: remove the query and the fragment", endpoint)
+		return nil, fmt.Errorf("endpoint %q: %w", endpoint, ErrQueryOrFragment)
 	}
 
 	if tokens == nil {
-		return nil, errors.New("the token source is nil")
+		return nil, ErrNoTokenSource
 	}
 
 	if httpClient == nil {
@@ -114,15 +119,15 @@ func New(endpoint string, tokens TokenSource, httpClient *http.Client) (*Client,
 // http to a host that is not a loopback one, because the token or the secret would cross the network in plain text.
 func checkAddress(what, raw string, parsed *url.URL) error {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("%s %q: the scheme must be http or https", what, raw)
+		return fmt.Errorf("%s %q: %w", what, raw, ErrBadScheme)
 	}
 
 	if parsed.Host == "" {
-		return fmt.Errorf("%s %q: the host is empty", what, raw)
+		return fmt.Errorf("%s %q: %w", what, raw, ErrEmptyHost)
 	}
 
 	if parsed.Scheme == "http" && !isLoopback(parsed.Hostname()) {
-		return fmt.Errorf("%s %q: use https, or http for a loopback host", what, raw)
+		return fmt.Errorf("%s %q: %w", what, raw, ErrInsecureHost)
 	}
 
 	return nil
@@ -169,7 +174,7 @@ func (c *Client) GetOne(ctx context.Context, profile, table string, filters []Fi
 
 		return nil
 	default:
-		return fmt.Errorf("%d rows of %s match the filters, want one", len(rows), table)
+		return fmt.Errorf("%d rows of %s match the filters, %w", len(rows), table, ErrWantOne)
 	}
 }
 
@@ -181,16 +186,20 @@ func (c *Client) Insert(ctx context.Context, profile, table string, body, out an
 // Patch changes the rows that match every filter and decodes the changed rows into out. It needs a filter.
 func (c *Client) Patch(ctx context.Context, profile, table string, filters []Filter, body, out any) error {
 	if len(filters) == 0 {
-		return fmt.Errorf("patch %s: give at least one filter", table)
+		return fmt.Errorf("patch %s: %w", table, ErrMissingFilter)
 	}
 
-	return c.do(ctx, request{method: http.MethodPatch, profile: profile, path: table, filters: filters, body: body, write: true}, out)
+	return c.do(
+		ctx,
+		request{method: http.MethodPatch, profile: profile, path: table, filters: filters, body: body, write: true},
+		out,
+	)
 }
 
 // Delete removes the rows that match every filter and decodes the removed rows into out. It needs a filter.
 func (c *Client) Delete(ctx context.Context, profile, table string, filters []Filter, out any) error {
 	if len(filters) == 0 {
-		return fmt.Errorf("delete from %s: give at least one filter", table)
+		return fmt.Errorf("delete from %s: %w", table, ErrMissingFilter)
 	}
 
 	return c.do(ctx, request{method: http.MethodDelete, profile: profile, path: table, filters: filters, write: true}, out)
@@ -199,23 +208,31 @@ func (c *Client) Delete(ctx context.Context, profile, table string, filters []Fi
 // RPC calls the function with the arguments, a JSON object, and decodes the result into out.
 func (c *Client) RPC(ctx context.Context, profile, function string, args, out any) error {
 	if function == "" {
-		return errors.New("the function name is empty")
+		return fmt.Errorf("the function name %w", ErrEmptyName)
 	}
 
 	if args == nil {
 		args = map[string]any{}
 	}
 
-	return c.do(ctx, request{method: http.MethodPost, profile: profile, path: "rpc/" + url.PathEscape(function), body: args, rpc: true}, out)
+	return c.do(
+		ctx,
+		request{method: http.MethodPost, profile: profile, path: "rpc/" + url.PathEscape(function), body: args, rpc: true},
+		out,
+	)
 }
 
 // GetRPC calls a STABLE or IMMUTABLE function with GET and decodes the result into out.
 func (c *Client) GetRPC(ctx context.Context, profile, function string, out any) error {
 	if function == "" {
-		return errors.New("the function name is empty")
+		return fmt.Errorf("the function name %w", ErrEmptyName)
 	}
 
-	return c.do(ctx, request{method: http.MethodGet, profile: profile, path: "rpc/" + url.PathEscape(function), rpc: true}, out)
+	return c.do(
+		ctx,
+		request{method: http.MethodGet, profile: profile, path: "rpc/" + url.PathEscape(function), rpc: true},
+		out,
+	)
 }
 
 // Permissions returns the names of rbac.toml, such as read_config, that the role of the token has.
@@ -247,107 +264,135 @@ type request struct {
 
 // do sends one request and decodes the JSON answer into out. It returns an *Error for a status outside 2xx, and it
 // ignores an empty answer.
-func (c *Client) do(ctx context.Context, r request, out any) error {
-	if r.profile == "" {
-		return errors.New("the profile is empty")
-	}
-
-	target, err := c.target(r)
+func (c *Client) do(ctx context.Context, req request, out any) error {
+	httpReq, hasBody, err := c.build(ctx, req)
 	if err != nil {
 		return err
 	}
 
-	var payload io.Reader
-
-	if r.body != nil {
-		encoded, err := json.Marshal(r.body)
-		if err != nil {
-			return fmt.Errorf("encode the body of %s %s: %w", r.method, r.path, err)
-		}
-
-		payload = bytes.NewReader(encoded)
+	if hasBody {
+		httpReq.Header.Set("Content-Type", "application/json")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, r.method, target, payload)
+	resp, err := c.http.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("build the request %s %s: %w", r.method, r.path, err)
-	}
-
-	token, err := c.tokens.Token(ctx)
-	if err != nil {
-		return fmt.Errorf("get the token: %w", err)
-	}
-
-	if token == "" {
-		return errors.New("the token source returned an empty token")
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/json")
-
-	switch {
-	case r.write:
-		req.Header.Set("Content-Profile", r.profile)
-		req.Header.Set("Prefer", "return=representation")
-	case r.rpc && r.method == http.MethodPost:
-		req.Header.Set("Content-Profile", r.profile)
-	default:
-		req.Header.Set("Accept-Profile", r.profile)
-	}
-
-	if payload != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("%s %s: %w", r.method, r.path, err)
+		return fmt.Errorf("%s %s: %w", req.method, req.path, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		raw, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-		if err != nil {
-			return fmt.Errorf("%s %s: read the error response: %w", r.method, r.path, err)
-		}
-
-		return parseError(resp.StatusCode, raw)
-	}
-
-	if resp.StatusCode == http.StatusPartialContent {
-		return fmt.Errorf("%s %s: %w: PostgREST sent the rows %s, so raise postgrest.maxRows or narrow the filter",
-			r.method, r.path, ErrTruncated, resp.Header.Get("Content-Range"))
-	}
-
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+	raw, err := readAnswer(resp, req)
 	if err != nil {
-		return fmt.Errorf("%s %s: read the response: %w", r.method, r.path, err)
-	}
-
-	if len(raw) > maxBody {
-		return fmt.Errorf("%s %s: %w: the response is longer than %d bytes, so narrow the filter",
-			r.method, r.path, ErrTooLarge, maxBody)
+		return err
 	}
 
 	if out == nil || len(bytes.TrimSpace(raw)) == 0 {
 		return nil
 	}
 
-	if err := json.Unmarshal(raw, out); err != nil {
-		return fmt.Errorf("%s %s: decode the response: %w", r.method, r.path, err)
+	err = json.Unmarshal(raw, out)
+	if err != nil {
+		return fmt.Errorf("%s %s: decode the response: %w", req.method, req.path, err)
 	}
 
 	return nil
 }
 
-// target builds the URL path of a request: the table, or the function of an RPC call, with the query of its filters.
-func (c *Client) target(r request) (string, error) {
-	path := r.path
+// build makes the HTTP request of a call: the address, the body, the token and the profile headers. It reports whether
+// the request has a body.
+func (c *Client) build(ctx context.Context, req request) (*http.Request, bool, error) {
+	if req.profile == "" {
+		return nil, false, fmt.Errorf("the profile %w", ErrEmptyName)
+	}
 
-	if !r.rpc {
+	target, err := c.target(req)
+	if err != nil {
+		return nil, false, err
+	}
+
+	var payload io.Reader
+
+	if req.body != nil {
+		encoded, err := json.Marshal(req.body)
+		if err != nil {
+			return nil, false, fmt.Errorf("encode the body of %s %s: %w", req.method, req.path, err)
+		}
+
+		payload = bytes.NewReader(encoded)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, req.method, target, payload)
+	if err != nil {
+		return nil, false, fmt.Errorf("build the request %s %s: %w", req.method, req.path, err)
+	}
+
+	token, err := c.tokens.Token(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("get the token: %w", err)
+	}
+
+	if token == "" {
+		return nil, false, ErrEmptyToken
+	}
+
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Accept", "application/json")
+	setProfile(httpReq, req)
+
+	return httpReq, payload != nil, nil
+}
+
+// setProfile sets the header that picks the schema: Content-Profile for a write and for a function that changes data,
+// Accept-Profile for a read.
+func setProfile(httpReq *http.Request, req request) {
+	switch {
+	case req.write:
+		httpReq.Header.Set("Content-Profile", req.profile)
+		httpReq.Header.Set("Prefer", "return=representation")
+	case req.rpc && req.method == http.MethodPost:
+		httpReq.Header.Set("Content-Profile", req.profile)
+	default:
+		httpReq.Header.Set("Accept-Profile", req.profile)
+	}
+}
+
+// readAnswer reads the body of a successful answer. It returns an *Error for a status outside 2xx, and an error for an
+// answer that PostgREST cut or that is too long.
+func readAnswer(resp *http.Response, req request) ([]byte, error) {
+	if resp.StatusCode < http.StatusOK || resp.StatusCode > 299 {
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+		if err != nil {
+			return nil, fmt.Errorf("%s %s: read the error response: %w", req.method, req.path, err)
+		}
+
+		return nil, parseError(resp.StatusCode, raw)
+	}
+
+	if resp.StatusCode == http.StatusPartialContent {
+		return nil, fmt.Errorf("%s %s: %w: PostgREST sent the rows %s, so raise postgrest.maxRows or narrow the filter",
+			req.method, req.path, ErrTruncated, resp.Header.Get("Content-Range"))
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: read the response: %w", req.method, req.path, err)
+	}
+
+	if len(raw) > maxBody {
+		return nil, fmt.Errorf("%s %s: %w: the response is longer than %d bytes, so narrow the filter",
+			req.method, req.path, ErrTooLarge, maxBody)
+	}
+
+	return raw, nil
+}
+
+// target builds the URL path of a request: the table, or the function of an RPC call, with the query of its filters.
+func (c *Client) target(req request) (string, error) {
+	path := req.path
+
+	if !req.rpc {
 		if path == "" {
-			return "", errors.New("the table name is empty")
+			return "", fmt.Errorf("the table name %w", ErrEmptyName)
 		}
 
 		path = url.PathEscape(path)
@@ -355,16 +400,22 @@ func (c *Client) target(r request) (string, error) {
 
 	var query strings.Builder
 
-	for i, filter := range r.filters {
+	for index, filter := range req.filters {
 		if filter.column == "" {
-			return "", fmt.Errorf("filter %d of %s has an empty column", i, r.path)
+			return "", fmt.Errorf("filter %d of %s %w", index, req.path, ErrEmptyColumn)
 		}
 
-		if _, ok := reservedParameters[filter.column]; ok && !filter.raw {
-			return "", fmt.Errorf("filter %d of %s: PostgREST reads %q as a parameter, not as a column", i, r.path, filter.column)
+		if isReservedParameter(filter.column) && !filter.raw {
+			return "", fmt.Errorf(
+				"filter %d of %s: PostgREST reads %q %w",
+				index,
+				req.path,
+				filter.column,
+				ErrReservedColumn,
+			)
 		}
 
-		if i > 0 {
+		if index > 0 {
 			query.WriteByte('&')
 		}
 

@@ -127,8 +127,13 @@ func (c *Client) WaitProvisioned(ctx context.Context, schema string) error {
 	return c.waitProvisioned(ctx, schema, waitFor)
 }
 
-// waitProvisioned polls until the schema is ready. The wait function sleeps between two checks, so a test can replace it.
-func (c *Client) waitProvisioned(ctx context.Context, schema string, wait func(context.Context, time.Duration) error) error {
+// waitProvisioned polls until the schema is ready. The wait function sleeps between two checks, so a test can replace
+// it.
+func (c *Client) waitProvisioned(
+	ctx context.Context,
+	schema string,
+	wait func(context.Context, time.Duration) error,
+) error {
 	for {
 		ready, err := c.isReady(ctx, schema)
 		if err != nil {
@@ -139,7 +144,8 @@ func (c *Client) waitProvisioned(ctx context.Context, schema string, wait func(c
 			return nil
 		}
 
-		if err := wait(ctx, provisionInterval); err != nil {
+		err = wait(ctx, provisionInterval)
+		if err != nil {
 			return fmt.Errorf("wait for the schema %s to be provisioned: %w", schema, err)
 		}
 	}
@@ -168,7 +174,11 @@ func (c *Client) WaitDeprovisioned(ctx context.Context, schema string) error {
 }
 
 // waitDeprovisioned polls until PostgREST no longer serves the schema. The wait function sleeps between two checks.
-func (c *Client) waitDeprovisioned(ctx context.Context, schema string, wait func(context.Context, time.Duration) error) error {
+func (c *Client) waitDeprovisioned(
+	ctx context.Context,
+	schema string,
+	wait func(context.Context, time.Duration) error,
+) error {
 	for {
 		ready, err := c.served(ctx, schema)
 		if err != nil {
@@ -179,7 +189,8 @@ func (c *Client) waitDeprovisioned(ctx context.Context, schema string, wait func
 			return nil
 		}
 
-		if err := wait(ctx, provisionInterval); err != nil {
+		err = wait(ctx, provisionInterval)
+		if err != nil {
 			return fmt.Errorf("wait for the schema %s to be dropped: %w", schema, err)
 		}
 	}

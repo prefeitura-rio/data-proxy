@@ -1,4 +1,4 @@
-package client
+package client_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"terraform-provider-data-proxy/internal/client"
 	"testing"
 )
 
@@ -19,13 +20,15 @@ const (
 )
 
 func TestConfigOperations(t *testing.T) {
-	wantProject := Project{Name: "sales", UpdatedAt: "2026-01-01T00:00:00Z", UpdatedBy: "terraform"}
-	wantSchema := Schema{
+	t.Parallel()
+
+	wantProject := client.Project{Name: "sales", UpdatedAt: "2026-01-01T00:00:00Z", UpdatedBy: "terraform"}
+	wantSchema := client.Schema{
 		Name: "sales_orders", Project: "sales", ShortName: "orders", Source: "bigquery",
 		Settings: json.RawMessage("null"), Claim: new("preferred_username"),
 		UpdatedAt: "2026-01-01T00:00:00Z", UpdatedBy: "terraform",
 	}
-	wantTable := Table{
+	wantTable := client.Table{
 		Name: "sales.orders", Schema: "sales_orders", Strategy: "partitioned", N: new(3), CacheTTL: new(60),
 		Partitioning: json.RawMessage("null"), Sort: []string{"order_id"}, UpdatedAt: "t", UpdatedBy: "u",
 	}
@@ -33,27 +36,38 @@ func TestConfigOperations(t *testing.T) {
 	tests := []struct {
 		name  string
 		steps []step
-		run   func(context.Context, *Client) (any, error)
+		run   func(context.Context, *client.Client) (any, error)
 		want  any
 	}{
 		{
-			name:  "create a project",
-			steps: []step{{method: "POST", uri: "/projects", contentProfile: "console", body: `{"name":"sales"}`, status: 201, response: "[" + projectRow + "]"}},
-			run: func(ctx context.Context, c *Client) (any, error) {
+			name: "create a project",
+			steps: []step{
+				{
+					method:         "POST",
+					uri:            "/projects",
+					contentProfile: "console",
+					body:           `{"name":"sales"}`,
+					status:         201,
+					response:       "[" + projectRow + "]",
+				},
+			},
+			run: func(ctx context.Context, c *client.Client) (any, error) {
 				return c.CreateProject(ctx, "sales")
 			},
 			want: wantProject,
 		},
 		{
-			name:  "get a project",
-			steps: []step{{method: "GET", uri: "/projects?name=eq.sales", acceptProfile: "console", response: "[" + projectRow + "]"}},
-			run:   func(ctx context.Context, c *Client) (any, error) { return c.GetProject(ctx, "sales") },
-			want:  wantProject,
+			name: "get a project",
+			steps: []step{
+				{method: "GET", uri: "/projects?name=eq.sales", acceptProfile: "console", response: "[" + projectRow + "]"},
+			},
+			run:  func(ctx context.Context, c *client.Client) (any, error) { return c.GetProject(ctx, "sales") },
+			want: wantProject,
 		},
 		{
 			name:  "delete a project",
 			steps: []step{{method: "DELETE", uri: "/projects?name=eq.sales", contentProfile: "console", response: "[]"}},
-			run: func(ctx context.Context, c *Client) (any, error) {
+			run: func(ctx context.Context, c *client.Client) (any, error) {
 				return nil, c.DeleteProject(ctx, "sales")
 			},
 		},
@@ -64,23 +78,28 @@ func TestConfigOperations(t *testing.T) {
 				body:   `{"project":"sales","short_name":"orders","claim":"preferred_username","encrypted":false}`,
 				status: 201, response: "[" + schemaRow + "]",
 			}},
-			run: func(ctx context.Context, c *Client) (any, error) {
-				return c.CreateSchema(ctx, SchemaInput{Project: "sales", ShortName: "orders", Claim: new("preferred_username")})
+			run: func(ctx context.Context, c *client.Client) (any, error) {
+				return c.CreateSchema(
+					ctx,
+					client.SchemaInput{Project: "sales", ShortName: "orders", Claim: new("preferred_username")},
+				)
 			},
 			want: wantSchema,
 		},
 		{
 			name:  "get a schema by its physical name",
 			steps: []step{{method: "GET", uri: "/schemas?name=eq.sales_orders", response: "[" + schemaRow + "]"}},
-			run: func(ctx context.Context, c *Client) (any, error) {
+			run: func(ctx context.Context, c *client.Client) (any, error) {
 				return c.GetSchema(ctx, "sales_orders")
 			},
 			want: wantSchema,
 		},
 		{
-			name:  "get a schema by its parts",
-			steps: []step{{method: "GET", uri: "/schemas?project=eq.sales&short_name=eq.orders", response: "[" + schemaRow + "]"}},
-			run: func(ctx context.Context, c *Client) (any, error) {
+			name: "get a schema by its parts",
+			steps: []step{
+				{method: "GET", uri: "/schemas?project=eq.sales&short_name=eq.orders", response: "[" + schemaRow + "]"},
+			},
+			run: func(ctx context.Context, c *client.Client) (any, error) {
 				return c.GetSchemaByParts(ctx, "sales", "orders")
 			},
 			want: wantSchema,
@@ -92,27 +111,37 @@ func TestConfigOperations(t *testing.T) {
 				body:     `{"source":"bigquery","settings":null,"claim":"preferred_username","encrypted":false}`,
 				response: "[" + schemaRow + "]",
 			}},
-			run: func(ctx context.Context, c *Client) (any, error) {
-				return c.UpdateSchema(ctx, "sales_orders", SchemaUpdate{Source: "bigquery", Claim: new("preferred_username")})
+			run: func(ctx context.Context, c *client.Client) (any, error) {
+				return c.UpdateSchema(
+					ctx,
+					"sales_orders",
+					client.SchemaUpdate{Source: "bigquery", Claim: new("preferred_username")},
+				)
 			},
 			want: wantSchema,
 		},
 		{
 			name:  "delete a schema",
 			steps: []step{{method: "DELETE", uri: "/schemas?name=eq.sales_orders", response: "[]"}},
-			run: func(ctx context.Context, c *Client) (any, error) {
+			run: func(ctx context.Context, c *client.Client) (any, error) {
 				return nil, c.DeleteSchema(ctx, "sales_orders")
 			},
 		},
 		{
 			name: "create a table",
-			steps: []step{{
-				method: "POST", uri: "/tables", contentProfile: "console",
-				body:   `{"name":"sales.orders","schema":"sales_orders","strategy":"partitioned","n":3,"fallback":false,"cache_ttl":60,"sort":["order_id"]}`,
-				status: 201, response: "[" + tableRow + "]",
-			}},
-			run: func(ctx context.Context, c *Client) (any, error) {
-				return c.CreateTable(ctx, TableInput{
+			steps: []step{
+				{
+					method:         "POST",
+					uri:            "/tables",
+					contentProfile: "console",
+					body: `{"name":"sales.orders","schema":"sales_orders","strategy":"partitioned","n":3,` +
+						`"fallback":false,"cache_ttl":60,"sort":["order_id"]}`,
+					status:   201,
+					response: "[" + tableRow + "]",
+				},
+			},
+			run: func(ctx context.Context, c *client.Client) (any, error) {
+				return c.CreateTable(ctx, client.TableInput{
 					Name: "sales.orders", Schema: "sales_orders", Strategy: "partitioned", N: new(3),
 					CacheTTL: new(60), Sort: []string{"order_id"},
 				})
@@ -122,27 +151,36 @@ func TestConfigOperations(t *testing.T) {
 		{
 			name:  "get a table",
 			steps: []step{{method: "GET", uri: "/tables?name=eq.sales.orders", response: "[" + tableRow + "]"}},
-			run: func(ctx context.Context, c *Client) (any, error) {
+			run: func(ctx context.Context, c *client.Client) (any, error) {
 				return c.GetTable(ctx, "sales.orders")
 			},
 			want: wantTable,
 		},
 		{
 			name: "update a table and clear its cache time",
-			steps: []step{{
-				method: "PATCH", uri: "/tables?name=eq.sales.orders", contentProfile: "console",
-				body:     `{"strategy":"partitioned","n":3,"fallback":false,"cache_ttl":null,"partitioning":null,"sort":["order_id"]}`,
-				response: "[" + tableRow + "]",
-			}},
-			run: func(ctx context.Context, c *Client) (any, error) {
-				return c.UpdateTable(ctx, "sales.orders", TableUpdate{Strategy: "partitioned", N: new(3), Sort: []string{"order_id"}})
+			steps: []step{
+				{
+					method:         "PATCH",
+					uri:            "/tables?name=eq.sales.orders",
+					contentProfile: "console",
+					body: `{"strategy":"partitioned","n":3,"fallback":false,"cache_ttl":null,"partitioning":null,` +
+						`"sort":["order_id"]}`,
+					response: "[" + tableRow + "]",
+				},
+			},
+			run: func(ctx context.Context, c *client.Client) (any, error) {
+				return c.UpdateTable(
+					ctx,
+					"sales.orders",
+					client.TableUpdate{Strategy: "partitioned", N: new(3), Sort: []string{"order_id"}},
+				)
 			},
 			want: wantTable,
 		},
 		{
 			name:  "delete a table",
 			steps: []step{{method: "DELETE", uri: "/tables?name=eq.sales.orders", response: "[]"}},
-			run: func(ctx context.Context, c *Client) (any, error) {
+			run: func(ctx context.Context, c *client.Client) (any, error) {
 				return nil, c.DeleteTable(ctx, "sales.orders")
 			},
 		},
@@ -155,12 +193,12 @@ func TestConfigOperations(t *testing.T) {
 					`{"conditions":[{"column":"region_id","unit_type":"region"},{"column":"unit_id","unit_type":"unit"}]}]},` +
 					`{"table_name":"other.table","groups":[{"conditions":[{"column":"x","unit_type":"y"}]}]}]`,
 			}},
-			run: func(ctx context.Context, c *Client) (any, error) {
+			run: func(ctx context.Context, c *client.Client) (any, error) {
 				return c.ListRLS(ctx, "sales.orders")
 			},
-			want: []RLSRule{
-				{Conditions: []RLSCondition{{ColumnName: "area", UnitType: "area"}}},
-				{Conditions: []RLSCondition{
+			want: []client.RLSRule{
+				{Conditions: []client.RLSCondition{{ColumnName: "area", UnitType: "area"}}},
+				{Conditions: []client.RLSCondition{
 					{ColumnName: "region_id", UnitType: "region"},
 					{ColumnName: "unit_id", UnitType: "unit"},
 				}},
@@ -172,8 +210,8 @@ func TestConfigOperations(t *testing.T) {
 				method: "POST", uri: "/rpc/rules", contentProfile: "console",
 				response: `[]`,
 			}},
-			run:  func(ctx context.Context, c *Client) (any, error) { return c.ListRLS(ctx, "sales.orders") },
-			want: []RLSRule{},
+			run:  func(ctx context.Context, c *client.Client) (any, error) { return c.ListRLS(ctx, "sales.orders") },
+			want: []client.RLSRule{},
 		},
 		{
 			name: "replace the row policies in one call, with no number",
@@ -182,12 +220,12 @@ func TestConfigOperations(t *testing.T) {
 				body: `{"table_name":"sales.orders","groups":[` +
 					`{"conditions":[{"column":"area","unit_type":"area"}]},` +
 					`{"conditions":[{"column":"region_id","unit_type":"region"},{"column":"unit_id","unit_type":"unit"}]}]}`,
-				response: `null`,
+				response: nullJSON,
 			}},
-			run: func(ctx context.Context, c *Client) (any, error) {
-				return nil, c.ReplaceRLS(ctx, "sales.orders", []RLSRule{
-					{Conditions: []RLSCondition{{ColumnName: "area", UnitType: "area"}}},
-					{Conditions: []RLSCondition{
+			run: func(ctx context.Context, c *client.Client) (any, error) {
+				return nil, c.ReplaceRLS(ctx, "sales.orders", []client.RLSRule{
+					{Conditions: []client.RLSCondition{{ColumnName: "area", UnitType: "area"}}},
+					{Conditions: []client.RLSCondition{
 						{ColumnName: "region_id", UnitType: "region"},
 						{ColumnName: "unit_id", UnitType: "unit"},
 					}},
@@ -198,9 +236,11 @@ func TestConfigOperations(t *testing.T) {
 			name: "replace the row policies with none sends an empty list",
 			steps: []step{{
 				method: "POST", uri: "/rpc/replace_rls", contentProfile: "console",
-				body: `{"table_name":"sales.orders","groups":[]}`, response: `null`,
+				body: `{"table_name":"sales.orders","groups":[]}`, response: nullJSON,
 			}},
-			run: func(ctx context.Context, c *Client) (any, error) { return nil, c.ReplaceRLS(ctx, "sales.orders", nil) },
+			run: func(ctx context.Context, c *client.Client) (any, error) {
+				return nil, c.ReplaceRLS(ctx, "sales.orders", nil)
+			},
 		},
 		{
 			name: "read the health of a schema",
@@ -208,10 +248,10 @@ func TestConfigOperations(t *testing.T) {
 				method: "GET", uri: "/health?name=eq.sales_orders", acceptProfile: "console",
 				response: `[{"name":"sales_orders","schema_exists":true,"view_count":3}]`,
 			}},
-			run: func(ctx context.Context, c *Client) (any, error) {
+			run: func(ctx context.Context, c *client.Client) (any, error) {
 				return c.GetHealth(ctx, "sales_orders")
 			},
-			want: Health{Name: "sales_orders", SchemaExists: true, ViewCount: 3},
+			want: client.Health{Name: "sales_orders", SchemaExists: true, ViewCount: 3},
 		},
 		{
 			name: "read the sync state of a table",
@@ -219,21 +259,31 @@ func TestConfigOperations(t *testing.T) {
 				method: "GET", uri: "/synced?name=eq.sales.orders",
 				response: `[{"schema":"sales_orders","name":"sales.orders","synced":true,"signature":"abc","partition_count":2}]`,
 			}},
-			run: func(ctx context.Context, c *Client) (any, error) {
+			run: func(ctx context.Context, c *client.Client) (any, error) {
 				return c.GetSyncState(ctx, "sales.orders")
 			},
-			want: TableSyncState{Schema: "sales_orders", Name: "sales.orders", Synced: true, Signature: new("abc"), PartitionCount: 2},
+			want: client.TableSyncState{
+				Schema:         "sales_orders",
+				Name:           "sales.orders",
+				Synced:         true,
+				Signature:      new("abc"),
+				PartitionCount: 2,
+			},
 		},
 		{
 			name: "list the newest changes of a schema",
-			steps: []step{{
-				method: "GET", uri: "/config_history?order=changed_at.desc&limit=5&schema_name=eq.sales_orders",
-				response: `[{"changed_at":"t","changed_by":null,"action":"insert","object":"tables","schema_name":"sales_orders","key":"sales.orders","old_row":null,"new_row":{"name":"sales.orders"}}]`,
-			}},
-			run: func(ctx context.Context, c *Client) (any, error) {
+			steps: []step{
+				{
+					method: "GET",
+					uri:    "/config_history?order=changed_at.desc&limit=5&schema_name=eq.sales_orders",
+					response: `[{"changed_at":"t","changed_by":null,"action":"insert","object":"tables",` +
+						`"schema_name":"sales_orders","key":"sales.orders","old_row":null,"new_row":{"name":"sales.orders"}}]`,
+				},
+			},
+			run: func(ctx context.Context, c *client.Client) (any, error) {
 				return c.ListHistory(ctx, "sales_orders", 5)
 			},
-			want: []HistoryEntry{{
+			want: []client.HistoryEntry{{
 				ChangedAt: "t", Action: "insert", Object: "tables", SchemaName: "sales_orders", Key: "sales.orders",
 				OldRow: json.RawMessage("null"), NewRow: json.RawMessage(`{"name":"sales.orders"}`),
 			}},
@@ -241,25 +291,27 @@ func TestConfigOperations(t *testing.T) {
 		{
 			name:  "list the newest changes of every schema",
 			steps: []step{{method: "GET", uri: "/config_history?order=changed_at.desc&limit=2", response: "[]"}},
-			run:   func(ctx context.Context, c *Client) (any, error) { return c.ListHistory(ctx, "", 2) },
-			want:  []HistoryEntry{},
+			run:   func(ctx context.Context, c *client.Client) (any, error) { return c.ListHistory(ctx, "", 2) },
+			want:  []client.HistoryEntry{},
 		},
 		{
 			name:  "export the configuration",
 			steps: []step{{method: "GET", uri: "/rpc/export_config", acceptProfile: "console", response: `{"projects":{}}`}},
-			run:   func(ctx context.Context, c *Client) (any, error) { return c.ExportConfig(ctx) },
+			run:   func(ctx context.Context, c *client.Client) (any, error) { return c.ExportConfig(ctx) },
 			want:  json.RawMessage(`{"projects":{}}`),
 		},
 		{
 			name:  "read the sync configuration",
 			steps: []step{{method: "GET", uri: "/rpc/sync_config", acceptProfile: "console", response: `{"schemas":{}}`}},
-			run:   func(ctx context.Context, c *Client) (any, error) { return c.SyncConfig(ctx) },
+			run:   func(ctx context.Context, c *client.Client) (any, error) { return c.SyncConfig(ctx) },
 			want:  json.RawMessage(`{"schemas":{}}`),
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c := newStepClient(t, testCase.steps)
 
 			got, err := testCase.run(context.Background(), c)
@@ -275,103 +327,117 @@ func TestConfigOperations(t *testing.T) {
 }
 
 func TestConfigOperationsReportErrors(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		steps    []step
-		run      func(context.Context, *Client) error
+		run      func(context.Context, *client.Client) error
 		wantKind error
 		wantText string
 	}{
 		{
 			name:  "a project that does not exist",
 			steps: []step{{response: "[]"}},
-			run: func(ctx context.Context, c *Client) error {
+			run: func(ctx context.Context, c *client.Client) error {
 				_, err := c.GetProject(ctx, "sales")
 
-				return err
+				return wrapErr(err)
 			},
-			wantKind: ErrNoRow,
+			wantKind: client.ErrNoRow,
 		},
 		{
-			name:     "a delete that the database refuses because the project has schemas",
-			steps:    []step{{status: 400, response: `{"code":"23001","message":"update or delete on table projects violates restrict"}`}},
-			run:      func(ctx context.Context, c *Client) error { return c.DeleteProject(ctx, "sales") },
-			wantKind: ErrInvalid,
+			name: "a delete that the database refuses because the project has schemas",
+			steps: []step{
+				{status: 400, response: `{"code":"23001","message":"update or delete on table projects violates restrict"}`},
+			},
+			run:      func(ctx context.Context, c *client.Client) error { return c.DeleteProject(ctx, "sales") },
+			wantKind: client.ErrInvalid,
 		},
 		{
 			name:  "a schema that already exists",
 			steps: []step{{status: 409, response: `{"code":"23505","message":"duplicate key"}`}},
-			run: func(ctx context.Context, c *Client) error {
-				_, err := c.CreateSchema(ctx, SchemaInput{})
+			run: func(ctx context.Context, c *client.Client) error {
+				_, err := c.CreateSchema(ctx, client.SchemaInput{})
 
-				return err
+				return wrapErr(err)
 			},
-			wantKind: ErrConflict,
+			wantKind: client.ErrConflict,
 		},
 		{
 			name:  "a write that the token may not do",
 			steps: []step{{status: 403, response: `{"code":"42501","message":"new row violates row-level security policy"}`}},
-			run: func(ctx context.Context, c *Client) error {
-				_, err := c.CreateTable(ctx, TableInput{})
+			run: func(ctx context.Context, c *client.Client) error {
+				_, err := c.CreateTable(ctx, client.TableInput{})
 
-				return err
+				return wrapErr(err)
 			},
-			wantKind: ErrForbidden,
+			wantKind: client.ErrForbidden,
 		},
 		{
 			name:  "a write that gives back no row",
 			steps: []step{{status: 201, response: "[]"}},
-			run: func(ctx context.Context, c *Client) error {
+			run: func(ctx context.Context, c *client.Client) error {
 				_, err := c.CreateProject(ctx, "sales")
 
-				return err
+				return wrapErr(err)
 			},
 			wantText: "the write to projects gave back 0 rows, want one",
 		},
 		{
 			name:  "a row policy write that the role may not do",
 			steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
-			run: func(ctx context.Context, c *Client) error {
-				return c.ReplaceRLS(ctx, "sales.orders", []RLSRule{{Conditions: []RLSCondition{{ColumnName: "a", UnitType: "b"}}}})
+			run: func(ctx context.Context, c *client.Client) error {
+				return c.ReplaceRLS(
+					ctx,
+					"sales.orders",
+					[]client.RLSRule{{Conditions: []client.RLSCondition{{ColumnName: "a", UnitType: "b"}}}},
+				)
 			},
-			wantKind: ErrForbidden,
+			wantKind: client.ErrForbidden,
 			wantText: "replace the row policies of sales.orders",
 		},
 		{
 			name:  "a row policy write that the database refuses, with nothing changed",
 			steps: []step{{status: 400, response: `{"code":"23514","message":"the schema has no claim"}`}},
-			run: func(ctx context.Context, c *Client) error {
-				return c.ReplaceRLS(ctx, "sales.orders", []RLSRule{{Conditions: []RLSCondition{{ColumnName: "a", UnitType: "b"}}}})
+			run: func(ctx context.Context, c *client.Client) error {
+				return c.ReplaceRLS(
+					ctx,
+					"sales.orders",
+					[]client.RLSRule{{Conditions: []client.RLSCondition{{ColumnName: "a", UnitType: "b"}}}},
+				)
 			},
-			wantKind: ErrInvalid,
+			wantKind: client.ErrInvalid,
 			wantText: "replace the row policies of sales.orders",
 		},
 		{
 			name:  "an export that fails",
 			steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
-			run: func(ctx context.Context, c *Client) error {
+			run: func(ctx context.Context, c *client.Client) error {
 				_, err := c.ExportConfig(ctx)
 
-				return err
+				return wrapErr(err)
 			},
-			wantKind: ErrForbidden,
+			wantKind: client.ErrForbidden,
 			wantText: "export the configuration",
 		},
 		{
 			name:  "a sync configuration that fails",
 			steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
-			run: func(ctx context.Context, c *Client) error {
+			run: func(ctx context.Context, c *client.Client) error {
 				_, err := c.SyncConfig(ctx)
 
-				return err
+				return wrapErr(err)
 			},
-			wantKind: ErrForbidden,
+			wantKind: client.ErrForbidden,
 			wantText: "read the sync configuration",
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c := newStepClient(t, testCase.steps)
 
 			err := testCase.run(context.Background(), c)

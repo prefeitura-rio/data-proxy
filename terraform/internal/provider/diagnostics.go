@@ -45,10 +45,17 @@ func checkReadConfig(clientID string, permissions []string) diag.Diagnostics {
 		held = strings.Join(permissions, ", ")
 	}
 
-	diagnostics.AddError("Missing "+readConfig+" permission",
-		fmt.Sprintf("The token of the client %q lacks the %s permission, and the provider needs it to read the configuration. "+
-			"Give the client a role that has %s, such as dp_console or dp_admin. The token has these permissions: %s.",
-			clientID, readConfig, readConfig, held))
+	diagnostics.AddError(
+		"Missing "+readConfig+" permission",
+		fmt.Sprintf(
+			"The token of the client %q lacks the %s permission, and the provider needs it to read the configuration. "+
+				"Give the client a role that has %s, such as dp_console or dp_admin. The token has these permissions: %s.",
+			clientID,
+			readConfig,
+			readConfig,
+			held,
+		),
+	)
 
 	return diagnostics
 }

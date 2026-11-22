@@ -1,7 +1,8 @@
-package provider
+package provider_test
 
 import (
 	"context"
+	"terraform-provider-data-proxy/internal/provider"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -20,11 +21,17 @@ func (noValidator) Description(context.Context) string { return "no check" }
 func (noValidator) MarkdownDescription(context.Context) string { return "no check" }
 
 // ValidateDataSource checks nothing.
-func (noValidator) ValidateDataSource(context.Context, datasource.ValidateConfigRequest, *datasource.ValidateConfigResponse) {
+func (noValidator) ValidateDataSource(
+	context.Context,
+	datasource.ValidateConfigRequest,
+	*datasource.ValidateConfigResponse,
+) {
 }
 
 // TestLookupMetadata checks that the type name joins the name of the provider and the suffix.
 func TestLookupMetadata(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		provider string
@@ -38,7 +45,9 @@ func TestLookupMetadata(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			source := &lookup[struct{}]{suffix: testCase.suffix}
+			t.Parallel()
+
+			source := provider.NewLookup(testCase.suffix, nil, nil)
 
 			var resp datasource.MetadataResponse
 
@@ -53,6 +62,8 @@ func TestLookupMetadata(t *testing.T) {
 
 // TestLookupConfigValidators checks that the lookup returns the validators that it holds, and none when it holds none.
 func TestLookupConfigValidators(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		validators []datasource.ConfigValidator
@@ -65,7 +76,9 @@ func TestLookupConfigValidators(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			source := &lookup[struct{}]{validators: testCase.validators}
+			t.Parallel()
+
+			source := provider.NewLookup("", nil, testCase.validators)
 
 			if got := len(source.ConfigValidators(context.Background())); got != testCase.want {
 				t.Errorf("len(ConfigValidators()) = %d, want %d", got, testCase.want)
@@ -76,6 +89,8 @@ func TestLookupConfigValidators(t *testing.T) {
 
 // TestLookupReadWithoutAClient checks that a read before the provider is configured adds the error and sets no state.
 func TestLookupReadWithoutAClient(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		suffix string
@@ -86,7 +101,9 @@ func TestLookupReadWithoutAClient(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			source := &lookup[struct{}]{suffix: testCase.suffix, attributes: map[string]schema.Attribute{}}
+			t.Parallel()
+
+			source := provider.NewLookup(testCase.suffix, map[string]schema.Attribute{}, nil)
 			s := dataSourceSchema(t, source)
 			raw := tftypes.NewValue(s.Type().TerraformType(context.Background()), nil)
 			resp := datasource.ReadResponse{State: tfsdk.State{Schema: s, Raw: raw}}

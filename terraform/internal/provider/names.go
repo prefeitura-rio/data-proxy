@@ -5,13 +5,26 @@ import (
 	"strings"
 )
 
+// The names of the attributes that several resources and data sources share.
+const (
+	attrName       = "name"
+	attrProject    = "project"
+	attrSchema     = "schema"
+	attrUnitType   = "unit_type"
+	attrColumnName = "column_name"
+	attrUpdatedAt  = "updated_at"
+	attrUpdatedBy  = "updated_by"
+)
+
 // maxNameBytes is the longest physical name of a schema: the project, two underscores and the short name. The
 // project `default` counts with its own name.
 const maxNameBytes = 56
 
 // reservedProjects are the project names that a URL or a PostgreSQL schema of the system uses. The pattern of a
 // project name has no underscore, so `data_proxy`, `information_schema` and `pg_*` can't match it.
-var reservedProjects = []string{"access", "console", "rbac", "dbos", "public", "duckdb", "rpc", "docs", "v1"}
+func reservedProjects() []string {
+	return []string{"access", "console", "rbac", "dbos", "public", "duckdb", "rpc", "docs", "v1"}
+}
 
 // schemaProblem returns the reason that a new schema can't have this name, or an empty text. The console gives the
 // same messages.

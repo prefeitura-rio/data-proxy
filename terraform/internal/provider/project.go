@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"terraform-provider-data-proxy/internal/client"
 
@@ -44,7 +45,7 @@ type projectModel struct {
 
 // newProjectResource makes the resource data_proxy_project.
 func newProjectResource() resource.Resource {
-	return &projectResource{backoff: client.DefaultBackoff}
+	return &projectResource{backoff: client.DefaultBackoff()}
 }
 
 // projectState copies a row of the API into the state of a project.
@@ -65,36 +66,34 @@ func (pr *projectResource) Metadata(_ context.Context, req resource.MetadataRequ
 // Schema declares the attributes of the project.
 func (pr *projectResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Description: "A project that groups schemas. The project `default` exists already, so import it with a data source instead.",
-		Attributes: map[string]schema.Attribute{
+		Description: "A project that groups schemas. The project `default` exists already, so import it with a data " +
+			"source instead.",
+		Attributes: withAuditAttributes(map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Description:   "The name of the project.",
 				Computed:      true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
-			"name": schema.StringAttribute{
-				Description: "The name of the project: a lowercase letter, then up to 29 lowercase letters and digits. Changing it replaces the project.",
-				Required:    true,
+			attrName: schema.StringAttribute{
+				Description: "The name of the project: a lowercase letter, then up to 29 lowercase letters and digits. " +
+					"Changing it replaces the project.",
+				Required: true,
 				Validators: []validator.String{
 					stringvalidator.RegexMatches(projectName, "must be a lowercase letter and up to 29 lowercase letters and digits"),
-					stringvalidator.NoneOf(append([]string{defaultProject}, reservedProjects...)...),
+					stringvalidator.NoneOf(append([]string{defaultProject}, reservedProjects()...)...),
 				},
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
-			"updated_at": schema.StringAttribute{
-				Description: "When the row last changed.",
-				Computed:    true,
-			},
-			"updated_by": schema.StringAttribute{
-				Description: "Who last changed the row.",
-				Computed:    true,
-			},
-		},
+		}),
 	}
 }
 
 // Configure takes the client that the provider built.
-func (pr *projectResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (pr *projectResource) Configure(
+	_ context.Context,
+	req resource.ConfigureRequest,
+	resp *resource.ConfigureResponse,
+) {
 	pr.client = providerClient(req.ProviderData, &resp.Diagnostics)
 }
 
@@ -130,10 +129,15 @@ func (pr *projectResource) Read(ctx context.Context, req resource.ReadRequest, r
 
 	var row client.Project
 
-	err := client.RetryNoRow(ctx, pr.backoff, func(ctx context.Context) (err error) {
-		row, err = pr.client.GetProject(ctx, state.Name.ValueString())
+	err := client.RetryNoRow(ctx, pr.backoff, func(ctx context.Context) error {
+		var err error
 
-		return err
+		row, err = pr.client.GetProject(ctx, state.Name.ValueString())
+		if err != nil {
+			return fmt.Errorf("read the project: %w", err)
+		}
+
+		return nil
 	})
 
 	switch {
@@ -148,7 +152,10 @@ func (pr *projectResource) Read(ctx context.Context, req resource.ReadRequest, r
 
 // Update never runs, because the name is the only attribute and a change of it replaces the project.
 func (pr *projectResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError("A project can't change", "The name of a project is its only attribute. Report this bug to the developers of the provider.")
+	resp.Diagnostics.AddError(
+		"A project can't change",
+		"The name of a project is its only attribute. Report this bug to the developers of the provider.",
+	)
 }
 
 // Delete removes the project. The database refuses it while the project has schemas.
@@ -168,6 +175,10 @@ func (pr *projectResource) Delete(ctx context.Context, req resource.DeleteReques
 }
 
 // ImportState reads the project by its name.
-func (pr *projectResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+func (pr *projectResource) ImportState(
+	ctx context.Context,
+	req resource.ImportStateRequest,
+	resp *resource.ImportStateResponse,
+) {
 	resource.ImportStatePassthroughID(ctx, path.Root("name"), req, resp)
 }

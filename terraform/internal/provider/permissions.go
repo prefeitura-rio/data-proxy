@@ -30,7 +30,11 @@ func newPermissionsDataSource() datasource.DataSource {
 }
 
 // Metadata names the data source with the type name of the provider and the suffix _permissions.
-func (d *permissionsDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
+func (d *permissionsDataSource) Metadata(
+	_ context.Context,
+	req datasource.MetadataRequest,
+	resp *datasource.MetadataResponse,
+) {
 	resp.TypeName = req.ProviderTypeName + "_permissions"
 }
 
@@ -49,14 +53,21 @@ func (d *permissionsDataSource) Schema(_ context.Context, _ datasource.SchemaReq
 }
 
 // Configure takes the client that the provider built. It does nothing before the provider is configured.
-func (d *permissionsDataSource) Configure(_ context.Context, req datasource.ConfigureRequest, resp *datasource.ConfigureResponse) {
+func (d *permissionsDataSource) Configure(
+	_ context.Context,
+	req datasource.ConfigureRequest,
+	resp *datasource.ConfigureResponse,
+) {
 	d.client = providerClient(req.ProviderData, &resp.Diagnostics)
 }
 
 // Read stores the permissions of the token in the state.
 func (d *permissionsDataSource) Read(ctx context.Context, _ datasource.ReadRequest, resp *datasource.ReadResponse) {
 	if d.client == nil {
-		resp.Diagnostics.AddError("Unconfigured provider", "The data source has no client, because the provider isn't configured.")
+		resp.Diagnostics.AddError(
+			"Unconfigured provider",
+			"The data source has no client, because the provider isn't configured.",
+		)
 
 		return
 	}

@@ -1,10 +1,11 @@
-package provider
+package provider_test
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"terraform-provider-data-proxy/internal/client"
+	"terraform-provider-data-proxy/internal/provider"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -15,17 +16,25 @@ import (
 )
 
 func TestProjectDataSource(t *testing.T) {
-	c := newStepClient(t, []step{{method: "GET", uri: "/projects?name=eq.sales", profile: "console", response: "[" + projectRowJSON + "]"}})
+	t.Parallel()
 
-	resp, got := readDataSource(t, newProjectDataSource(), c, projectDataModel{
-		ID: types.StringNull(), Name: types.StringValue("sales"), UpdatedAt: types.StringNull(), UpdatedBy: types.StringNull(),
+	c := newStepClient(
+		t,
+		[]step{{method: "GET", uri: "/projects?name=eq.sales", profile: "console", response: "[" + projectRowJSON + "]"}},
+	)
+
+	resp, got := readDataSource(t, provider.NewProjectDataSource(), c, provider.ProjectDataModel{
+		ID:        types.StringNull(),
+		Name:      types.StringValue("sales"),
+		UpdatedAt: types.StringNull(),
+		UpdatedBy: types.StringNull(),
 	})
 
 	if len(got) != 0 {
 		t.Fatalf("diagnostics = %+v, want none", got)
 	}
 
-	var state projectDataModel
+	var state provider.ProjectDataModel
 
 	resp.State.Get(context.Background(), &state)
 
@@ -35,46 +44,64 @@ func TestProjectDataSource(t *testing.T) {
 }
 
 func TestSchemaDataSource(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
-		config schemaDataModel
+		config provider.SchemaDataModel
 		uri    string
 	}{
 		{
-			name:   "by the physical name",
-			config: schemaDataModel{Name: types.StringValue("sales_orders"), Project: types.StringNull(), ShortName: types.StringNull()},
-			uri:    "/schemas?name=eq.sales_orders",
+			name: "by the physical name",
+			config: provider.SchemaDataModel{
+				Name:      types.StringValue("sales_orders"),
+				Project:   types.StringNull(),
+				ShortName: types.StringNull(),
+			},
+			uri: "/schemas?name=eq.sales_orders",
 		},
 		{
-			name:   "by a project and a short name",
-			config: schemaDataModel{Name: types.StringNull(), Project: types.StringValue("sales"), ShortName: types.StringValue("orders")},
-			uri:    "/schemas?project=eq.sales&short_name=eq.orders",
+			name: "by a project and a short name",
+			config: provider.SchemaDataModel{
+				Name:      types.StringNull(),
+				Project:   types.StringValue("sales"),
+				ShortName: types.StringValue("orders"),
+			},
+			uri: "/schemas?project=eq.sales&short_name=eq.orders",
 		},
 		{
-			name:   "by a short name in the default project",
-			config: schemaDataModel{Name: types.StringNull(), Project: types.StringNull(), ShortName: types.StringValue("orders")},
-			uri:    "/schemas?project=eq.default&short_name=eq.orders",
+			name: "by a short name in the default project",
+			config: provider.SchemaDataModel{
+				Name:      types.StringNull(),
+				Project:   types.StringNull(),
+				ShortName: types.StringValue("orders"),
+			},
+			uri: "/schemas?project=eq.default&short_name=eq.orders",
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			c := newStepClient(t, []step{{method: "GET", uri: testCase.uri, response: "[" + schemaRowJSON + "]"}})
+			t.Parallel()
+
+			apiClient := newStepClient(t, []step{{method: "GET", uri: testCase.uri, response: "[" + schemaRowJSON + "]"}})
 			config := testCase.config
-			config.ID, config.Source, config.Settings, config.Claim = types.StringNull(), types.StringNull(), types.StringNull(), types.StringNull()
+			null := types.StringNull()
+			config.ID, config.Source, config.Settings, config.Claim = null, null, null, null
 			config.Encrypted, config.UpdatedAt, config.UpdatedBy = types.BoolNull(), types.StringNull(), types.StringNull()
 
-			resp, got := readDataSource(t, newSchemaDataSource(), c, config)
+			resp, got := readDataSource(t, provider.NewSchemaDataSource(), apiClient, config)
 
 			if len(got) != 0 {
 				t.Fatalf("diagnostics = %+v, want none", got)
 			}
 
-			var state schemaDataModel
+			var state provider.SchemaDataModel
 
 			resp.State.Get(context.Background(), &state)
 
-			if state.Name.ValueString() != "sales_orders" || state.Claim.ValueString() != "preferred_username" || state.Settings.ValueString() != `{"b":1,"a":2}` {
+			if state.Name.ValueString() != "sales_orders" || state.Claim.ValueString() != "preferred_username" ||
+				state.Settings.ValueString() != `{"b":1,"a":2}` {
 				t.Errorf("state = %+v, want the schema row", state)
 			}
 		})
@@ -82,9 +109,11 @@ func TestSchemaDataSource(t *testing.T) {
 }
 
 func TestSchemaDataSourceReportsAMissingSchema(t *testing.T) {
+	t.Parallel()
+
 	c := newStepClient(t, []step{{response: "[]"}})
 
-	_, got := readDataSource(t, newSchemaDataSource(), c, schemaDataModel{
+	_, got := readDataSource(t, provider.NewSchemaDataSource(), c, provider.SchemaDataModel{
 		ID: types.StringNull(), Name: types.StringValue("none"), Project: types.StringNull(), ShortName: types.StringNull(),
 		Source: types.StringNull(), Settings: types.StringNull(), Claim: types.StringNull(), Encrypted: types.BoolNull(),
 		UpdatedAt: types.StringNull(), UpdatedBy: types.StringNull(),
@@ -96,52 +125,77 @@ func TestSchemaDataSourceReportsAMissingSchema(t *testing.T) {
 }
 
 func TestTableDataSource(t *testing.T) {
+	t.Parallel()
+
 	c := newStepClient(t, []step{
 		{method: "GET", uri: "/tables?name=eq.sales.orders", response: "[" + tableRowJSON + "]"},
 		{method: "POST", uri: "/rpc/rules", response: rlsRowsJSON},
 	})
 
-	resp, got := readDataSource(t, newTableDataSource(), c, tableModel{
-		ID: types.StringNull(), Name: types.StringValue("sales.orders"), Schema: types.StringNull(), Strategy: types.StringNull(),
-		N: types.Int64Null(), Fallback: types.BoolNull(), CacheTTL: types.Int64Null(), Partitioning: types.StringNull(),
-		Sort: types.ListNull(types.StringType), UpdatedAt: types.StringNull(), UpdatedBy: types.StringNull(),
+	resp, got := readDataSource(t, provider.NewTableDataSource(), c, provider.TableModel{
+		ID:           types.StringNull(),
+		Name:         types.StringValue("sales.orders"),
+		Schema:       types.StringNull(),
+		Strategy:     types.StringNull(),
+		N:            types.Int64Null(),
+		Fallback:     types.BoolNull(),
+		CacheTTL:     types.Int64Null(),
+		Partitioning: types.StringNull(),
+		Sort:         types.ListNull(types.StringType),
+		UpdatedAt:    types.StringNull(),
+		UpdatedBy:    types.StringNull(),
 	})
 
 	if len(got) != 0 {
 		t.Fatalf("diagnostics = %+v, want none", got)
 	}
 
-	var state tableModel
+	var state provider.TableModel
 
 	resp.State.Get(context.Background(), &state)
 
-	if state.Schema.ValueString() != "sales_orders" || state.N.ValueInt64() != 3 || len(state.RLS) != 2 || state.RLS[0].ColumnName.ValueString() != "unit_id" {
+	if state.Schema.ValueString() != "sales_orders" || state.N.ValueInt64() != 3 || len(state.RLS) != 2 ||
+		state.RLS[0].ColumnName.ValueString() != "unit_id" {
 		t.Errorf("state = %+v, want the table with its two row policies", state)
 	}
 }
 
 func TestDocumentDataSources(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		source   func() datasource.DataSource
 		uri      string
 		response string
 	}{
-		{name: "export_config", source: newExportConfigDataSource, uri: "/rpc/export_config", response: `{"projects":{}}`},
-		{name: "sync_config", source: newSyncConfigDataSource, uri: "/rpc/sync_config", response: `{"schemas":{}}`},
+		{
+			name:     "export_config",
+			source:   provider.NewExportConfigDataSource,
+			uri:      "/rpc/export_config",
+			response: `{"projects":{}}`,
+		},
+		{name: "sync_config", source: provider.NewSyncConfigDataSource, uri: "/rpc/sync_config", response: `{"schemas":{}}`},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c := newStepClient(t, []step{{method: "GET", uri: testCase.uri, profile: "console", response: testCase.response}})
 
-			resp, got := readDataSource(t, testCase.source(), c, documentModel{ID: types.StringNull(), Document: types.StringNull()})
+			resp, got := readDataSource(
+				t,
+				testCase.source(),
+				c,
+				provider.DocumentModel{ID: types.StringNull(), Document: types.StringNull()},
+			)
 
 			if len(got) != 0 {
 				t.Fatalf("diagnostics = %+v, want none", got)
 			}
 
-			var state documentModel
+			var state provider.DocumentModel
 
 			resp.State.Get(context.Background(), &state)
 
@@ -153,17 +207,27 @@ func TestDocumentDataSources(t *testing.T) {
 }
 
 func TestSchemaHealthDataSource(t *testing.T) {
-	c := newStepClient(t, []step{{uri: "/health?name=eq.sales_orders", response: `[{"name":"sales_orders","schema_exists":true,"view_count":4}]`}})
+	t.Parallel()
 
-	resp, got := readDataSource(t, newSchemaHealthDataSource(), c, healthModel{
-		ID: types.StringNull(), Name: types.StringValue("sales_orders"), SchemaExists: types.BoolNull(), ViewCount: types.Int64Null(),
+	apiClient := newStepClient(
+		t,
+		[]step{
+			{uri: "/health?name=eq.sales_orders", response: `[{"name":"sales_orders","schema_exists":true,"view_count":4}]`},
+		},
+	)
+
+	resp, got := readDataSource(t, provider.NewSchemaHealthDataSource(), apiClient, provider.HealthModel{
+		ID:           types.StringNull(),
+		Name:         types.StringValue("sales_orders"),
+		SchemaExists: types.BoolNull(),
+		ViewCount:    types.Int64Null(),
 	})
 
 	if len(got) != 0 {
 		t.Fatalf("diagnostics = %+v, want none", got)
 	}
 
-	var state healthModel
+	var state provider.HealthModel
 
 	resp.State.Get(context.Background(), &state)
 
@@ -173,29 +237,45 @@ func TestSchemaHealthDataSource(t *testing.T) {
 }
 
 func TestTableSyncStateDataSource(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name          string
 		response      string
 		wantSignature types.String
 	}{
-		{name: "a synced table", response: `[{"schema":"s","name":"sales.orders","synced":true,"signature":"abc","partition_count":2}]`, wantSignature: types.StringValue("abc")},
-		{name: "a table that was never synced", response: `[{"schema":"s","name":"sales.orders","synced":false,"signature":null,"partition_count":0}]`, wantSignature: types.StringNull()},
+		{
+			name:          "a synced table",
+			response:      `[{"schema":"s","name":"sales.orders","synced":true,"signature":"abc","partition_count":2}]`,
+			wantSignature: types.StringValue("abc"),
+		},
+		{
+			name:          "a table that was never synced",
+			response:      `[{"schema":"s","name":"sales.orders","synced":false,"signature":null,"partition_count":0}]`,
+			wantSignature: types.StringNull(),
+		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c := newStepClient(t, []step{{uri: "/synced?name=eq.sales.orders", response: testCase.response}})
 
-			resp, got := readDataSource(t, newTableSyncStateDataSource(), c, syncStateModel{
-				ID: types.StringNull(), Name: types.StringValue("sales.orders"), Schema: types.StringNull(), Synced: types.BoolNull(),
-				Signature: types.StringNull(), PartitionCount: types.Int64Null(),
+			resp, got := readDataSource(t, provider.NewTableSyncStateDataSource(), c, provider.SyncStateModel{
+				ID:             types.StringNull(),
+				Name:           types.StringValue("sales.orders"),
+				Schema:         types.StringNull(),
+				Synced:         types.BoolNull(),
+				Signature:      types.StringNull(),
+				PartitionCount: types.Int64Null(),
 			})
 
 			if len(got) != 0 {
 				t.Fatalf("diagnostics = %+v, want none", got)
 			}
 
-			var state syncStateModel
+			var state provider.SyncStateModel
 
 			resp.State.Get(context.Background(), &state)
 
@@ -207,7 +287,10 @@ func TestTableSyncStateDataSource(t *testing.T) {
 }
 
 func TestConfigHistoryDataSource(t *testing.T) {
-	entry := `[{"changed_at":"t","changed_by":null,"action":"insert","object":"tables","schema_name":"s","key":"k","old_row":null,"new_row":{"a":1}}]`
+	t.Parallel()
+
+	entry := `[{"changed_at":"t","changed_by":null,"action":"insert","object":"tables","schema_name":"s","key":"k",` +
+		`"old_row":null,"new_row":{"a":1}}]`
 
 	tests := []struct {
 		name   string
@@ -215,25 +298,44 @@ func TestConfigHistoryDataSource(t *testing.T) {
 		limit  types.Int64
 		uri    string
 	}{
-		{name: "the default limit", schema: types.StringNull(), limit: types.Int64Null(), uri: "/config_history?order=changed_at.desc&limit=100"},
-		{name: "a schema and a limit", schema: types.StringValue("s"), limit: types.Int64Value(5), uri: "/config_history?order=changed_at.desc&limit=5&schema_name=eq.s"},
+		{
+			name:   "the default limit",
+			schema: types.StringNull(),
+			limit:  types.Int64Null(),
+			uri:    "/config_history?order=changed_at.desc&limit=100",
+		},
+		{
+			name:   "a schema and a limit",
+			schema: types.StringValue("s"),
+			limit:  types.Int64Value(5),
+			uri:    "/config_history?order=changed_at.desc&limit=5&schema_name=eq.s",
+		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c := newStepClient(t, []step{{uri: testCase.uri, response: entry}})
 
-			resp, got := readDataSource(t, newConfigHistoryDataSource(), c, historyModel{ID: types.StringNull(), Schema: testCase.schema, Limit: testCase.limit})
+			resp, got := readDataSource(
+				t,
+				provider.NewConfigHistoryDataSource(),
+				c,
+				provider.HistoryModel{ID: types.StringNull(), Schema: testCase.schema, Limit: testCase.limit},
+			)
 
 			if len(got) != 0 {
 				t.Fatalf("diagnostics = %+v, want none", got)
 			}
 
-			var state historyModel
+			var state provider.HistoryModel
 
 			resp.State.Get(context.Background(), &state)
 
-			if len(state.Entries) != 1 || state.Entries[0].NewRow.ValueString() != `{"a":1}` || !state.Entries[0].OldRow.IsNull() || !state.Entries[0].ChangedBy.IsNull() {
+			if len(state.Entries) != 1 || state.Entries[0].NewRow.ValueString() != `{"a":1}` ||
+				!state.Entries[0].OldRow.IsNull() ||
+				!state.Entries[0].ChangedBy.IsNull() {
 				t.Errorf("entries = %+v, want one insert with a JSON new row", state.Entries)
 			}
 		})
@@ -241,7 +343,9 @@ func TestConfigHistoryDataSource(t *testing.T) {
 }
 
 func TestDataSourceWithoutAClientFails(t *testing.T) {
-	source := newProjectDataSource()
+	t.Parallel()
+
+	source := provider.NewProjectDataSource()
 	s := dataSourceSchema(t, source)
 	raw := tftypes.NewValue(s.Type().TerraformType(context.Background()), nil)
 	resp := datasource.ReadResponse{State: tfsdk.State{Schema: s, Raw: raw}}
@@ -253,6 +357,7 @@ func TestDataSourceWithoutAClientFails(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Acceptance tests share one OpenTofu run.
 func TestAccDataSources(t *testing.T) {
 	project := testAccName()
 	table := "p.d." + testAccName()
@@ -300,7 +405,7 @@ data "data_proxy_schema_health" "provisioned" {
 
 	acc.Test(t, acc.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProviderFactories,
+		ProtoV6ProviderFactories: testAccProviderFactories(),
 		Steps: []acc.TestStep{
 			{
 				Config: config,
@@ -313,7 +418,7 @@ data "data_proxy_schema_health" "provisioned" {
 					acc.TestCheckResourceAttr("data.data_proxy_schema_health.provisioned", "schema_exists", "true"),
 					acc.TestCheckResourceAttrWith("data.data_proxy_config_history.this", "entries.#", func(value string) error {
 						if value == "0" {
-							return fmt.Errorf("the history of %s has no entry", project)
+							return fmt.Errorf("%w: the history of %s", errNoEntry, project)
 						}
 
 						return nil
@@ -325,11 +430,11 @@ data "data_proxy_schema_health" "provisioned" {
 
 						err := json.Unmarshal([]byte(value), &document)
 						if err != nil {
-							return err
+							return fmt.Errorf("decode the export: %w", err)
 						}
 
 						if _, ok := document.Projects[project]; !ok {
-							return fmt.Errorf("the export has no project %s", project)
+							return fmt.Errorf("%w: the export has project %s", errNoEntry, project)
 						}
 
 						return nil

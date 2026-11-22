@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"terraform-provider-data-proxy/internal/client"
 
@@ -93,8 +94,8 @@ func requiredString(description string) schema.StringAttribute {
 
 // updatedAttributes adds the columns updated_at and updated_by to a set of attributes.
 func updatedAttributes(attributes map[string]schema.Attribute) map[string]schema.Attribute {
-	attributes["updated_at"] = computedString("When the row last changed.")
-	attributes["updated_by"] = computedString("Who last changed the row.")
+	attributes[attrUpdatedAt] = computedString("When the row last changed.")
+	attributes[attrUpdatedBy] = computedString("Who last changed the row.")
 
 	return attributes
 }
@@ -104,15 +105,15 @@ func newProjectDataSource() datasource.DataSource {
 	return &lookup[projectDataModel]{
 		suffix:      "project",
 		description: "Reads a project by its name.",
-		permission:  "read_config",
+		permission:  readConfig,
 		attributes: updatedAttributes(map[string]schema.Attribute{
-			"id":   computedString("The name of the project."),
-			"name": requiredString("The name of the project."),
+			"id":     computedString("The name of the project."),
+			attrName: requiredString("The name of the project."),
 		}),
 		read: func(ctx context.Context, apiClient *client.Client, model *projectDataModel) error {
 			row, err := apiClient.GetProject(ctx, model.Name.ValueString())
 			if err != nil {
-				return err
+				return fmt.Errorf("read the project: %w", err)
 			}
 
 			*model = projectDataModel{
@@ -132,56 +133,71 @@ func newSchemaDataSource() datasource.DataSource {
 	return &lookup[schemaDataModel]{
 		suffix:      "schema",
 		description: "Reads a schema by its physical name, or by its project and its short name.",
-		permission:  "read_config",
+		permission:  readConfig,
 		attributes: updatedAttributes(map[string]schema.Attribute{
-			"id":         computedString("The physical name of the schema."),
-			"name":       schema.StringAttribute{Description: "The physical name of the schema. Give it, or the short name.", Optional: true, Computed: true},
-			"project":    schema.StringAttribute{Description: "The project of the schema. With the short name, it defaults to `default`.", Optional: true, Computed: true},
-			"short_name": schema.StringAttribute{Description: "The short name of the schema. Give it, or the name.", Optional: true, Computed: true},
-			"source":     computedString("The source of the data."),
-			"settings":   computedString("The settings of the source as a JSON object."),
-			"claim":      computedString("The claim of the token that names the unit of a reader."),
-			"encrypted":  schema.BoolAttribute{Description: "Whether the files of the schema are encrypted.", Computed: true},
+			"id": computedString("The physical name of the schema."),
+			attrName: schema.StringAttribute{
+				Description: "The physical name of the schema. Give it, or the short name.",
+				Optional:    true,
+				Computed:    true,
+			},
+			attrProject: schema.StringAttribute{
+				Description: "The project of the schema. With the short name, it defaults to `default`.",
+				Optional:    true,
+				Computed:    true,
+			},
+			"short_name": schema.StringAttribute{
+				Description: "The short name of the schema. Give it, or the name.",
+				Optional:    true,
+				Computed:    true,
+			},
+			"source":    computedString("The source of the data."),
+			"settings":  computedString("The settings of the source as a JSON object."),
+			"claim":     computedString("The claim of the token that names the unit of a reader."),
+			"encrypted": schema.BoolAttribute{Description: "Whether the files of the schema are encrypted.", Computed: true},
 		}),
 		validators: []datasource.ConfigValidator{
 			datasourcevalidator.ExactlyOneOf(path.MatchRoot("name"), path.MatchRoot("short_name")),
 		},
-		read: func(ctx context.Context, apiClient *client.Client, model *schemaDataModel) error {
-			var row client.Schema
-
-			var err error
-
-			if model.Name.IsNull() {
-				project := defaultProject
-				if !model.Project.IsNull() {
-					project = model.Project.ValueString()
-				}
-
-				row, err = apiClient.GetSchemaByParts(ctx, project, model.ShortName.ValueString())
-			} else {
-				row, err = apiClient.GetSchema(ctx, model.Name.ValueString())
-			}
-
-			if err != nil {
-				return err
-			}
-
-			*model = schemaDataModel{
-				ID:        types.StringValue(row.Name),
-				Project:   types.StringValue(row.Project),
-				ShortName: types.StringValue(row.ShortName),
-				Name:      types.StringValue(row.Name),
-				Source:    types.StringValue(row.Source),
-				Settings:  jsonValue(row.Settings, types.StringNull()),
-				Claim:     stringValue(row.Claim),
-				Encrypted: types.BoolValue(row.Encrypted),
-				UpdatedAt: types.StringValue(row.UpdatedAt),
-				UpdatedBy: types.StringValue(row.UpdatedBy),
-			}
-
-			return nil
-		},
+		read: readSchema,
 	}
+}
+
+// readSchema reads a schema by its physical name, or by its project and its short name.
+func readSchema(ctx context.Context, apiClient *client.Client, model *schemaDataModel) error {
+	var row client.Schema
+
+	var err error
+
+	if model.Name.IsNull() {
+		project := defaultProject
+		if !model.Project.IsNull() {
+			project = model.Project.ValueString()
+		}
+
+		row, err = apiClient.GetSchemaByParts(ctx, project, model.ShortName.ValueString())
+	} else {
+		row, err = apiClient.GetSchema(ctx, model.Name.ValueString())
+	}
+
+	if err != nil {
+		return fmt.Errorf("read the schema: %w", err)
+	}
+
+	*model = schemaDataModel{
+		ID:        types.StringValue(row.Name),
+		Project:   types.StringValue(row.Project),
+		ShortName: types.StringValue(row.ShortName),
+		Name:      types.StringValue(row.Name),
+		Source:    types.StringValue(row.Source),
+		Settings:  jsonValue(row.Settings, types.StringNull()),
+		Claim:     stringValue(row.Claim),
+		Encrypted: types.BoolValue(row.Encrypted),
+		UpdatedAt: types.StringValue(row.UpdatedAt),
+		UpdatedBy: types.StringValue(row.UpdatedBy),
+	}
+
+	return nil
 }
 
 // newTableDataSource makes the data source data_proxy_table.
@@ -189,29 +205,37 @@ func newTableDataSource() datasource.DataSource {
 	return &lookup[tableModel]{
 		suffix:      "table",
 		description: "Reads a table and its row policies by its name.",
-		permission:  "read_config",
+		permission:  readConfig,
 		attributes: updatedAttributes(map[string]schema.Attribute{
-			"id":           computedString("The name of the table."),
-			"name":         requiredString("The name of the table in the source."),
-			"schema":       computedString("The physical name of the schema."),
-			"strategy":     computedString("`full` or `partitioned`."),
-			"n":            schema.Int64Attribute{Description: "The number of newest partitions to keep.", Computed: true},
-			"fallback":     schema.BoolAttribute{Description: "Whether the source serves the partitions that the schema doesn't store.", Computed: true},
+			"id":       computedString("The name of the table."),
+			attrName:   requiredString("The name of the table in the source."),
+			attrSchema: computedString("The physical name of the schema."),
+			"strategy": computedString("`full` or `partitioned`."),
+			"n":        schema.Int64Attribute{Description: "The number of newest partitions to keep.", Computed: true},
+			"fallback": schema.BoolAttribute{
+				Description: "Whether the source serves the partitions that the schema doesn't store.",
+				Computed:    true,
+			},
 			"cache_ttl":    schema.Int64Attribute{Description: "The seconds that the proxy caches an answer.", Computed: true},
 			"partitioning": computedString("The partition transforms as a JSON array."),
-			"sort":         schema.ListAttribute{Description: "The columns that DuckLake sorts the table by.", ElementType: types.StringType, Computed: true},
-			"rls": schema.ListNestedAttribute{
-				Description: "The row policies in order. A policy of one condition sets `column_name` and `unit_type`. A policy of two or more sets `condition`, and all must match.",
+			"sort": schema.ListAttribute{
+				Description: "The columns that DuckLake sorts the table by.",
+				ElementType: types.StringType,
 				Computed:    true,
+			},
+			"rls": schema.ListNestedAttribute{
+				Description: "The row policies in order. A policy of one condition sets `column_name` and `unit_type`. A " +
+					"policy of two or more sets `condition`, and all must match.",
+				Computed: true,
 				NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-					"column_name": computedString("The column that holds the unit, for a policy of one condition."),
-					"unit_type":   computedString("The type of the unit, for a policy of one condition."),
+					attrColumnName: computedString("The column that holds the unit, for a policy of one condition."),
+					attrUnitType:   computedString("The type of the unit, for a policy of one condition."),
 					"condition": schema.ListNestedAttribute{
 						Description: "The conditions of a policy of two or more.",
 						Computed:    true,
 						NestedObject: schema.NestedAttributeObject{Attributes: map[string]schema.Attribute{
-							"column_name": computedString("The column that holds the unit."),
-							"unit_type":   computedString("The type of the unit."),
+							attrColumnName: computedString("The column that holds the unit."),
+							attrUnitType:   computedString("The type of the unit."),
 						}},
 					},
 				}},
@@ -220,16 +244,16 @@ func newTableDataSource() datasource.DataSource {
 		read: func(ctx context.Context, apiClient *client.Client, model *tableModel) error {
 			row, err := apiClient.GetTable(ctx, model.Name.ValueString())
 			if err != nil {
-				return err
+				return fmt.Errorf("read the table: %w", err)
 			}
 
 			rules, err := apiClient.ListRLS(ctx, row.Name)
 			if err != nil {
-				return err
+				return fmt.Errorf("read the row policies of the table: %w", err)
 			}
 
 			if diagnostics := applyTableRow(ctx, model, row, rules); diagnostics.HasError() {
-				return fmt.Errorf("map the table: %v", diagnostics)
+				return fmt.Errorf("%w: %v", errMapTable, diagnostics)
 			}
 
 			return nil
@@ -239,24 +263,36 @@ func newTableDataSource() datasource.DataSource {
 
 // newExportConfigDataSource makes the data source data_proxy_export_config.
 func newExportConfigDataSource() datasource.DataSource {
-	return documentSource("export_config", "Exports the configuration as a JSON document grouped by project, which includes the empty projects.",
+	return documentSource(
+		"export_config",
+		"Exports the configuration as a JSON document grouped by project, which includes the empty projects.",
 		func(ctx context.Context, apiClient *client.Client) ([]byte, error) {
 			return apiClient.ExportConfig(ctx)
-		})
+		},
+	)
 }
 
 // newSyncConfigDataSource makes the data source data_proxy_sync_config.
 func newSyncConfigDataSource() datasource.DataSource {
-	return documentSource("sync_config", "Reads the flat configuration that the sync engine reads, with the physical schema names as keys.",
-		func(ctx context.Context, apiClient *client.Client) ([]byte, error) { return apiClient.SyncConfig(ctx) })
+	return documentSource(
+		"sync_config",
+		"Reads the flat configuration that the sync engine reads, with the physical schema names as keys.",
+		func(ctx context.Context, apiClient *client.Client) ([]byte, error) { return apiClient.SyncConfig(ctx) },
+	)
 }
 
+// errMapTable is a row of the API that does not fit the model of the table data source.
+var errMapTable = errors.New("map the table")
+
 // documentSource makes a data source that returns one JSON document that fetch reads.
-func documentSource(suffix, description string, fetch func(context.Context, *client.Client) ([]byte, error)) datasource.DataSource {
+func documentSource(
+	suffix, description string,
+	fetch func(context.Context, *client.Client) ([]byte, error),
+) datasource.DataSource {
 	return &lookup[documentModel]{
 		suffix:      suffix,
 		description: description,
-		permission:  "read_config",
+		permission:  readConfig,
 		attributes: map[string]schema.Attribute{
 			"id":       computedString("The name of the document."),
 			"document": computedString("The JSON document. Decode it with `jsondecode`."),
@@ -279,17 +315,20 @@ func newSchemaHealthDataSource() datasource.DataSource {
 	return &lookup[healthModel]{
 		suffix:      "schema_health",
 		description: "Reads whether the sync has created the PostgreSQL schema.",
-		permission:  "read_config",
+		permission:  readConfig,
 		attributes: map[string]schema.Attribute{
 			"id":            computedString("The physical name of the schema."),
-			"name":          requiredString("The physical name of the schema."),
+			attrName:        requiredString("The physical name of the schema."),
 			"schema_exists": schema.BoolAttribute{Description: "Whether the PostgreSQL schema exists.", Computed: true},
-			"view_count":    schema.Int64Attribute{Description: "The number of views in the schema. It grows after the first sync.", Computed: true},
+			"view_count": schema.Int64Attribute{
+				Description: "The number of views in the schema. It grows after the first sync.",
+				Computed:    true,
+			},
 		},
 		read: func(ctx context.Context, apiClient *client.Client, model *healthModel) error {
 			row, err := apiClient.GetHealth(ctx, model.Name.ValueString())
 			if err != nil {
-				return err
+				return fmt.Errorf("read the health of the schema: %w", err)
 			}
 
 			*model = healthModel{
@@ -309,11 +348,11 @@ func newTableSyncStateDataSource() datasource.DataSource {
 	return &lookup[syncStateModel]{
 		suffix:      "table_sync_state",
 		description: "Reads whether the sync has published a table, and its signature and partitions.",
-		permission:  "read_config",
+		permission:  readConfig,
 		attributes: map[string]schema.Attribute{
 			"id":              computedString("The name of the table."),
-			"name":            requiredString("The name of the table in the source."),
-			"schema":          computedString("The physical name of the schema."),
+			attrName:          requiredString("The name of the table in the source."),
+			attrSchema:        computedString("The physical name of the schema."),
 			"synced":          schema.BoolAttribute{Description: "Whether the sync has published the table.", Computed: true},
 			"signature":       computedString("The signature of the table at its last sync."),
 			"partition_count": schema.Int64Attribute{Description: "The number of synced partitions.", Computed: true},
@@ -321,7 +360,7 @@ func newTableSyncStateDataSource() datasource.DataSource {
 		read: func(ctx context.Context, apiClient *client.Client, model *syncStateModel) error {
 			row, err := apiClient.GetSyncState(ctx, model.Name.ValueString())
 			if err != nil {
-				return err
+				return fmt.Errorf("read the sync state of the table: %w", err)
 			}
 
 			*model = syncStateModel{
@@ -343,11 +382,17 @@ func newConfigHistoryDataSource() datasource.DataSource {
 	return &lookup[historyModel]{
 		suffix:      "config_history",
 		description: "Reads the newest changes of the configuration, newest first.",
-		permission:  "read_config",
+		permission:  readConfig,
 		attributes: map[string]schema.Attribute{
-			"id":     computedString("A fixed name."),
-			"schema": schema.StringAttribute{Description: "Reads only the changes of this schema. Without it, every schema that the token can see.", Optional: true},
-			"limit":  schema.Int64Attribute{Description: fmt.Sprintf("The most changes to read. The default is %d.", defaultHistoryLimit), Optional: true},
+			"id": computedString("A fixed name."),
+			attrSchema: schema.StringAttribute{
+				Description: "Reads only the changes of this schema. Without it, every schema that the token can see.",
+				Optional:    true,
+			},
+			"limit": schema.Int64Attribute{
+				Description: fmt.Sprintf("The most changes to read. The default is %d.", defaultHistoryLimit),
+				Optional:    true,
+			},
 			"entries": schema.ListNestedAttribute{
 				Description: "The changes, newest first.",
 				Computed:    true,
@@ -371,7 +416,7 @@ func newConfigHistoryDataSource() datasource.DataSource {
 
 			rows, err := apiClient.ListHistory(ctx, model.Schema.ValueString(), limit)
 			if err != nil {
-				return err
+				return fmt.Errorf("read the history of the configuration: %w", err)
 			}
 
 			model.ID = types.StringValue("config_history")

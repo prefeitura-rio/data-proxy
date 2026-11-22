@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -15,7 +16,15 @@ type Backoff struct {
 }
 
 // DefaultBackoff waits 100 ms, then 200 ms, 400 ms, 800 ms and 1 s, for up to 5 s in total.
-var DefaultBackoff = Backoff{Initial: 100 * time.Millisecond, Max: time.Second, Timeout: 5 * time.Second}
+func DefaultBackoff() Backoff {
+	return Backoff{Initial: initialDelay, Max: time.Second, Timeout: totalTimeout}
+}
+
+// The first delay and the total time of DefaultBackoff.
+const (
+	initialDelay = 100 * time.Millisecond
+	totalTimeout = 5 * time.Second
+)
 
 // RetryNoRow calls read again while it wraps ErrNoRow, because a standby behind PostgREST can miss a row that the
 // primary wrote a moment ago. It returns the first other result, the last ErrNoRow after the timeout, or the error
@@ -65,7 +74,7 @@ func waitFor(ctx context.Context, duration time.Duration) error {
 
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return fmt.Errorf("wait: %w", ctx.Err())
 	case <-timer.C:
 		return nil
 	}

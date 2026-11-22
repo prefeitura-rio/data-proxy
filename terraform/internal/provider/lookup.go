@@ -50,7 +50,10 @@ func (l *lookup[T]) Configure(_ context.Context, req datasource.ConfigureRequest
 // Read fills the model from the API and stores it in the state.
 func (l *lookup[T]) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	if l.client == nil {
-		resp.Diagnostics.AddError("Unconfigured provider", "The data source has no client, because the provider isn't configured.")
+		resp.Diagnostics.AddError(
+			"Unconfigured provider",
+			"The data source has no client, because the provider isn't configured.",
+		)
 
 		return
 	}

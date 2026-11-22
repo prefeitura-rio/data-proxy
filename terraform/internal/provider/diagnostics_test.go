@@ -1,12 +1,12 @@
-package provider
+package provider_test
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"terraform-provider-data-proxy/internal/client"
+	"terraform-provider-data-proxy/internal/provider"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -20,7 +20,8 @@ func deleteError(t *testing.T, status int, body string) error {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 
-		if _, err := w.Write([]byte(body)); err != nil {
+		_, err := w.Write([]byte(body))
+		if err != nil {
 			t.Errorf("write the response: %v", err)
 		}
 	}))
@@ -31,17 +32,30 @@ func deleteError(t *testing.T, status int, body string) error {
 		t.Fatalf("client.New: %v", err)
 	}
 
-	err = apiClient.Delete(context.Background(), client.ConsoleProfile, "schemas", []client.Filter{client.Eq("name", "alpha")}, nil)
+	err = apiClient.Delete(
+		context.Background(),
+		client.ConsoleProfile,
+		"schemas",
+		[]client.Filter{client.Eq("name", "alpha")},
+		nil,
+	)
 	if err == nil {
 		t.Fatalf("Delete: got no error")
 	}
 
+	//nolint:wrapcheck // The test needs the error that the client gives, to check the message of the provider.
 	return err
 }
 
 // TestAddAPIError checks the detail that addAPIError gives for each kind of error.
 func TestAddAPIError(t *testing.T) {
-	forbiddenErr := deleteError(t, http.StatusForbidden, `{"code":"42501","message":"permission denied for table schemas"}`)
+	t.Parallel()
+
+	forbiddenErr := deleteError(
+		t,
+		http.StatusForbidden,
+		`{"code":"42501","message":"permission denied for table schemas"}`,
+	)
 	unauthorizedErr := deleteError(t, http.StatusUnauthorized, `{"code":"PGRST303","message":"JWT expired"}`)
 
 	tests := []struct {
@@ -55,32 +69,37 @@ func TestAddAPIError(t *testing.T) {
 			permission: "create_config",
 			err:        forbiddenErr,
 			want: "The token lacks the create_config permission, or the schema isn't in the claim of the token. " +
-				"Give the client a role that has create_config. The API answered: postgrest: HTTP 403 42501: permission denied for table schemas",
+				"Give the client a role that has create_config. The API answered: postgrest: HTTP 403 42501: permission denied " +
+				"for table schemas",
 		},
 		{
 			name: "a refused request that needs no permission",
 			err:  forbiddenErr,
-			want: "The database refused the request. The API answered: postgrest: HTTP 403 42501: permission denied for table schemas",
+			want: "The database refused the request. The API answered: postgrest: HTTP 403 42501: permission denied for " +
+				"table schemas",
 		},
 		{
 			name:       "a refused token",
 			permission: "edit_config",
 			err:        unauthorizedErr,
-			want:       "The API refused the token. Check that the API trusts the identity provider of token_url. The API answered: postgrest: HTTP 401 PGRST303: JWT expired",
+			want: "The API refused the token. Check that the API trusts the identity provider of token_url. The API " +
+				"answered: postgrest: HTTP 401 PGRST303: JWT expired",
 		},
 		{
 			name:       "another error",
 			permission: "delete_config",
-			err:        errors.New("DELETE schemas: connection refused"),
-			want:       "DELETE schemas: connection refused",
+			err:        errConnectionRefused,
+			want:       errConnectionRefused.Error(),
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			var diagnostics diag.Diagnostics
 
-			addAPIError(&diagnostics, "Couldn't delete the schema", testCase.permission, testCase.err)
+			provider.AddAPIError(&diagnostics, "Couldn't delete the schema", testCase.permission, testCase.err)
 
 			want := []diagnostic{{summary: "Couldn't delete the schema", detail: testCase.want}}
 			if got := diagnosticsOf(diagnostics); !reflect.DeepEqual(got, want) {
@@ -92,6 +111,8 @@ func TestAddAPIError(t *testing.T) {
 
 // TestCheckReadConfig checks the error that checkReadConfig gives for each set of permissions.
 func TestCheckReadConfig(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		permissions []string
@@ -101,17 +122,28 @@ func TestCheckReadConfig(t *testing.T) {
 		{
 			name:        "write permissions without read_config",
 			permissions: []string{"create_config", "edit_config"},
-			diags: []diagnostic{{
-				summary: "Missing read_config permission",
-				detail: `The token of the client "ci" lacks the read_config permission, and the provider needs it to read the configuration. ` +
-					"Give the client a role that has read_config, such as dp_console or dp_admin. The token has these permissions: create_config, edit_config.",
-			}},
+			diags: []diagnostic{
+				{
+					summary: "Missing read_config permission",
+					detail: `The token of the client "ci" lacks the read_config permission, and the provider needs it to read the ` +
+						`configuration. ` +
+						"Give the client a role that has read_config, such as dp_console or dp_admin. The token has these " +
+						"permissions: create_config, edit_config.",
+				},
+			},
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			if got := diagnosticsOf(checkReadConfig("ci", testCase.permissions)); !reflect.DeepEqual(got, testCase.diags) {
+			t.Parallel()
+
+			if got := diagnosticsOf(
+				provider.CheckReadConfig("ci", testCase.permissions),
+			); !reflect.DeepEqual(
+				got,
+				testCase.diags,
+			) {
 				t.Errorf("diagnostics = %+v, want %+v", got, testCase.diags)
 			}
 		})

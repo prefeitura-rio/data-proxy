@@ -1,4 +1,4 @@
-package provider
+package provider_test
 
 import (
 	"context"
@@ -8,8 +8,10 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"terraform-provider-data-proxy/internal/client"
+	"terraform-provider-data-proxy/internal/provider"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -30,14 +32,13 @@ const (
 func newTestTable(t *testing.T, steps []step) resource.Resource {
 	t.Helper()
 
-	res := newTableResource()
-	res.(*tableResource).backoff = client.Backoff{}
+	res := provider.TableResourceWithNoRetry()
 
 	return configured(t, res, newStepClient(t, steps))
 }
 
 // tableConfig returns the model of the table sales.orders with the given row policies.
-func tableConfig(t *testing.T, rules ...rlsModel) tableModel {
+func tableConfig(t *testing.T, rules ...provider.RlsModel) provider.TableModel {
 	t.Helper()
 
 	sort, diagnostics := types.ListValueFrom(context.Background(), types.StringType, []string{"order_id"})
@@ -45,7 +46,7 @@ func tableConfig(t *testing.T, rules ...rlsModel) tableModel {
 		t.Fatalf("build the sort: %v", diagnostics)
 	}
 
-	return tableModel{
+	return provider.TableModel{
 		ID:           types.StringUnknown(),
 		Name:         types.StringValue("sales.orders"),
 		Schema:       types.StringValue("sales_orders"),
@@ -62,35 +63,39 @@ func tableConfig(t *testing.T, rules ...rlsModel) tableModel {
 }
 
 // ruleModel returns an rls block in the flat form, for one condition.
-func ruleModel(column, unit string) rlsModel {
-	return blockOf(rule(column, unit))
+func ruleModel(column, unit string) provider.RlsModel {
+	return provider.BlockOf(rule(column, unit))
 }
 
 // groupModel returns an rls block with one condition block for each pair of a column and a unit type.
-func groupModel(pairs ...string) rlsModel {
-	return blockOf(rule(pairs...))
+func groupModel(pairs ...string) provider.RlsModel {
+	return provider.BlockOf(rule(pairs...))
 }
 
 // rule returns a client rule with one condition for each pair of a column and a unit type.
 func rule(pairs ...string) client.RLSRule {
-	var conditions []client.RLSCondition
-	for i := 0; i < len(pairs); i += 2 {
-		conditions = append(conditions, client.RLSCondition{ColumnName: pairs[i], UnitType: pairs[i+1]})
+	conditions := make([]client.RLSCondition, 0, len(pairs)/2)
+	for pair := range slices.Chunk(pairs, 2) {
+		if len(pair) == 2 {
+			conditions = append(conditions, client.RLSCondition{ColumnName: pair[0], UnitType: pair[1]})
+		}
 	}
 
 	return client.RLSRule{Conditions: conditions}
 }
 
 func TestRLSRulesKeepTheOrderOfTheBlocks(t *testing.T) {
-	model := tableModel{
-		RLS: []rlsModel{
+	t.Parallel()
+
+	model := provider.TableModel{
+		RLS: []provider.RlsModel{
 			groupModel("region_id", "region", "unit_id", "unit"),
 			ruleModel("area", "area"),
 			groupModel("a", "x", "b", "y"),
 		},
 	}
 
-	got := rlsRules(model)
+	got := provider.RlsRules(model)
 
 	want := []client.RLSRule{
 		rule("region_id", "region", "unit_id", "unit"),
@@ -103,9 +108,11 @@ func TestRLSRulesKeepTheOrderOfTheBlocks(t *testing.T) {
 }
 
 func TestApplyTableRowWritesOneConditionFlatAndTwoAsConditionBlocks(t *testing.T) {
-	var model tableModel
+	t.Parallel()
 
-	diagnostics := applyTableRow(t.Context(), &model, client.Table{Name: "sales.orders"}, []client.RLSRule{
+	var model provider.TableModel
+
+	diagnostics := provider.ApplyTableRow(t.Context(), &model, client.Table{Name: "sales.orders"}, []client.RLSRule{
 		rule("region_id", "region", "unit_id", "unit"),
 		rule("area", "area"),
 	})
@@ -131,6 +138,8 @@ func TestApplyTableRowWritesOneConditionFlatAndTwoAsConditionBlocks(t *testing.T
 }
 
 func TestRLSRuleJSONHasNoNumber(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		rule client.RLSRule
@@ -146,6 +155,8 @@ func TestRLSRuleJSONHasNoNumber(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := json.Marshal(test.rule)
 			if err != nil {
 				t.Fatal(err)
@@ -159,29 +170,45 @@ func TestRLSRuleJSONHasNoNumber(t *testing.T) {
 }
 
 // twoRules are the row policies of the tests, in order.
-func twoRules() []rlsModel {
-	return []rlsModel{ruleModel("unit_id", "unit"), ruleModel("region_id", "region")}
+func twoRules() []provider.RlsModel {
+	return []provider.RlsModel{ruleModel("unit_id", "unit"), ruleModel("region_id", "region")}
 }
 
 func TestTableCreate(t *testing.T) {
+	t.Parallel()
+
 	createStep := step{
-		method: "POST", uri: "/tables", profile: "console", status: 201, response: "[" + tableRowJSON + "]",
-		body: `{"name":"sales.orders","schema":"sales_orders","strategy":"partitioned","n":3,"fallback":false,"cache_ttl":60,"sort":["order_id"]}`,
+		method:   "POST",
+		uri:      "/tables",
+		profile:  "console",
+		status:   201,
+		response: "[" + tableRowJSON + "]",
+		body: `{"name":"sales.orders","schema":"sales_orders","strategy":"partitioned","n":3,"fallback":false,` +
+			`"cache_ttl":60,"sort":["order_id"]}`,
 	}
 	rulesStep := step{
-		method: "POST", uri: "/rpc/replace_rls", profile: "console", response: "null",
-		body: `{"table_name":"sales.orders","groups":[{"conditions":[{"column":"unit_id","unit_type":"unit"}]},{"conditions":[{"column":"region_id","unit_type":"region"}]}]}`,
+		method:   "POST",
+		uri:      "/rpc/replace_rls",
+		profile:  "console",
+		response: nullJSON,
+		body: `{"table_name":"sales.orders","groups":[{"conditions":[{"column":"unit_id","unit_type":"unit"}]},` +
+			`{"conditions":[{"column":"region_id","unit_type":"region"}]}]}`,
 	}
 
 	tests := []struct {
 		name        string
-		rules       []rlsModel
+		rules       []provider.RlsModel
 		steps       []step
 		wantSummary string
 		wantRules   int
 	}{
 		{name: "adds a table without row policies", steps: []step{createStep}},
-		{name: "adds the table, then its row policies in order", rules: twoRules(), steps: []step{createStep, rulesStep}, wantRules: 2},
+		{
+			name:      "adds the table, then its row policies in order",
+			rules:     twoRules(),
+			steps:     []step{createStep, rulesStep},
+			wantRules: 2,
+		},
 		{
 			name:        "keeps the table when the row policies fail",
 			rules:       twoRules(),
@@ -198,11 +225,17 @@ func TestTableCreate(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			res := newTestTable(t, testCase.steps)
 			s := resourceSchema(t, res)
 			resp := resource.CreateResponse{State: nullState(s)}
 
-			res.Create(context.Background(), resource.CreateRequest{Plan: planOf(t, s, tableConfig(t, testCase.rules...))}, &resp)
+			res.Create(
+				context.Background(),
+				resource.CreateRequest{Plan: planOf(t, s, tableConfig(t, testCase.rules...))},
+				&resp,
+			)
 
 			got := summaries(diagnosticsOf(resp.Diagnostics))
 
@@ -217,18 +250,25 @@ func TestTableCreate(t *testing.T) {
 				return
 			}
 
-			var state tableModel
+			var state provider.TableModel
 
 			resp.State.Get(context.Background(), &state)
 
 			if state.ID.ValueString() != "sales.orders" || len(state.RLS) != testCase.wantRules {
-				t.Errorf("id = %q, rules = %d, want sales.orders and %d rules", state.ID.ValueString(), len(state.RLS), testCase.wantRules)
+				t.Errorf(
+					"id = %q, rules = %d, want sales.orders and %d rules",
+					state.ID.ValueString(),
+					len(state.RLS),
+					testCase.wantRules,
+				)
 			}
 		})
 	}
 }
 
 func TestTableRead(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		steps       []step
@@ -243,7 +283,11 @@ func TestTableRead(t *testing.T) {
 			},
 		},
 		{name: "drops a table that no longer exists", steps: []step{{response: "[]"}}, wantRemoved: true},
-		{name: "reports a read of the table that fails", steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}}, wantSummary: "Couldn't read the table"},
+		{
+			name:        "reports a read of the table that fails",
+			steps:       []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
+			wantSummary: "Couldn't read the table",
+		},
 		{
 			name: "reports a read of the row policies that fails",
 			steps: []step{
@@ -256,6 +300,8 @@ func TestTableRead(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			res := newTestTable(t, testCase.steps)
 			s := resourceSchema(t, res)
 			state := stateOf(t, s, tableConfig(t))
@@ -275,7 +321,7 @@ func TestTableRead(t *testing.T) {
 					t.Errorf("state = %v, want it removed", resp.State.Raw)
 				}
 			default:
-				var read tableModel
+				var read provider.TableModel
 
 				resp.State.Get(context.Background(), &read)
 
@@ -288,6 +334,8 @@ func TestTableRead(t *testing.T) {
 }
 
 func TestTableUpdate(t *testing.T) {
+	t.Parallel()
+
 	patch := step{
 		method: "PATCH", uri: "/tables?name=eq.sales.orders", profile: "console", response: "[" + tableRowJSON + "]",
 		body: `{"strategy":"partitioned","n":3,"fallback":false,"cache_ttl":60,"partitioning":null,"sort":["order_id"]}`,
@@ -296,7 +344,7 @@ func TestTableUpdate(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		plan        []rlsModel
+		plan        []provider.RlsModel
 		steps       []step
 		wantSummary string
 		wantRules   int
@@ -304,23 +352,30 @@ func TestTableUpdate(t *testing.T) {
 		{name: "leaves the row policies alone when they are the same", plan: twoRules(), steps: []step{patch}, wantRules: 2},
 		{
 			name:      "replaces the row policies in the new order",
-			plan:      []rlsModel{ruleModel("region_id", "region"), ruleModel("unit_id", "unit")},
+			plan:      []provider.RlsModel{ruleModel("region_id", "region"), ruleModel("unit_id", "unit")},
 			steps:     []step{patch, replaceRules},
 			wantRules: 2,
 		},
 		{name: "removes every row policy", plan: nil, steps: []step{patch, replaceRules}, wantRules: 0},
 		{
 			name:        "keeps the old row policies in the state when the replace fails",
-			plan:        []rlsModel{ruleModel("unit_id", "unit")},
+			plan:        []provider.RlsModel{ruleModel("unit_id", "unit")},
 			steps:       []step{patch, {status: 403, response: `{"code":"42501","message":"denied"}`}},
 			wantSummary: "Couldn't replace the row policies of the table",
 			wantRules:   2,
 		},
-		{name: "reports a refused update", plan: twoRules(), steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}}, wantSummary: "Couldn't update the table"},
+		{
+			name:        "reports a refused update",
+			plan:        twoRules(),
+			steps:       []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
+			wantSummary: "Couldn't update the table",
+		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			res := newTestTable(t, testCase.steps)
 			s := resourceSchema(t, res)
 			state := stateOf(t, s, withName(tableConfig(t, twoRules()...)))
@@ -342,7 +397,7 @@ func TestTableUpdate(t *testing.T) {
 				return
 			}
 
-			var saved tableModel
+			var saved provider.TableModel
 
 			resp.State.Get(context.Background(), &saved)
 
@@ -354,7 +409,7 @@ func TestTableUpdate(t *testing.T) {
 }
 
 // withName fills the computed id of a model, as a saved table has it.
-func withName(model tableModel) tableModel {
+func withName(model provider.TableModel) provider.TableModel {
 	model.ID = types.StringValue("sales.orders")
 	model.UpdatedAt = types.StringValue("t")
 	model.UpdatedBy = types.StringValue("u")
@@ -363,17 +418,28 @@ func withName(model tableModel) tableModel {
 }
 
 func TestTableDelete(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		steps       []step
 		wantSummary string
 	}{
-		{name: "removes the table", steps: []step{{method: "DELETE", uri: "/tables?name=eq.sales.orders", profile: "console", response: "[]"}}},
-		{name: "reports a refused delete", steps: []step{{status: 403, response: `{"code":"42501","message":"denied"}`}}, wantSummary: "Couldn't delete the table"},
+		{
+			name:  "removes the table",
+			steps: []step{{method: "DELETE", uri: "/tables?name=eq.sales.orders", profile: "console", response: "[]"}},
+		},
+		{
+			name:        "reports a refused delete",
+			steps:       []step{{status: 403, response: `{"code":"42501","message":"denied"}`}},
+			wantSummary: "Couldn't delete the table",
+		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			res := newTestTable(t, testCase.steps)
 			s := resourceSchema(t, res)
 			state := stateOf(t, s, withName(tableConfig(t)))
@@ -394,6 +460,8 @@ func TestTableDelete(t *testing.T) {
 }
 
 func TestTableValidateConfig(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		strategy types.String
@@ -401,15 +469,44 @@ func TestTableValidateConfig(t *testing.T) {
 		fallback types.Bool
 		want     []string
 	}{
-		{name: "a partitioned table with n and fallback", strategy: types.StringValue("partitioned"), n: types.Int64Value(3), fallback: types.BoolValue(true)},
-		{name: "a full table without n and fallback", strategy: types.StringValue("full"), n: types.Int64Null(), fallback: types.BoolValue(false)},
-		{name: "a table without a strategy and with n", strategy: types.StringNull(), n: types.Int64Value(3), fallback: types.BoolValue(false), want: []string{"Invalid n"}},
-		{name: "a full table with n and fallback", strategy: types.StringValue("full"), n: types.Int64Value(3), fallback: types.BoolValue(true), want: []string{"Invalid n", "Invalid fallback"}},
-		{name: "an unknown strategy", strategy: types.StringUnknown(), n: types.Int64Value(3), fallback: types.BoolValue(true)},
+		{
+			name:     "a partitioned table with n and fallback",
+			strategy: types.StringValue("partitioned"),
+			n:        types.Int64Value(3),
+			fallback: types.BoolValue(true),
+		},
+		{
+			name:     "a full table without n and fallback",
+			strategy: types.StringValue("full"),
+			n:        types.Int64Null(),
+			fallback: types.BoolValue(false),
+		},
+		{
+			name:     "a table without a strategy and with n",
+			strategy: types.StringNull(),
+			n:        types.Int64Value(3),
+			fallback: types.BoolValue(false),
+			want:     []string{"Invalid n"},
+		},
+		{
+			name:     "a full table with n and fallback",
+			strategy: types.StringValue("full"),
+			n:        types.Int64Value(3),
+			fallback: types.BoolValue(true),
+			want:     []string{"Invalid n", "Invalid fallback"},
+		},
+		{
+			name:     "an unknown strategy",
+			strategy: types.StringUnknown(),
+			n:        types.Int64Value(3),
+			fallback: types.BoolValue(true),
+		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			res := newTestTable(t, nil)
 			s := resourceSchema(t, res)
 			model := tableConfig(t)
@@ -417,7 +514,11 @@ func TestTableValidateConfig(t *testing.T) {
 			config := tfsdk.Config{Schema: s, Raw: planOf(t, s, model).Raw}
 			resp := resource.ValidateConfigResponse{}
 
-			res.(resource.ResourceWithValidateConfig).ValidateConfig(context.Background(), resource.ValidateConfigRequest{Config: config}, &resp)
+			as[resource.ResourceWithValidateConfig](t, res).ValidateConfig(
+				context.Background(),
+				resource.ValidateConfigRequest{Config: config},
+				&resp,
+			)
 
 			got := summaries(diagnosticsOf(resp.Diagnostics))
 			if strings.Join(got, ",") != strings.Join(testCase.want, ",") {
@@ -429,6 +530,8 @@ func TestTableValidateConfig(t *testing.T) {
 
 // TestTableImportReadsByName checks that the import id becomes the name of the table.
 func TestTableImportReadsByName(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		id   string
@@ -439,13 +542,19 @@ func TestTableImportReadsByName(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			res := newTestTable(t, nil)
 			s := resourceSchema(t, res)
 			resp := resource.ImportStateResponse{State: nullState(s)}
 
-			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: testCase.id}, &resp)
+			as[resource.ResourceWithImportState](t, res).ImportState(
+				context.Background(),
+				resource.ImportStateRequest{ID: testCase.id},
+				&resp,
+			)
 
-			var state tableModel
+			var state provider.TableModel
 
 			resp.State.Get(context.Background(), &state)
 
@@ -457,7 +566,9 @@ func TestTableImportReadsByName(t *testing.T) {
 }
 
 func TestSameRules(t *testing.T) {
-	a := []client.RLSRule{rule("a", "x"), rule("b", "y")}
+	t.Parallel()
+
+	first := []client.RLSRule{rule("a", "x"), rule("b", "y")}
 	tests := []struct {
 		name  string
 		right []client.RLSRule
@@ -465,13 +576,15 @@ func TestSameRules(t *testing.T) {
 	}{
 		{name: "the same rules", right: []client.RLSRule{rule("a", "x"), rule("b", "y")}, want: true},
 		{name: "the same rules in another order", right: []client.RLSRule{rule("b", "y"), rule("a", "x")}},
-		{name: "fewer rules", right: a[:1]},
+		{name: "fewer rules", right: first[:1]},
 		{name: "no rules", right: nil},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			if got := sameRules(a, testCase.right); got != testCase.want {
+			t.Parallel()
+
+			if got := provider.SameRules(first, testCase.right); got != testCase.want {
 				t.Errorf("sameRules = %t, want %t", got, testCase.want)
 			}
 		})
@@ -479,32 +592,58 @@ func TestSameRules(t *testing.T) {
 }
 
 func TestRLSProblem(t *testing.T) {
+	t.Parallel()
+
 	text := types.StringValue("a")
-	two := []conditionModel{{ColumnName: text, UnitType: text}, {ColumnName: text, UnitType: text}}
+	two := []provider.ConditionModel{{ColumnName: text, UnitType: text}, {ColumnName: text, UnitType: text}}
 
 	tests := []struct {
 		name  string
-		block rlsModel
+		block provider.RlsModel
 		want  bool
 	}{
-		{name: "a flat block", block: rlsModel{ColumnName: text, UnitType: text}},
-		{name: "two condition blocks", block: rlsModel{ColumnName: types.StringNull(), UnitType: types.StringNull(), Conditions: two}},
-		{name: "a flat block with unknown values", block: rlsModel{ColumnName: types.StringUnknown(), UnitType: types.StringUnknown()}},
-		{name: "both forms", block: rlsModel{ColumnName: text, UnitType: text, Conditions: two}, want: true},
-		{name: "a column and conditions", block: rlsModel{ColumnName: text, UnitType: types.StringNull(), Conditions: two}, want: true},
-		{name: "neither form", block: rlsModel{ColumnName: types.StringNull(), UnitType: types.StringNull()}, want: true},
-		{name: "a flat block with no unit type", block: rlsModel{ColumnName: text, UnitType: types.StringNull()}, want: true},
-		{name: "a flat block with no column", block: rlsModel{ColumnName: types.StringNull(), UnitType: text}, want: true},
+		{name: "a flat block", block: provider.RlsModel{ColumnName: text, UnitType: text}},
+		{
+			name:  "two condition blocks",
+			block: provider.RlsModel{ColumnName: types.StringNull(), UnitType: types.StringNull(), Conditions: two},
+		},
+		{
+			name:  "a flat block with unknown values",
+			block: provider.RlsModel{ColumnName: types.StringUnknown(), UnitType: types.StringUnknown()},
+		},
+		{name: "both forms", block: provider.RlsModel{ColumnName: text, UnitType: text, Conditions: two}, want: true},
+		{
+			name:  "a column and conditions",
+			block: provider.RlsModel{ColumnName: text, UnitType: types.StringNull(), Conditions: two},
+			want:  true,
+		},
+		{
+			name:  "neither form",
+			block: provider.RlsModel{ColumnName: types.StringNull(), UnitType: types.StringNull()},
+			want:  true,
+		},
+		{
+			name:  "a flat block with no unit type",
+			block: provider.RlsModel{ColumnName: text, UnitType: types.StringNull()},
+			want:  true,
+		},
+		{
+			name:  "a flat block with no column",
+			block: provider.RlsModel{ColumnName: types.StringNull(), UnitType: text},
+			want:  true,
+		},
 		{
 			name:  "one condition block",
-			block: rlsModel{ColumnName: types.StringNull(), UnitType: types.StringNull(), Conditions: two[:1]},
+			block: provider.RlsModel{ColumnName: types.StringNull(), UnitType: types.StringNull(), Conditions: two[:1]},
 			want:  true,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := rlsProblem(test.block) != ""; got != test.want {
+			t.Parallel()
+
+			if got := provider.RlsProblem(test.block) != ""; got != test.want {
 				t.Errorf("rlsProblem() refuses = %t, want %t", got, test.want)
 			}
 		})
@@ -512,6 +651,8 @@ func TestRLSProblem(t *testing.T) {
 }
 
 func TestRLSBlockRoundTripsBothForms(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		rule client.RLSRule
@@ -523,14 +664,16 @@ func TestRLSBlockRoundTripsBothForms(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			block := blockOf(test.rule)
+			t.Parallel()
 
-			if problem := rlsProblem(block); problem != "" {
+			block := provider.BlockOf(test.rule)
+
+			if problem := provider.RlsProblem(block); problem != "" {
 				t.Fatalf("blockOf() gives an invalid block: %s", problem)
 			}
 
-			if got := ruleOf(block); !reflect.DeepEqual(got, test.rule) {
-				t.Errorf("ruleOf(blockOf(%+v)) = %+v", test.rule, got)
+			if got := provider.RuleOf(block); !reflect.DeepEqual(got, test.rule) {
+				t.Errorf("ruleOf(provider.BlockOf(%+v)) = %+v", test.rule, got)
 			}
 		})
 	}
@@ -563,6 +706,7 @@ resource "data_proxy_table" "this" {
 `, table, cacheTTL, blocks)
 }
 
+//nolint:paralleltest // Acceptance tests share one OpenTofu run.
 func TestAccTableResource(t *testing.T) {
 	project := testAccName()
 	table := "p.d." + testAccName()
@@ -575,7 +719,7 @@ func TestAccTableResource(t *testing.T) {
 
 	acc.Test(t, acc.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProviderFactories,
+		ProtoV6ProviderFactories: testAccProviderFactories(),
 		Steps: []acc.TestStep{
 			{
 				Config: tableAccConfig(project, table, 60, unit, region),
@@ -606,6 +750,8 @@ func TestAccTableResource(t *testing.T) {
 
 // TestAccRLSHelpersAreNotServed checks over HTTP that a token reaches the rules only through rules() and replace_rls().
 // The helpers write_rls and groups live in a schema that PostgREST does not serve, so each one is a 404.
+//
+//nolint:paralleltest // Acceptance tests share one OpenTofu run.
 func TestAccRLSHelpersAreNotServed(t *testing.T) {
 	if os.Getenv(acc.EnvTfAcc) == "" {
 		t.Skipf("set %s to run the acceptance tests", acc.EnvTfAcc)
@@ -627,17 +773,22 @@ func TestAccRLSHelpersAreNotServed(t *testing.T) {
 
 	ctx := context.Background()
 
-	if err := apiClient.Insert(ctx, client.ConsoleProfile, "projects", map[string]any{"name": project}, nil); err != nil {
+	err = apiClient.Insert(ctx, client.ConsoleProfile, "projects", map[string]any{"name": project}, nil)
+	if err != nil {
 		t.Fatalf("add the project: %v", err)
 	}
 
 	schemaRow := map[string]any{"project": project, "short_name": "orders", "claim": "preferred_username"}
-	if err := apiClient.Insert(ctx, client.ConsoleProfile, "schemas", schemaRow, nil); err != nil {
+
+	err = apiClient.Insert(ctx, client.ConsoleProfile, "schemas", schemaRow, nil)
+	if err != nil {
 		t.Fatalf("add the schema: %v", err)
 	}
 
 	tableRow := map[string]any{"name": table, "schema": project + "__orders"}
-	if err := apiClient.Insert(ctx, client.ConsoleProfile, "tables", tableRow, nil); err != nil {
+
+	err = apiClient.Insert(ctx, client.ConsoleProfile, "tables", tableRow, nil)
+	if err != nil {
 		t.Fatalf("add the table: %v", err)
 	}
 
@@ -647,13 +798,22 @@ func TestAccRLSHelpersAreNotServed(t *testing.T) {
 		args     map[string]any
 		wantErr  error
 	}{
-		{name: "write_rls is not served", function: "write_rls", args: map[string]any{"table_name": table, "groups": []any{}}, wantErr: client.ErrNotFound},
+		{
+			name:     "write_rls is not served",
+			function: "write_rls",
+			args:     map[string]any{"table_name": table, "groups": []any{}},
+			wantErr:  client.ErrNotFound,
+		},
 		{name: "groups is not served", function: "groups", wantErr: client.ErrNotFound},
 		{name: "rules is served", function: "rules"},
-		{name: "replace_rls is served", function: "replace_rls", args: map[string]any{"table_name": table, "groups": []any{}}},
+		{
+			name:     "replace_rls is served",
+			function: "replace_rls",
+			args:     map[string]any{"table_name": table, "groups": []any{}},
+		},
 	}
 
-	for _, testCase := range tests {
+	for _, testCase := range tests { //nolint:paralleltest // Acceptance tests share one OpenTofu run.
 		t.Run(testCase.name, func(t *testing.T) {
 			err := apiClient.RPC(ctx, client.ConsoleProfile, testCase.function, testCase.args, nil)
 
@@ -668,6 +828,7 @@ func TestAccRLSHelpersAreNotServed(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Acceptance tests share one OpenTofu run.
 func TestAccTableResourceKeepsAGroupOfConditionsInOneBlock(t *testing.T) {
 	project := testAccName()
 	table := "p.d." + testAccName()
@@ -702,7 +863,7 @@ resource "data_proxy_table" "this" {
 
 	acc.Test(t, acc.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProviderFactories,
+		ProtoV6ProviderFactories: testAccProviderFactories(),
 		Steps: []acc.TestStep{
 			{
 				Config: config,
@@ -718,6 +879,7 @@ resource "data_proxy_table" "this" {
 	})
 }
 
+//nolint:paralleltest // Acceptance tests share one OpenTofu run.
 func TestAccTableResourceRefusesARowPolicyWithoutAClaim(t *testing.T) {
 	project := testAccName()
 	table := "p.d." + testAccName()
@@ -753,17 +915,18 @@ resource "data_proxy_table" "this" {
 
 	acc.Test(t, acc.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProviderFactories,
+		ProtoV6ProviderFactories: testAccProviderFactories(),
 		Steps: []acc.TestStep{
 			{Config: config, ExpectError: regexp.MustCompile(`Couldn't add the row policies of the table`)},
 		},
 	})
 }
 
+//nolint:paralleltest // Acceptance tests share one OpenTofu run.
 func TestAccTableResourceRefusesNWithAFullStrategy(t *testing.T) {
 	acc.Test(t, acc.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProviderFactories,
+		ProtoV6ProviderFactories: testAccProviderFactories(),
 		Steps: []acc.TestStep{
 			{
 				Config: `
@@ -780,6 +943,7 @@ resource "data_proxy_table" "this" {
 	})
 }
 
+//nolint:paralleltest // Acceptance tests share one OpenTofu run.
 func TestAccTableResourceRefusesAnRLSBlockThatMixesBothForms(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -818,11 +982,11 @@ func TestAccTableResourceRefusesAnRLSBlockThatMixesBothForms(t *testing.T) {
   rls {}`, want: `needs column_name and unit_type`},
 	}
 
-	for _, test := range tests {
+	for _, test := range tests { //nolint:paralleltest // Acceptance tests share one OpenTofu run.
 		t.Run(test.name, func(t *testing.T) {
 			acc.Test(t, acc.TestCase{
 				PreCheck:                 func() { testAccPreCheck(t) },
-				ProtoV6ProviderFactories: testAccProviderFactories,
+				ProtoV6ProviderFactories: testAccProviderFactories(),
 				Steps: []acc.TestStep{
 					{
 						Config: `

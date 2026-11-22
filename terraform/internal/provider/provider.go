@@ -22,6 +22,8 @@ import (
 const TypeName = "data_proxy"
 
 // The environment variables for the attributes of the provider block. An attribute in the block wins.
+//
+//nolint:gosec // G101 reads the names of environment variables as credentials. The values hold no secret.
 const (
 	EnvEndpoint     = "DATA_PROXY_ENDPOINT"
 	EnvTokenURL     = "DATA_PROXY_TOKEN_URL"
@@ -76,20 +78,24 @@ func (dp *dataProxyProvider) Schema(_ context.Context, _ provider.SchemaRequest,
 				Optional:    true,
 			},
 			"token_url": schema.StringAttribute{
-				Description: "URL of the token endpoint of the identity provider. Required. Defaults to the " + EnvTokenURL + " environment variable.",
-				Optional:    true,
+				Description: "URL of the token endpoint of the identity provider. Required. Defaults to the " +
+					EnvTokenURL + " environment variable.",
+				Optional: true,
 			},
 			"client_id": schema.StringAttribute{
-				Description: "Client ID for the client credentials grant. Required. Defaults to the " + EnvClientID + " environment variable.",
-				Optional:    true,
+				Description: "Client ID for the client credentials grant. Required. Defaults to the " +
+					EnvClientID + " environment variable.",
+				Optional: true,
 			},
 			"client_secret": schema.StringAttribute{
-				Description: "Client secret for the client credentials grant. Required. Defaults to the " + EnvClientSecret + " environment variable.",
-				Optional:    true,
-				Sensitive:   true,
+				Description: "Client secret for the client credentials grant. Required. Defaults to the " +
+					EnvClientSecret + " environment variable.",
+				Optional:  true,
+				Sensitive: true,
 			},
 			"scopes": schema.ListAttribute{
-				Description: "Scopes to request with the token. Defaults to the " + EnvScopes + " environment variable, a list separated by commas or spaces.",
+				Description: "Scopes to request with the token. Defaults to the " + EnvScopes + " environment variable, a list " +
+					"separated by commas or spaces.",
 				ElementType: types.StringType,
 				Optional:    true,
 			},
@@ -99,7 +105,11 @@ func (dp *dataProxyProvider) Schema(_ context.Context, _ provider.SchemaRequest,
 
 // Configure gives the resources and the data sources a client, and fails when the token doesn't work or lacks
 // read_config.
-func (dp *dataProxyProvider) Configure(ctx context.Context, req provider.ConfigureRequest, resp *provider.ConfigureResponse) {
+func (dp *dataProxyProvider) Configure(
+	ctx context.Context,
+	req provider.ConfigureRequest,
+	resp *provider.ConfigureResponse,
+) {
 	var config providerModel
 
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
@@ -153,8 +163,15 @@ func readSettings(ctx context.Context, config providerModel, getenv func(string)
 
 	text := func(attribute string, value types.String, env string) string {
 		if value.IsUnknown() {
-			diagnostics.AddAttributeError(path.Root(attribute), "Unknown "+attribute,
-				fmt.Sprintf("The provider can't start with an unknown %s. Give a known value, or leave it out and set %s.", attribute, env))
+			diagnostics.AddAttributeError(
+				path.Root(attribute),
+				"Unknown "+attribute,
+				fmt.Sprintf(
+					"The provider can't start with an unknown %s. Give a known value, or leave it out and set %s.",
+					attribute,
+					env,
+				),
+			)
 
 			return ""
 		}
@@ -175,15 +192,47 @@ func readSettings(ctx context.Context, config providerModel, getenv func(string)
 		},
 	}
 
+	values.credentials.Scopes = readScopes(ctx, config.Scopes, getenv, &diagnostics)
+
+	diagnostics.Append(missingSettings(config, values)...)
+
+	return values, diagnostics
+}
+
+// readScopes takes the scopes from the provider block, or from the environment variable when the block leaves them
+// out. It reports an unknown value.
+func readScopes(
+	ctx context.Context,
+	scopes types.List,
+	getenv func(string) string,
+	diagnostics *diag.Diagnostics,
+) []string {
 	switch {
-	case config.Scopes.IsUnknown():
-		diagnostics.AddAttributeError(path.Root("scopes"), "Unknown scopes",
-			fmt.Sprintf("The provider can't start with unknown scopes. Give known values, or leave them out and set %s.", EnvScopes))
-	case config.Scopes.IsNull():
-		values.credentials.Scopes = splitScopes(getenv(EnvScopes))
+	case scopes.IsUnknown():
+		diagnostics.AddAttributeError(
+			path.Root("scopes"),
+			"Unknown scopes",
+			fmt.Sprintf(
+				"The provider can't start with unknown scopes. Give known values, or leave them out and set %s.",
+				EnvScopes,
+			),
+		)
+
+		return nil
+	case scopes.IsNull():
+		return splitScopes(getenv(EnvScopes))
 	default:
-		diagnostics.Append(config.Scopes.ElementsAs(ctx, &values.credentials.Scopes, false)...)
+		var elements []string
+
+		diagnostics.Append(scopes.ElementsAs(ctx, &elements, false)...)
+
+		return elements
 	}
+}
+
+// missingSettings reports each required setting that is empty and that the configuration did not leave unknown.
+func missingSettings(config providerModel, values settings) diag.Diagnostics {
+	var diagnostics diag.Diagnostics
 
 	required := []struct {
 		attribute string
@@ -194,7 +243,12 @@ func readSettings(ctx context.Context, config providerModel, getenv func(string)
 		{attribute: "endpoint", env: EnvEndpoint, value: values.endpoint, unknown: config.Endpoint.IsUnknown()},
 		{attribute: "token_url", env: EnvTokenURL, value: values.credentials.TokenURL, unknown: config.TokenURL.IsUnknown()},
 		{attribute: "client_id", env: EnvClientID, value: values.credentials.ClientID, unknown: config.ClientID.IsUnknown()},
-		{attribute: "client_secret", env: EnvClientSecret, value: values.credentials.ClientSecret, unknown: config.ClientSecret.IsUnknown()},
+		{
+			attribute: "client_secret",
+			env:       EnvClientSecret,
+			value:     values.credentials.ClientSecret,
+			unknown:   config.ClientSecret.IsUnknown(),
+		},
 	}
 
 	for _, setting := range required {
@@ -204,7 +258,7 @@ func readSettings(ctx context.Context, config providerModel, getenv func(string)
 		}
 	}
 
-	return values, diagnostics
+	return diagnostics
 }
 
 // splitScopes splits a list of scopes at each comma or space.

@@ -132,7 +132,7 @@ func onlyRow[T any](rows []T, table string) (T, error) {
 	var zero T
 
 	if len(rows) != 1 {
-		return zero, fmt.Errorf("the write to %s gave back %d rows, want one", table, len(rows))
+		return zero, fmt.Errorf("the write to %s gave back %d rows, %w", table, len(rows), ErrWantOne)
 	}
 
 	return rows[0], nil

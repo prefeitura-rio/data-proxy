@@ -45,7 +45,7 @@ type grantModel struct {
 
 // newGrantResource makes the resource data_proxy_grant.
 func newGrantResource() resource.Resource {
-	return &grantResource{backoff: client.DefaultBackoff}
+	return &grantResource{backoff: client.DefaultBackoff()}
 }
 
 // grantID joins the four columns of a grant into its ID.
@@ -53,11 +53,22 @@ func grantID(grant client.Grant) string {
 	return strings.Join([]string{grant.Scope, grant.Subject, grant.UnitType, grant.UnitID}, "/")
 }
 
+// The errors of an import ID that is not a grant, for [errors.Is].
+var (
+	// errGrantIDParts is an ID that has fewer than four parts.
+	errGrantIDParts = errors.New("must be scope/subject/unit_type/unit_id")
+	// errGrantIDValue is an ID that has a bad scope, or an empty subject or unit.
+	errGrantIDValue = errors.New("needs a scope, a subject and the two units")
+)
+
+// grantIDParts is the number of parts of a grant ID: the scope, the subject, the unit type and the unit ID.
+const grantIDParts = 4
+
 // parseGrantID splits an import ID into a grant. The subject can hold slashes, because the ID ends with the two units.
-func parseGrantID(id string) (client.Grant, error) {
-	parts := strings.Split(id, "/")
-	if len(parts) < 4 {
-		return client.Grant{}, fmt.Errorf("the ID %q must be scope/subject/unit_type/unit_id", id)
+func parseGrantID(importID string) (client.Grant, error) {
+	parts := strings.Split(importID, "/")
+	if len(parts) < grantIDParts {
+		return client.Grant{}, fmt.Errorf("the ID %q %w", importID, errGrantIDParts)
 	}
 
 	last := len(parts) - 1
@@ -69,7 +80,7 @@ func parseGrantID(id string) (client.Grant, error) {
 	}
 
 	if !grantScope.MatchString(grant.Scope) || grant.Subject == "" || grant.UnitType == "" || grant.UnitID == "" {
-		return client.Grant{}, fmt.Errorf("the ID %q needs a scope, a subject and the two units", id)
+		return client.Grant{}, fmt.Errorf("the ID %q %w", importID, errGrantIDValue)
 	}
 
 	return grant, nil
@@ -96,8 +107,10 @@ func (gr *grantResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 	notEmpty := []validator.String{stringvalidator.LengthAtLeast(1)}
 
 	resp.Schema = schema.Schema{
-		Description: "A grant of the access policy: the subject may read the rows of one unit, in a project, a schema or a table. " +
-			"The unit `*` of type `*` is every row. Manage only static grants, such as the grants of service accounts, because an application " +
+		Description: "A grant of the access policy: the subject may read the rows of one unit, in a project, a schema or " +
+			"a table. " +
+			"The unit `*` of type `*` is every row. Manage only static grants, such as the grants of service accounts, " +
+			"because an application " +
 			"that registers its own grants would delete rows that it didn't write.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
@@ -106,10 +119,13 @@ func (gr *grantResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"scope": schema.StringAttribute{
-				Description: "What the grant covers: `*` for every project, `project`, `project.schema` or `project.schema.table`. " +
+				Description: "What the grant covers: `*` for every project, `project`, `project.schema` or " +
+					"`project.schema.table`. " +
 					"A grant covers its scope and what is below it. Changing it replaces the grant.",
-				Required:      true,
-				Validators:    []validator.String{stringvalidator.RegexMatches(grantScope, "must be `*`, a project, `project.schema` or `project.schema.table`")},
+				Required: true,
+				Validators: []validator.String{
+					stringvalidator.RegexMatches(grantScope, "must be `*`, a project, `project.schema` or `project.schema.table`"),
+				},
 				PlanModifiers: replace,
 			},
 			"subject": schema.StringAttribute{
@@ -118,7 +134,7 @@ func (gr *grantResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 				Validators:    notEmpty,
 				PlanModifiers: replace,
 			},
-			"unit_type": schema.StringAttribute{
+			attrUnitType: schema.StringAttribute{
 				Description:   "The type of the unit, or `*` with the unit `*` for every row. Changing it replaces the grant.",
 				Required:      true,
 				Validators:    notEmpty,
@@ -193,7 +209,10 @@ func (gr *grantResource) Read(ctx context.Context, req resource.ReadRequest, res
 
 // Update never runs, because every attribute replaces the row.
 func (gr *grantResource) Update(_ context.Context, _ resource.UpdateRequest, resp *resource.UpdateResponse) {
-	resp.Diagnostics.AddError("A grant can't change", "Every attribute replaces the row. Report this bug to the developers of the provider.")
+	resp.Diagnostics.AddError(
+		"A grant can't change",
+		"Every attribute replaces the row. Report this bug to the developers of the provider.",
+	)
 }
 
 // Delete removes the row.
@@ -213,7 +232,11 @@ func (gr *grantResource) Delete(ctx context.Context, req resource.DeleteRequest,
 }
 
 // ImportState reads the row by an ID of the form scope/subject/unit_type/unit_id.
-func (gr *grantResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+func (gr *grantResource) ImportState(
+	ctx context.Context,
+	req resource.ImportStateRequest,
+	resp *resource.ImportStateResponse,
+) {
 	grant, err := parseGrantID(req.ID)
 	if err != nil {
 		resp.Diagnostics.AddError("Invalid import ID", err.Error())

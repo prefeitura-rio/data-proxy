@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"terraform-provider-data-proxy/internal/client"
 
@@ -95,22 +96,116 @@ func ruleOf(block rlsModel) client.RLSRule {
 	return client.RLSRule{Conditions: conditions}
 }
 
+// syncAttributes declares the attributes that say how the sync copies the table.
+func syncAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{
+		"strategy": schema.StringAttribute{
+			Description: "`full` replaces the table on each sync, and `partitioned` updates the changed partitions.",
+			Optional:    true,
+			Computed:    true,
+			Default:     stringdefault.StaticString(strategyFull),
+			Validators:  []validator.String{stringvalidator.OneOf(strategyFull, strategyPartitioned)},
+		},
+		"n": schema.Int64Attribute{
+			Description: "The number of newest partitions to keep. Only for the strategy `partitioned`.",
+			Optional:    true,
+			Validators:  []validator.Int64{int64validator.AtLeast(1)},
+		},
+		"fallback": schema.BoolAttribute{
+			Description: "Lets the source serve the partitions that the schema doesn't store. Only for the strategy " +
+				"`partitioned`.",
+			Optional: true,
+			Computed: true,
+			Default:  booldefault.StaticBool(false),
+		},
+		"cache_ttl": schema.Int64Attribute{
+			Description: "The seconds that the proxy caches an answer of the table. Zero turns the cache off.",
+			Optional:    true,
+			Validators:  []validator.Int64{int64validator.AtLeast(0)},
+		},
+		"partitioning": schema.StringAttribute{
+			Description: "The partition transforms of DuckLake as a JSON array.",
+			Optional:    true,
+			Validators:  []validator.String{jsonArray()},
+		},
+		"sort": schema.ListAttribute{
+			Description: "The columns that DuckLake sorts the table by.",
+			ElementType: types.StringType,
+			Optional:    true,
+			Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
+		},
+	}
+}
+
+// rlsBlock declares the rls block of a table: a policy of one condition written flat, or two or more condition blocks.
+func rlsBlock() schema.ListNestedBlock {
+	return schema.ListNestedBlock{
+		Description: "A row policy. Write one condition as `column_name` and `unit_type`. Write two or more conditions " +
+			"that all must match as `condition` blocks. A reader needs a grant for each condition, or the policy gives no " +
+			"row. Policies are alternatives to each other. The schema needs a `claim`.",
+		NestedObject: schema.NestedBlockObject{
+			Attributes: map[string]schema.Attribute{
+				attrColumnName: schema.StringAttribute{
+					Description: "The column that holds the unit, for a policy of one condition.",
+					Optional:    true,
+					Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+				},
+				attrUnitType: schema.StringAttribute{
+					Description: "The type of the unit, for a policy of one condition.",
+					Optional:    true,
+					Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+				},
+			},
+			Blocks: map[string]schema.Block{
+				"condition": schema.ListNestedBlock{
+					Description: "A condition of the policy: the column that holds the unit, and the type of the unit.",
+					NestedObject: schema.NestedBlockObject{
+						Attributes: map[string]schema.Attribute{
+							attrColumnName: schema.StringAttribute{
+								Description: "The column that holds the unit.",
+								Required:    true,
+								Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+							},
+							attrUnitType: schema.StringAttribute{
+								Description: "The type of the unit.",
+								Required:    true,
+								Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 // rlsProblem returns why an rls block is wrong, or the empty text. It skips a value that is not known yet.
 func rlsProblem(block rlsModel) string {
-	flat := !block.ColumnName.IsNull() || !block.UnitType.IsNull()
-
-	switch {
-	case flat && len(block.Conditions) > 0:
-		return "An rls block has both a column and conditions. Write one condition as column_name and unit_type, or write two or more condition blocks."
-	case flat && (block.ColumnName.IsNull() || block.UnitType.IsNull()):
-		return "A flat rls block needs both column_name and unit_type."
-	case !flat && len(block.Conditions) == 0:
-		return "An rls block needs column_name and unit_type, or two or more condition blocks."
-	case !flat && len(block.Conditions) == 1:
-		return "An rls block with one condition is written flat: use column_name and unit_type, with no condition block."
+	if !block.ColumnName.IsNull() || !block.UnitType.IsNull() {
+		return flatBlockProblem(block)
 	}
 
-	return ""
+	switch len(block.Conditions) {
+	case 0:
+		return "An rls block needs column_name and unit_type, or two or more condition blocks."
+	case 1:
+		return "An rls block with one condition is written flat: use column_name and unit_type, with no condition block."
+	default:
+		return ""
+	}
+}
+
+// flatBlockProblem returns why an rls block that has a column or a unit type is wrong, or the empty text.
+func flatBlockProblem(block rlsModel) string {
+	switch {
+	case len(block.Conditions) > 0:
+		return "An rls block has both a column and conditions. Write one condition as column_name and unit_type, or " +
+			"write two or more condition blocks."
+	case block.ColumnName.IsNull() || block.UnitType.IsNull():
+		return "A flat rls block needs both column_name and unit_type."
+	default:
+		return ""
+	}
 }
 
 // tableModel maps the data_proxy_table resource and data source.
@@ -131,7 +226,7 @@ type tableModel struct {
 
 // newTableResource returns the data_proxy_table resource.
 func newTableResource() resource.Resource {
-	return &tableResource{backoff: client.DefaultBackoff}
+	return &tableResource{backoff: client.DefaultBackoff()}
 }
 
 // applyTableRow copies a row of the API and its row policies into the model. The partitioning keeps the layout of the
@@ -198,22 +293,24 @@ func (r *tableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 	resp.Schema = schema.Schema{
 		Description: "A table that the sync copies from the source into a schema, with the row policies of its readers. " +
 			"A change of the strategy, the partitioning, the sort or the row policies makes the next sync rebuild the table.",
-		Attributes: map[string]schema.Attribute{
+		Attributes: withAuditAttributes(withAttributes(map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Description:   "The name of the table.",
 				Computed:      true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
-			"name": schema.StringAttribute{
-				Description:   "The name of the table in the source, such as `project.dataset.table`. It is unique in the whole configuration. Changing it replaces the table and syncs it again.",
+			attrName: schema.StringAttribute{
+				Description: "The name of the table in the source, such as `project.dataset.table`. It is unique in the " +
+					"whole configuration. Changing it replaces the table and syncs it again.",
 				Required:      true,
 				Validators:    []validator.String{stringvalidator.LengthAtLeast(1)},
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
-			"schema": schema.StringAttribute{
-				Description: "The physical name of the schema, such as `data_proxy_schema.example.name`. Changing it replaces the table, except when the state holds the name of the schema without the double underscore.",
-				Required:    true,
-				Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+			attrSchema: schema.StringAttribute{
+				Description: "The physical name of the schema, such as `data_proxy_schema.example.name`. Changing it replaces " +
+					"the table, except when the state holds the name of the schema without the double underscore.",
+				Required:   true,
+				Validators: []validator.String{stringvalidator.LengthAtLeast(1)},
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplaceIf(
 					func(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
 						resp.RequiresReplace = !renamedSchema(req.StateValue.ValueString(), req.PlanValue.ValueString())
@@ -222,92 +319,19 @@ func (r *tableResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 					"Replaces the table when the schema is another schema.",
 				)},
 			},
-			"strategy": schema.StringAttribute{
-				Description: "`full` replaces the table on each sync, and `partitioned` updates the changed partitions.",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString(strategyFull),
-				Validators:  []validator.String{stringvalidator.OneOf(strategyFull, strategyPartitioned)},
-			},
-			"n": schema.Int64Attribute{
-				Description: "The number of newest partitions to keep. Only for the strategy `partitioned`.",
-				Optional:    true,
-				Validators:  []validator.Int64{int64validator.AtLeast(1)},
-			},
-			"fallback": schema.BoolAttribute{
-				Description: "Lets the source serve the partitions that the schema doesn't store. Only for the strategy `partitioned`.",
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
-			},
-			"cache_ttl": schema.Int64Attribute{
-				Description: "The seconds that the proxy caches an answer of the table. Zero turns the cache off.",
-				Optional:    true,
-				Validators:  []validator.Int64{int64validator.AtLeast(0)},
-			},
-			"partitioning": schema.StringAttribute{
-				Description: "The partition transforms of DuckLake as a JSON array.",
-				Optional:    true,
-				Validators:  []validator.String{jsonArray()},
-			},
-			"sort": schema.ListAttribute{
-				Description: "The columns that DuckLake sorts the table by.",
-				ElementType: types.StringType,
-				Optional:    true,
-				Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
-			},
-			"updated_at": schema.StringAttribute{
-				Description: "When the row last changed.",
-				Computed:    true,
-			},
-			"updated_by": schema.StringAttribute{
-				Description: "Who last changed the row.",
-				Computed:    true,
-			},
-		},
+		}, syncAttributes())),
 		Blocks: map[string]schema.Block{
-			"rls": schema.ListNestedBlock{
-				Description: "A row policy. Write one condition as `column_name` and `unit_type`. Write two or more conditions that all must match as `condition` blocks. A reader needs a grant for each condition, or the policy gives no row. Policies are alternatives to each other. The schema needs a `claim`.",
-				NestedObject: schema.NestedBlockObject{
-					Attributes: map[string]schema.Attribute{
-						"column_name": schema.StringAttribute{
-							Description: "The column that holds the unit, for a policy of one condition.",
-							Optional:    true,
-							Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
-						},
-						"unit_type": schema.StringAttribute{
-							Description: "The type of the unit, for a policy of one condition.",
-							Optional:    true,
-							Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
-						},
-					},
-					Blocks: map[string]schema.Block{
-						"condition": schema.ListNestedBlock{
-							Description: "A condition of the policy: the column that holds the unit, and the type of the unit.",
-							NestedObject: schema.NestedBlockObject{
-								Attributes: map[string]schema.Attribute{
-									"column_name": schema.StringAttribute{
-										Description: "The column that holds the unit.",
-										Required:    true,
-										Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
-									},
-									"unit_type": schema.StringAttribute{
-										Description: "The type of the unit.",
-										Required:    true,
-										Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
+			"rls": rlsBlock(),
 		},
 	}
 }
 
 // ValidateConfig refuses n and fallback for a table that is not partitioned, and an rls block that mixes its two forms.
-func (r *tableResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+func (r *tableResource) ValidateConfig(
+	ctx context.Context,
+	req resource.ValidateConfigRequest,
+	resp *resource.ValidateConfigResponse,
+) {
 	var config tableModel
 
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
@@ -332,7 +356,11 @@ func (r *tableResource) ValidateConfig(ctx context.Context, req resource.Validat
 		}
 
 		if config.Fallback.ValueBool() {
-			resp.Diagnostics.AddAttributeError(path.Root("fallback"), "Invalid fallback", "fallback needs the strategy `partitioned`.")
+			resp.Diagnostics.AddAttributeError(
+				path.Root("fallback"),
+				"Invalid fallback",
+				"fallback needs the strategy `partitioned`.",
+			)
 		}
 	}
 }
@@ -380,7 +408,8 @@ func (r *tableResource) Create(ctx context.Context, req resource.CreateRequest, 
 		return
 	}
 
-	if err := r.client.ReplaceRLS(ctx, row.Name, rules); err != nil {
+	err = r.client.ReplaceRLS(ctx, row.Name, rules)
+	if err != nil {
 		addAPIError(&resp.Diagnostics, "Couldn't add the row policies of the table", "create_config", err)
 	}
 }
@@ -397,10 +426,15 @@ func (r *tableResource) Read(ctx context.Context, req resource.ReadRequest, resp
 
 	var row client.Table
 
-	err := client.RetryNoRow(ctx, r.backoff, func(ctx context.Context) (err error) {
-		row, err = r.client.GetTable(ctx, state.Name.ValueString())
+	err := client.RetryNoRow(ctx, r.backoff, func(ctx context.Context) error {
+		var err error
 
-		return err
+		row, err = r.client.GetTable(ctx, state.Name.ValueString())
+		if err != nil {
+			return fmt.Errorf("read the table: %w", err)
+		}
+
+		return nil
 	})
 
 	switch {
@@ -491,6 +525,10 @@ func (r *tableResource) Delete(ctx context.Context, req resource.DeleteRequest, 
 }
 
 // ImportState reads the table by its name.
-func (r *tableResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+func (r *tableResource) ImportState(
+	ctx context.Context,
+	req resource.ImportStateRequest,
+	resp *resource.ImportStateResponse,
+) {
 	resource.ImportStatePassthroughID(ctx, path.Root("name"), req, resp)
 }

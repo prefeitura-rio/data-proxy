@@ -12,6 +12,8 @@ import (
 
 // version and address are set at build time with -ldflags "-X main.version=<version> -X main.address=<address>".
 // The address names the registry that hosts the provider, so the binary holds no DNS name of its own.
+//
+//nolint:gochecknoglobals // The linker sets these two variables with -ldflags -X, so they must be package variables.
 var (
 	version = "dev"
 	address = "registry.example.com/example/data-proxy"

@@ -2,6 +2,12 @@ version: "2"
 formatters:
   enable:
     - gofumpt
+    - golines
+  settings:
+    golines:
+      max-len: 120
+      tab-len: 1
+      shorten-comments: true
 linters:
   default: all
   disable:
@@ -21,6 +27,18 @@ linters:
       - linters:
           - godoclint
         text: 'godoc \("Test'
+      # A table test repeats a name or a method on purpose. A constant for each hides the data of the case.
+      - linters:
+          - goconst
+        path: _test\.go
+      # A table test is long because its cases are data. The style guide asks for tables.
+      - linters:
+          - cyclop
+          - dupl
+          - funlen
+          - gocognit
+          - maintidx
+        path: _test\.go
   settings:
     godoclint:
       default: all

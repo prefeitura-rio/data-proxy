@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"terraform-provider-data-proxy/internal/client"
 	"time"
@@ -61,7 +62,7 @@ type schemaModel struct {
 
 // newSchemaResource makes the resource data_proxy_schema.
 func newSchemaResource() resource.Resource {
-	return &schemaResource{backoff: client.DefaultBackoff}
+	return &schemaResource{backoff: client.DefaultBackoff()}
 }
 
 // applySchemaRow copies a row of the API into the model. The settings keep the layout of the current text when it
@@ -87,15 +88,16 @@ func (sr *schemaResource) Metadata(_ context.Context, req resource.MetadataReque
 // Schema declares the attributes of the schema.
 func (sr *schemaResource) Schema(ctx context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		Version:     1,
-		Description: "A schema of a project. The sync creates its PostgreSQL schema, which takes seconds, and a delete drops its data.",
-		Attributes: map[string]schema.Attribute{
+		Version: 1,
+		Description: "A schema of a project. The sync creates its PostgreSQL schema, which takes seconds, and a delete " +
+			"drops its data.",
+		Attributes: withAuditAttributes(withAttributes(map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Description:   "The physical name of the schema.",
 				Computed:      true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
-			"project": schema.StringAttribute{
+			attrProject: schema.StringAttribute{
 				Description:   "The project of the schema. Changing it replaces the schema and drops its data.",
 				Optional:      true,
 				Computed:      true,
@@ -104,62 +106,72 @@ func (sr *schemaResource) Schema(ctx context.Context, _ resource.SchemaRequest, 
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"short_name": schema.StringAttribute{
-				Description:   "The name of the schema inside its project. Changing it replaces the schema and drops its data.",
-				Required:      true,
-				Validators:    []validator.String{stringvalidator.RegexMatches(shortName, "must be a lowercase letter and up to 55 lowercase letters, digits and underscores")},
+				Description: "The name of the schema inside its project. Changing it replaces the schema and drops its data.",
+				Required:    true,
+				Validators: []validator.String{
+					stringvalidator.RegexMatches(
+						shortName,
+						"must be a lowercase letter and up to 55 lowercase letters, digits and underscores",
+					),
+				},
 				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
-			"name": schema.StringAttribute{
-				Description:   "The physical name: the project, two underscores and the short name, also in the project `default`. Tables use it.",
+			attrName: schema.StringAttribute{
+				Description: "The physical name: the project, two underscores and the short name, also in the project " +
+					"`default`. Tables use it.",
 				Computed:      true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
-			"source": schema.StringAttribute{
-				Description: "The source of the data, such as `bigquery`.",
-				Optional:    true,
-				Computed:    true,
-				Default:     stringdefault.StaticString("bigquery"),
-				Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
-			},
-			"settings": schema.StringAttribute{
-				Description: "The settings of the source as a JSON object, such as `jsonencode({...})`. Don't put a secret in it.",
-				Optional:    true,
-				Validators:  []validator.String{jsonObject()},
-			},
-			"claim": schema.StringAttribute{
-				Description: "The claim of the token that names the unit of a reader, such as `preferred_username`. A table with a row policy needs it.",
-				Optional:    true,
-				Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
-			},
-			"encrypted": schema.BoolAttribute{
-				Description: "Whether the files of the schema are encrypted.",
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(false),
-			},
-			"deletion_protection": schema.BoolAttribute{
-				Description: "Refuses the delete of the schema while it is true, because a delete drops the data. Only Terraform reads it.",
-				Optional:    true,
-				Computed:    true,
-				Default:     booldefault.StaticBool(true),
-			},
-			"updated_at": schema.StringAttribute{
-				Description: "When the row last changed.",
-				Computed:    true,
-			},
-			"updated_by": schema.StringAttribute{
-				Description: "Who last changed the row.",
-				Computed:    true,
-			},
-		},
+		}, sourceAttributes())),
 		Blocks: map[string]schema.Block{
 			"timeouts": timeouts.Block(ctx, timeouts.Opts{Create: true, Delete: true}),
 		},
 	}
 }
 
+// sourceAttributes declares the attributes that describe where the data comes from and how the delete is protected.
+func sourceAttributes() map[string]schema.Attribute {
+	return map[string]schema.Attribute{
+		"source": schema.StringAttribute{
+			Description: "The source of the data, such as `bigquery`.",
+			Optional:    true,
+			Computed:    true,
+			Default:     stringdefault.StaticString("bigquery"),
+			Validators:  []validator.String{stringvalidator.LengthAtLeast(1)},
+		},
+		"settings": schema.StringAttribute{
+			Description: "The settings of the source as a JSON object, such as `jsonencode({...})`. Don't put a secret in it.",
+			Optional:    true,
+			Validators:  []validator.String{jsonObject()},
+		},
+		"claim": schema.StringAttribute{
+			Description: "The claim of the token that names the unit of a reader, such as `preferred_username`. A table " +
+				"with a row policy needs it.",
+			Optional:   true,
+			Validators: []validator.String{stringvalidator.LengthAtLeast(1)},
+		},
+		"encrypted": schema.BoolAttribute{
+			Description: "Whether the files of the schema are encrypted.",
+			Optional:    true,
+			Computed:    true,
+			Default:     booldefault.StaticBool(false),
+		},
+		"deletion_protection": schema.BoolAttribute{
+			Description: "Refuses the delete of the schema while it is true, because a delete drops the data. Only " +
+				"Terraform reads it.",
+			Optional: true,
+			Computed: true,
+			Default:  booldefault.StaticBool(true),
+		},
+	}
+}
+
 // ValidateConfig refuses a name that breaks the rules of the console, before any request.
-func (sr *schemaResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+func (sr *schemaResource) ValidateConfig(
+	ctx context.Context,
+	req resource.ValidateConfigRequest,
+	resp *resource.ValidateConfigResponse,
+) {
 	var project, short types.String
 
 	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("project"), &project)...)
@@ -208,7 +220,11 @@ func (sr *schemaResource) UpgradeState(ctx context.Context) map[int64]resource.S
 }
 
 // Configure takes the client that the provider built.
-func (sr *schemaResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
+func (sr *schemaResource) Configure(
+	_ context.Context,
+	req resource.ConfigureRequest,
+	resp *resource.ConfigureResponse,
+) {
 	sr.client = providerClient(req.ProviderData, &resp.Diagnostics)
 }
 
@@ -253,7 +269,8 @@ func (sr *schemaResource) Create(ctx context.Context, req resource.CreateRequest
 	waitCtx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 
-	if err := sr.client.WaitProvisioned(waitCtx, row.Name); err != nil {
+	err = sr.client.WaitProvisioned(waitCtx, row.Name)
+	if err != nil {
 		addAPIError(&resp.Diagnostics, "The schema is not ready", "", err)
 	}
 }
@@ -270,10 +287,15 @@ func (sr *schemaResource) Read(ctx context.Context, req resource.ReadRequest, re
 
 	var row client.Schema
 
-	err := client.RetryNoRow(ctx, sr.backoff, func(ctx context.Context) (err error) {
-		row, err = sr.client.GetSchema(ctx, state.Name.ValueString())
+	err := client.RetryNoRow(ctx, sr.backoff, func(ctx context.Context) error {
+		var err error
 
-		return err
+		row, err = sr.client.GetSchema(ctx, state.Name.ValueString())
+		if err != nil {
+			return fmt.Errorf("read the schema: %w", err)
+		}
+
+		return nil
 	})
 
 	switch {
@@ -355,7 +377,11 @@ func (sr *schemaResource) Delete(ctx context.Context, req resource.DeleteRequest
 }
 
 // ImportState reads the schema by its physical name. The imported schema has deletion protection.
-func (sr *schemaResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+func (sr *schemaResource) ImportState(
+	ctx context.Context,
+	req resource.ImportStateRequest,
+	resp *resource.ImportStateResponse,
+) {
 	resource.ImportStatePassthroughID(ctx, path.Root("name"), req, resp)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("deletion_protection"), true)...)
 }

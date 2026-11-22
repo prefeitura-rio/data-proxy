@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"reflect"
 	"terraform-provider-data-proxy/internal/client"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
@@ -22,8 +24,13 @@ func providerClient(data any, diagnostics *diag.Diagnostics) *client.Client {
 
 	apiClient, ok := data.(*client.Client)
 	if !ok {
-		diagnostics.AddError("Unexpected provider data",
-			fmt.Sprintf("The object wants a *client.Client, and it got %T. Report this bug to the developers of the provider.", data))
+		diagnostics.AddError(
+			"Unexpected provider data",
+			fmt.Sprintf(
+				"The object wants a *client.Client, and it got %T. Report this bug to the developers of the provider.",
+				data,
+			),
+		)
 
 		return nil
 	}
@@ -174,4 +181,20 @@ func (jk jsonKind) ValidateString(ctx context.Context, req validator.StringReque
 	default:
 		resp.Diagnostics.AddAttributeError(req.Path, "Invalid JSON", jk.Description(ctx)+".")
 	}
+}
+
+// withAuditAttributes adds the read-only attributes updated_at and updated_by, which every row of the API has, to a
+// set of attributes.
+func withAuditAttributes(attributes map[string]schema.Attribute) map[string]schema.Attribute {
+	attributes[attrUpdatedAt] = schema.StringAttribute{Description: "When the row last changed.", Computed: true}
+	attributes[attrUpdatedBy] = schema.StringAttribute{Description: "Who last changed the row.", Computed: true}
+
+	return attributes
+}
+
+// withAttributes adds the attributes of more to a set of attributes, and returns the set.
+func withAttributes(attributes, more map[string]schema.Attribute) map[string]schema.Attribute {
+	maps.Copy(attributes, more)
+
+	return attributes
 }

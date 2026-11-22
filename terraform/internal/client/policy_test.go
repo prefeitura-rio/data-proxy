@@ -1,31 +1,33 @@
-package client
+package client_test
 
 import (
 	"context"
-	"errors"
 	"strings"
+	"terraform-provider-data-proxy/internal/client"
 	"testing"
 	"time"
 )
 
 func TestGrantOperations(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
-		grant Grant
+		grant client.Grant
 		uri   string
 		body  string
 		row   string
 	}{
 		{
 			name:  "a grant on a schema",
-			grant: Grant{Scope: "sales.orders", Subject: "reader@example.org", UnitType: "unit", UnitID: "42"},
+			grant: client.Grant{Scope: "sales.orders", Subject: "reader@example.org", UnitType: "unit", UnitID: "42"},
 			uri:   "/policy?scope=eq.sales.orders&subject=eq.reader%40example.org&unit_type=eq.unit&unit_id=eq.42",
 			body:  `{"scope":"sales.orders","subject":"reader@example.org","unit_type":"unit","unit_id":"42"}`,
 			row:   `{"scope":"sales.orders","subject":"reader@example.org","unit_type":"unit","unit_id":"42"}`,
 		},
 		{
 			name:  "the scope * is the empty path",
-			grant: Grant{Scope: "*", Subject: "svc", UnitType: "*", UnitID: "*"},
+			grant: client.Grant{Scope: "*", Subject: "svc", UnitType: "*", UnitID: "*"},
 			uri:   "/policy?scope=eq.&subject=eq.svc&unit_type=eq.%2A&unit_id=eq.%2A",
 			body:  `{"scope":"","subject":"svc","unit_type":"*","unit_id":"*"}`,
 			row:   `{"scope":"","subject":"svc","unit_type":"*","unit_id":"*"}`,
@@ -34,23 +36,27 @@ func TestGrantOperations(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			c := newStepClient(t, []step{
+			t.Parallel()
+
+			apiClient := newStepClient(t, []step{
 				{method: "POST", uri: "/policy", contentProfile: "access", body: testCase.body, status: 201, response: "[]"},
 				{method: "GET", uri: testCase.uri, acceptProfile: "access", response: "[" + testCase.row + "]"},
 				{method: "DELETE", uri: testCase.uri, contentProfile: "access", response: "[]"},
 			})
 			ctx := context.Background()
 
-			if err := c.CreateGrant(ctx, testCase.grant); err != nil {
+			err := apiClient.CreateGrant(ctx, testCase.grant)
+			if err != nil {
 				t.Fatalf("CreateGrant: %v", err)
 			}
 
-			rows, err := c.ListGrants(ctx, testCase.grant)
+			rows, err := apiClient.ListGrants(ctx, testCase.grant)
 			if err != nil || len(rows) != 1 || rows[0] != testCase.grant {
 				t.Fatalf("ListGrants = %+v, %v, want the one grant %+v", rows, err, testCase.grant)
 			}
 
-			if err := c.DeleteGrant(ctx, testCase.grant); err != nil {
+			err = apiClient.DeleteGrant(ctx, testCase.grant)
+			if err != nil {
 				t.Fatalf("DeleteGrant: %v", err)
 			}
 		})
@@ -58,24 +64,28 @@ func TestGrantOperations(t *testing.T) {
 }
 
 func TestIsNotProvisioned(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		err  error
 		want bool
 	}{
-		{name: "an unknown profile", err: &Error{Status: 406, Code: "PGRST106"}, want: true},
-		{name: "a table that the cache does not know", err: &Error{Status: 404, Code: "PGRST205"}, want: true},
-		{name: "a missing relation", err: &Error{Status: 400, Code: "42P01"}, want: true},
-		{name: "a missing schema", err: &Error{Status: 400, Code: "3F000"}, want: true},
-		{name: "a 404 without a code", err: &Error{Status: 404}, want: true},
-		{name: "a refused permission", err: &Error{Status: 403, Code: "42501"}, want: false},
-		{name: "a failure that is not an API error", err: errors.New("connection refused"), want: false},
+		{name: "an unknown profile", err: &client.Error{Status: 406, Code: "PGRST106"}, want: true},
+		{name: "a table that the cache does not know", err: &client.Error{Status: 404, Code: "PGRST205"}, want: true},
+		{name: "a missing relation", err: &client.Error{Status: 400, Code: "42P01"}, want: true},
+		{name: "a missing schema", err: &client.Error{Status: 400, Code: "3F000"}, want: true},
+		{name: "a 404 without a code", err: &client.Error{Status: 404}, want: true},
+		{name: "a refused permission", err: &client.Error{Status: 403, Code: "42501"}, want: false},
+		{name: "a failure that is not an API error", err: errConnectionRefused, want: false},
 		{name: "no error", err: nil, want: false},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			if got := IsNotProvisioned(testCase.err); got != testCase.want {
+			t.Parallel()
+
+			if got := client.IsNotProvisioned(testCase.err); got != testCase.want {
 				t.Errorf("IsNotProvisioned(%v) = %t, want %t", testCase.err, got, testCase.want)
 			}
 		})
@@ -104,6 +114,8 @@ const (
 )
 
 func TestWaitProvisioned(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		steps     []step
@@ -153,10 +165,12 @@ func TestWaitProvisioned(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c := newStepClient(t, testCase.steps)
 			wait := testCase.wait
 
-			err := c.waitProvisioned(context.Background(), "s", wait.wait)
+			err := c.WaitProvisionedWith(context.Background(), "s", wait.wait)
 
 			checkWait(t, err, testCase.wantErr)
 
@@ -168,6 +182,8 @@ func TestWaitProvisioned(t *testing.T) {
 }
 
 func TestWaitDeprovisioned(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		steps     []step
@@ -200,10 +216,12 @@ func TestWaitDeprovisioned(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c := newStepClient(t, testCase.steps)
 			wait := testCase.wait
 
-			err := c.waitDeprovisioned(context.Background(), "s", wait.wait)
+			err := c.WaitDeprovisionedWith(context.Background(), "s", wait.wait)
 
 			checkWait(t, err, testCase.wantErr)
 

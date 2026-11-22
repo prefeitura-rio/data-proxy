@@ -1,9 +1,10 @@
-package client
+package client_test
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -11,8 +12,20 @@ import (
 	"reflect"
 	"strings"
 	"sync/atomic"
+	"terraform-provider-data-proxy/internal/client"
 	"testing"
 	"time"
+)
+
+// The errors that the tests make.
+var (
+	errTokenEndpointDown = errors.New("token endpoint down")
+	errConnectionRefused = errors.New("connection refused")
+)
+
+// Test values that several tests share, so that a repeated text has one name.
+const (
+	nullJSON = "null"
 )
 
 // staticToken is a token source that returns a fixed token and a fixed error.
@@ -36,29 +49,33 @@ type captured struct {
 
 // newServer starts a server that records each request and answers with the status and the body, and returns a
 // client for it.
-func newServer(t *testing.T, status int, response string) (*Client, *[]captured) {
+func newServer(t *testing.T, status int, response string) (*client.Client, *[]captured) {
 	t.Helper()
 
 	var requests []captured
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		raw, err := io.ReadAll(r.Body)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+		raw, err := io.ReadAll(req.Body)
 		if err != nil {
 			t.Errorf("read the request body: %v", err)
 		}
 
-		requests = append(requests, captured{method: r.Method, uri: r.URL.RequestURI(), headers: r.Header.Clone(), body: string(raw)})
+		requests = append(
+			requests,
+			captured{method: req.Method, uri: req.URL.RequestURI(), headers: req.Header.Clone(), body: string(raw)},
+		)
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(status)
 
-		if _, err := w.Write([]byte(response)); err != nil {
+		_, err = writer.Write([]byte(response))
+		if err != nil {
 			t.Errorf("write the response: %v", err)
 		}
 	}))
 	t.Cleanup(server.Close)
 
-	c, err := New(server.URL+"/api/", staticToken{token: "jwt-123"}, server.Client())
+	c, err := client.New(server.URL+"/api/", staticToken{token: "jwt-123"}, server.Client())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -73,9 +90,11 @@ type row struct {
 }
 
 func TestRequests(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
-		call        func(context.Context, *Client) error
+		call        func(context.Context, *client.Client) error
 		method      string
 		uri         string
 		body        string
@@ -85,10 +104,16 @@ func TestRequests(t *testing.T) {
 	}{
 		{
 			name: "get reads with Accept-Profile",
-			call: func(ctx context.Context, c *Client) error {
+			call: func(ctx context.Context, c *client.Client) error {
 				var rows []row
 
-				return c.Get(ctx, ConsoleProfile, "projects", []Filter{Eq("name", "a b&c"), IsNull("deleted_at")}, &rows)
+				return c.Get(
+					ctx,
+					client.ConsoleProfile,
+					"projects",
+					[]client.Filter{client.Eq("name", "a b&c"), client.IsNull("deleted_at")},
+					&rows,
+				)
 			},
 			method:  http.MethodGet,
 			uri:     "/api/projects?name=eq.a%20b%26c&deleted_at=is.null",
@@ -97,7 +122,7 @@ func TestRequests(t *testing.T) {
 		},
 		{
 			name: "get sends the profile of a data schema",
-			call: func(ctx context.Context, c *Client) error {
+			call: func(ctx context.Context, c *client.Client) error {
 				return c.Get(ctx, "alpha", "access_policies", nil, nil)
 			},
 			method:  http.MethodGet,
@@ -107,8 +132,8 @@ func TestRequests(t *testing.T) {
 		},
 		{
 			name: "insert writes with Content-Profile and return=representation",
-			call: func(ctx context.Context, c *Client) error {
-				return c.Insert(ctx, ConsoleProfile, "projects", row{ID: 1, Name: "a"}, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Insert(ctx, client.ConsoleProfile, "projects", row{ID: 1, Name: "a"}, nil)
 			},
 			method:      http.MethodPost,
 			uri:         "/api/projects",
@@ -119,8 +144,15 @@ func TestRequests(t *testing.T) {
 		},
 		{
 			name: "patch writes to the filtered rows",
-			call: func(ctx context.Context, c *Client) error {
-				return c.Patch(ctx, "alpha", "access_policies", []Filter{Eq("id", "7")}, map[string]string{"name": "b"}, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Patch(
+					ctx,
+					"alpha",
+					"access_policies",
+					[]client.Filter{client.Eq("id", "7")},
+					map[string]string{"name": "b"},
+					nil,
+				)
 			},
 			method:      http.MethodPatch,
 			uri:         "/api/access_policies?id=eq.7",
@@ -131,8 +163,14 @@ func TestRequests(t *testing.T) {
 		},
 		{
 			name: "delete removes the filtered rows without a body",
-			call: func(ctx context.Context, c *Client) error {
-				return c.Delete(ctx, ConsoleProfile, "projects", []Filter{Eq("id", "7"), IsNull("parent_id")}, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Delete(
+					ctx,
+					client.ConsoleProfile,
+					"projects",
+					[]client.Filter{client.Eq("id", "7"), client.IsNull("parent_id")},
+					nil,
+				)
 			},
 			method:  http.MethodDelete,
 			uri:     "/api/projects?id=eq.7&parent_id=is.null",
@@ -141,8 +179,8 @@ func TestRequests(t *testing.T) {
 		},
 		{
 			name: "rpc posts the arguments with Content-Profile",
-			call: func(ctx context.Context, c *Client) error {
-				return c.RPC(ctx, ConsoleProfile, "grant_role", map[string]string{"role": "viewer"}, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.RPC(ctx, client.ConsoleProfile, "grant_role", map[string]string{"role": "viewer"}, nil)
 			},
 			method:      http.MethodPost,
 			uri:         "/api/rpc/grant_role",
@@ -153,8 +191,8 @@ func TestRequests(t *testing.T) {
 		},
 		{
 			name: "rpc without arguments posts an empty object",
-			call: func(ctx context.Context, c *Client) error {
-				return c.RPC(ctx, ConsoleProfile, "config", nil, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.RPC(ctx, client.ConsoleProfile, "config", nil, nil)
 			},
 			method:      http.MethodPost,
 			uri:         "/api/rpc/config",
@@ -165,8 +203,8 @@ func TestRequests(t *testing.T) {
 		},
 		{
 			name: "get rpc reads with Accept-Profile and no body",
-			call: func(ctx context.Context, c *Client) error {
-				return c.GetRPC(ctx, ConsoleProfile, "permissions", nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.GetRPC(ctx, client.ConsoleProfile, "permissions", nil)
 			},
 			method:  http.MethodGet,
 			uri:     "/api/rpc/permissions",
@@ -175,10 +213,10 @@ func TestRequests(t *testing.T) {
 		},
 		{
 			name: "permissions reads console.permissions with get",
-			call: func(ctx context.Context, c *Client) error {
+			call: func(ctx context.Context, c *client.Client) error {
 				_, err := c.Permissions(ctx)
 
-				return err
+				return wrapErr(err)
 			},
 			method:  http.MethodGet,
 			uri:     "/api/rpc/permissions",
@@ -187,8 +225,8 @@ func TestRequests(t *testing.T) {
 		},
 		{
 			name: "table name is escaped in the path",
-			call: func(ctx context.Context, c *Client) error {
-				return c.Get(ctx, ConsoleProfile, "a/b", nil, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Get(ctx, client.ConsoleProfile, "a/b", nil, nil)
 			},
 			method:  http.MethodGet,
 			uri:     "/api/a%2Fb",
@@ -198,6 +236,8 @@ func TestRequests(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c, requests := newServer(t, http.StatusOK, `[]`)
 
 			err := testCase.call(context.Background(), c)
@@ -223,7 +263,11 @@ func TestRequests(t *testing.T) {
 				t.Errorf("body = %q, want %q", got.body, testCase.body)
 			}
 
-			want := map[string]string{"Authorization": "Bearer jwt-123", "Accept": "application/json", "Content-Type": testCase.contentType}
+			want := map[string]string{
+				"Authorization": "Bearer jwt-123",
+				"Accept":        "application/json",
+				"Content-Type":  testCase.contentType,
+			}
 			maps.Copy(want, testCase.headers)
 
 			for name, value := range want {
@@ -243,6 +287,8 @@ func TestRequests(t *testing.T) {
 
 // TestDecodesTheResponse checks that a write fills the rows that the caller gives from the body of the answer.
 func TestDecodesTheResponse(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		status   int
@@ -250,17 +296,24 @@ func TestDecodesTheResponse(t *testing.T) {
 		want     []row
 	}{
 		{name: "one row", status: http.StatusCreated, response: `[{"id":1,"name":"a"}]`, want: []row{{ID: 1, Name: "a"}}},
-		{name: "two rows", status: http.StatusCreated, response: `[{"id":1,"name":"a"},{"id":2,"name":"b"}]`, want: []row{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}}},
+		{
+			name:     "two rows",
+			status:   http.StatusCreated,
+			response: `[{"id":1,"name":"a"},{"id":2,"name":"b"}]`,
+			want:     []row{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}},
+		},
 		{name: "no row", status: http.StatusCreated, response: `[]`, want: []row{}},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c, _ := newServer(t, testCase.status, testCase.response)
 
 			var rows []row
 
-			err := c.Insert(context.Background(), ConsoleProfile, "projects", row{Name: "a"}, &rows)
+			err := c.Insert(context.Background(), client.ConsoleProfile, "projects", row{Name: "a"}, &rows)
 			if err != nil {
 				t.Fatalf("Insert: %v", err)
 			}
@@ -274,6 +327,8 @@ func TestDecodesTheResponse(t *testing.T) {
 
 // TestAcceptsAnEmptyResponse checks that a delete with no content leaves the rows of the caller unset.
 func TestAcceptsAnEmptyResponse(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		status   int
@@ -285,11 +340,19 @@ func TestAcceptsAnEmptyResponse(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c, _ := newServer(t, testCase.status, testCase.response)
 
 			var rows []row
 
-			err := c.Delete(context.Background(), ConsoleProfile, "projects", []Filter{Eq("id", "1")}, &rows)
+			err := c.Delete(
+				context.Background(),
+				client.ConsoleProfile,
+				"projects",
+				[]client.Filter{client.Eq("id", "1")},
+				&rows,
+			)
 			if err != nil {
 				t.Fatalf("Delete: %v", err)
 			}
@@ -302,6 +365,8 @@ func TestAcceptsAnEmptyResponse(t *testing.T) {
 }
 
 func TestPermissions(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		status   int
@@ -310,26 +375,34 @@ func TestPermissions(t *testing.T) {
 		wantErr  string
 		kind     error
 	}{
-		{name: "the permissions of the token", status: http.StatusOK, response: `["read_sync","read_config"]`, want: []string{"read_sync", "read_config"}},
+		{
+			name:     "the permissions of the token",
+			status:   http.StatusOK,
+			response: `["read_sync","read_config"]`,
+			want:     []string{"read_sync", "read_config"},
+		},
 		{name: "no permission", status: http.StatusOK, response: `[]`, want: []string{}},
-		{name: "a null result", status: http.StatusOK, response: `null`, want: []string{}},
+		{name: "a null result", status: http.StatusOK, response: nullJSON, want: []string{}},
 		{
 			name:     "a refused token",
 			status:   http.StatusUnauthorized,
 			response: `{"code":"PGRST301","message":"JWSError JWSInvalidSignature"}`,
 			wantErr:  "read the permissions of the token: postgrest: HTTP 401 PGRST301: JWSError JWSInvalidSignature",
-			kind:     ErrUnauthorized,
+			kind:     client.ErrUnauthorized,
 		},
 		{
 			name:     "a result that isn't a list of names",
 			status:   http.StatusOK,
 			response: `{"read_config":true}`,
-			wantErr:  "read the permissions of the token: GET rpc/permissions: decode the response: json: cannot unmarshal object into Go value of type []string",
+			wantErr: "read the permissions of the token: GET rpc/permissions: decode the response: json: cannot unmarshal " +
+				"object into Go value of type []string",
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c, _ := newServer(t, testCase.status, testCase.response)
 
 			got, err := c.Permissions(context.Background())
@@ -362,6 +435,8 @@ func TestPermissions(t *testing.T) {
 }
 
 func TestGetOne(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		response string
@@ -376,11 +451,13 @@ func TestGetOne(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c, _ := newServer(t, http.StatusOK, testCase.response)
 
 			var got row
 
-			err := c.GetOne(context.Background(), ConsoleProfile, "projects", []Filter{Eq("id", "3")}, &got)
+			err := c.GetOne(context.Background(), client.ConsoleProfile, "projects", []client.Filter{client.Eq("id", "3")}, &got)
 
 			if testCase.wantErr == "" {
 				if err != nil {
@@ -398,107 +475,116 @@ func TestGetOne(t *testing.T) {
 				t.Fatalf("error = %v, want %q", err, testCase.wantErr)
 			}
 
-			if errors.Is(err, ErrNoRow) != testCase.noRow {
-				t.Errorf("errors.Is(err, ErrNoRow) = %t, want %t", !testCase.noRow, testCase.noRow)
+			if errors.Is(err, client.ErrNoRow) != testCase.noRow {
+				t.Errorf("errors.Is(err, client.ErrNoRow) = %t, want %t", !testCase.noRow, testCase.noRow)
 			}
 
-			if errors.Is(err, ErrNotFound) {
-				t.Errorf("errors.Is(err, ErrNotFound) = true, want false")
+			if errors.Is(err, client.ErrNotFound) {
+				t.Errorf("errors.Is(err, client.ErrNotFound) = true, want false")
 			}
 		})
 	}
 }
 
 func TestRefusesBeforeTheRequest(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
-		tokens  TokenSource
-		call    func(context.Context, *Client) error
+		tokens  client.TokenSource
+		call    func(context.Context, *client.Client) error
 		wantErr string
 	}{
 		{
 			name: "patch without a filter",
-			call: func(ctx context.Context, c *Client) error {
-				return c.Patch(ctx, ConsoleProfile, "projects", nil, map[string]int{}, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Patch(ctx, client.ConsoleProfile, "projects", nil, map[string]int{}, nil)
 			},
 			wantErr: "patch projects: give at least one filter",
 		},
 		{
 			name: "delete without a filter",
-			call: func(ctx context.Context, c *Client) error {
-				return c.Delete(ctx, ConsoleProfile, "projects", nil, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Delete(ctx, client.ConsoleProfile, "projects", nil, nil)
 			},
 			wantErr: "delete from projects: give at least one filter",
 		},
 		{
 			name: "empty profile",
-			call: func(ctx context.Context, c *Client) error {
+			call: func(ctx context.Context, c *client.Client) error {
 				return c.Get(ctx, "", "projects", nil, nil)
 			},
 			wantErr: "the profile is empty",
 		},
 		{
 			name: "empty table",
-			call: func(ctx context.Context, c *Client) error {
-				return c.Get(ctx, ConsoleProfile, "", nil, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Get(ctx, client.ConsoleProfile, "", nil, nil)
 			},
 			wantErr: "the table name is empty",
 		},
 		{
 			name: "empty function",
-			call: func(ctx context.Context, c *Client) error {
-				return c.RPC(ctx, ConsoleProfile, "", nil, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.RPC(ctx, client.ConsoleProfile, "", nil, nil)
 			},
 			wantErr: "the function name is empty",
 		},
 		{
 			name: "empty function of a get rpc",
-			call: func(ctx context.Context, c *Client) error {
-				return c.GetRPC(ctx, ConsoleProfile, "", nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.GetRPC(ctx, client.ConsoleProfile, "", nil)
 			},
 			wantErr: "the function name is empty",
 		},
 		{
 			name: "filter without a column",
-			call: func(ctx context.Context, c *Client) error {
-				return c.Get(ctx, ConsoleProfile, "projects", []Filter{Eq("", "1")}, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Get(ctx, client.ConsoleProfile, "projects", []client.Filter{client.Eq("", "1")}, nil)
 			},
 			wantErr: "filter 0 of projects has an empty column",
 		},
 		{
 			name: "delete filtered on a reserved parameter",
-			call: func(ctx context.Context, c *Client) error {
-				return c.Delete(ctx, ConsoleProfile, "projects", []Filter{Eq("columns", "x")}, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Delete(ctx, client.ConsoleProfile, "projects", []client.Filter{client.Eq("columns", "x")}, nil)
 			},
 			wantErr: `filter 0 of projects: PostgREST reads "columns" as a parameter, not as a column`,
 		},
 		{
 			name: "patch filtered on a reserved parameter after a column",
-			call: func(ctx context.Context, c *Client) error {
-				return c.Patch(ctx, ConsoleProfile, "projects", []Filter{Eq("id", "1"), IsNull("or")}, map[string]int{}, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Patch(
+					ctx,
+					client.ConsoleProfile,
+					"projects",
+					[]client.Filter{client.Eq("id", "1"), client.IsNull("or")},
+					map[string]int{},
+					nil,
+				)
 			},
 			wantErr: `filter 1 of projects: PostgREST reads "or" as a parameter, not as a column`,
 		},
 		{
 			name: "get filtered on a reserved parameter",
-			call: func(ctx context.Context, c *Client) error {
-				return c.Get(ctx, ConsoleProfile, "projects", []Filter{Eq("select", "*")}, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Get(ctx, client.ConsoleProfile, "projects", []client.Filter{client.Eq("select", "*")}, nil)
 			},
 			wantErr: `filter 0 of projects: PostgREST reads "select" as a parameter, not as a column`,
 		},
 		{
 			name:   "token error",
-			tokens: staticToken{err: errors.New("token endpoint down")},
-			call: func(ctx context.Context, c *Client) error {
-				return c.Get(ctx, ConsoleProfile, "projects", nil, nil)
+			tokens: staticToken{err: errTokenEndpointDown},
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Get(ctx, client.ConsoleProfile, "projects", nil, nil)
 			},
 			wantErr: "get the token: token endpoint down",
 		},
 		{
 			name:   "empty token",
 			tokens: staticToken{},
-			call: func(ctx context.Context, c *Client) error {
-				return c.Get(ctx, ConsoleProfile, "projects", nil, nil)
+			call: func(ctx context.Context, c *client.Client) error {
+				return c.Get(ctx, client.ConsoleProfile, "projects", nil, nil)
 			},
 			wantErr: "the token source returned an empty token",
 		},
@@ -506,6 +592,8 @@ func TestRefusesBeforeTheRequest(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			var calls atomic.Int32
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -519,7 +607,7 @@ func TestRefusesBeforeTheRequest(t *testing.T) {
 				tokens = staticToken{token: "jwt-123"}
 			}
 
-			c, err := New(server.URL, tokens, server.Client())
+			c, err := client.New(server.URL, tokens, server.Client())
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -537,34 +625,53 @@ func TestRefusesBeforeTheRequest(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		endpoint string
-		tokens   TokenSource
+		tokens   client.TokenSource
 		wantErr  string
 	}{
 		{name: "https with a path", endpoint: "https://data-proxy.example.com/api/", tokens: staticToken{}},
-		{name: "other scheme", endpoint: "ftp://data-proxy.example.com", tokens: staticToken{}, wantErr: `endpoint "ftp://data-proxy.example.com": the scheme must be http or https`},
+		{
+			name:     "other scheme",
+			endpoint: "ftp://data-proxy.example.com",
+			tokens:   staticToken{},
+			wantErr:  `endpoint "ftp://data-proxy.example.com": the scheme must be http or https`,
+		},
 		{name: "no host", endpoint: "https://", tokens: staticToken{}, wantErr: `endpoint "https://": the host is empty`},
-		{name: "query", endpoint: "https://data-proxy.example.com?a=1", tokens: staticToken{}, wantErr: `endpoint "https://data-proxy.example.com?a=1": remove the query and the fragment`},
+		{
+			name:     "query",
+			endpoint: "https://data-proxy.example.com?a=1",
+			tokens:   staticToken{},
+			wantErr:  `endpoint "https://data-proxy.example.com?a=1": remove the query and the fragment`,
+		},
 		{name: "no token source", endpoint: "https://data-proxy.example.com", wantErr: "the token source is nil"},
 		{name: "http to localhost", endpoint: "http://localhost:3000", tokens: staticToken{}},
 		{name: "http to a loopback address", endpoint: "http://127.0.0.1:3000", tokens: staticToken{}},
 		{name: "http to a loopback IPv6 address", endpoint: "http://[::1]:3000", tokens: staticToken{}},
-		{name: "http to a remote host", endpoint: "http://data-proxy.example.com", tokens: staticToken{}, wantErr: `endpoint "http://data-proxy.example.com": use https, or http for a loopback host`},
+		{
+			name:     "http to a remote host",
+			endpoint: "http://data-proxy.example.com",
+			tokens:   staticToken{},
+			wantErr:  `endpoint "http://data-proxy.example.com": use https, or http for a loopback host`,
+		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			c, err := New(testCase.endpoint, testCase.tokens, nil)
+			t.Parallel()
+
+			apiClient, err := client.New(testCase.endpoint, testCase.tokens, nil)
 
 			if testCase.wantErr == "" {
 				if err != nil {
 					t.Fatalf("New: %v", err)
 				}
 
-				if c.http.Timeout != DefaultTimeout {
-					t.Errorf("timeout = %s, want %s", c.http.Timeout, DefaultTimeout)
+				if apiClient.HTTPClient().Timeout != client.DefaultTimeout {
+					t.Errorf("timeout = %s, want %s", apiClient.HTTPClient().Timeout, client.DefaultTimeout)
 				}
 
 				return
@@ -578,112 +685,154 @@ func TestNew(t *testing.T) {
 }
 
 func TestErrorResponses(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		status   int
 		response string
 		kind     error
-		want     Error
+		want     client.Error
 		text     string
 	}{
 		{
-			name:     "unique violation is a conflict",
-			status:   http.StatusConflict,
-			response: `{"code":"23505","message":"duplicate key value violates unique constraint \"projects_name_key\"","details":"Key (name)=(a) already exists.","hint":null}`,
-			kind:     ErrConflict,
-			want:     Error{Status: 409, Code: "23505", Message: `duplicate key value violates unique constraint "projects_name_key"`, Details: "Key (name)=(a) already exists."},
-			text:     `postgrest: HTTP 409 23505: duplicate key value violates unique constraint "projects_name_key" (details: Key (name)=(a) already exists.)`,
+			name:   "unique violation is a conflict",
+			status: http.StatusConflict,
+			response: `{"code":"23505","message":"duplicate key value violates unique constraint \"projects_name_key\"",` +
+				`"details":"Key (name)=(a) already exists.","hint":null}`,
+			kind: client.ErrConflict,
+			want: client.Error{
+				Status:  409,
+				Code:    "23505",
+				Message: `duplicate key value violates unique constraint "projects_name_key"`,
+				Details: "Key (name)=(a) already exists.",
+			},
+			text: `postgrest: HTTP 409 23505: duplicate key value violates unique constraint "projects_name_key" (details: ` +
+				`Key (name)=(a) already exists.)`,
 		},
 		{
-			name:     "foreign key violation is a conflict",
-			status:   http.StatusConflict,
-			response: `{"code":"23503","message":"insert or update on table \"tables\" violates foreign key constraint","details":null,"hint":null}`,
-			kind:     ErrConflict,
-			want:     Error{Status: 409, Code: "23503", Message: `insert or update on table "tables" violates foreign key constraint`},
-			text:     `postgrest: HTTP 409 23503: insert or update on table "tables" violates foreign key constraint`,
+			name:   "foreign key violation is a conflict",
+			status: http.StatusConflict,
+			response: `{"code":"23503","message":"insert or update on table \"tables\" violates foreign key constraint",` +
+				`"details":null,"hint":null}`,
+			kind: client.ErrConflict,
+			want: client.Error{
+				Status:  409,
+				Code:    "23503",
+				Message: `insert or update on table "tables" violates foreign key constraint`,
+			},
+			text: `postgrest: HTTP 409 23503: insert or update on table "tables" violates foreign key constraint`,
 		},
 		{
-			name:     "check violation is invalid",
-			status:   http.StatusBadRequest,
-			response: `{"code":"23514","message":"new row violates check constraint \"cache_ttl_positive\"","details":null,"hint":"Use a positive cache_ttl."}`,
-			kind:     ErrInvalid,
-			want:     Error{Status: 400, Code: "23514", Message: `new row violates check constraint "cache_ttl_positive"`, Hint: "Use a positive cache_ttl."},
-			text:     `postgrest: HTTP 400 23514: new row violates check constraint "cache_ttl_positive" (hint: Use a positive cache_ttl.)`,
+			name:   "check violation is invalid",
+			status: http.StatusBadRequest,
+			response: `{"code":"23514","message":"new row violates check constraint \"cache_ttl_positive\"","details":null,` +
+				`"hint":"Use a positive cache_ttl."}`,
+			kind: client.ErrInvalid,
+			want: client.Error{
+				Status:  400,
+				Code:    "23514",
+				Message: `new row violates check constraint "cache_ttl_positive"`,
+				Hint:    "Use a positive cache_ttl.",
+			},
+			text: `postgrest: HTTP 400 23514: new row violates check constraint "cache_ttl_positive" (hint: Use a positive ` +
+				`cache_ttl.)`,
 		},
 		{
-			name:     "row-level security is forbidden",
-			status:   http.StatusForbidden,
-			response: `{"code":"42501","message":"new row violates row-level security policy for table \"projects\"","details":null,"hint":null}`,
-			kind:     ErrForbidden,
-			want:     Error{Status: 403, Code: "42501", Message: `new row violates row-level security policy for table "projects"`},
-			text:     `postgrest: HTTP 403 42501: new row violates row-level security policy for table "projects"`,
+			name:   "row-level security is forbidden",
+			status: http.StatusForbidden,
+			response: `{"code":"42501","message":"new row violates row-level security policy for table \"projects\"",` +
+				`"details":null,"hint":null}`,
+			kind: client.ErrForbidden,
+			want: client.Error{
+				Status:  403,
+				Code:    "42501",
+				Message: `new row violates row-level security policy for table "projects"`,
+			},
+			text: `postgrest: HTTP 403 42501: new row violates row-level security policy for table "projects"`,
 		},
 		{
 			name:     "denied permission with HTTP 401 is forbidden",
 			status:   http.StatusUnauthorized,
 			response: `{"code":"42501","message":"permission denied for table projects","details":null,"hint":null}`,
-			kind:     ErrForbidden,
-			want:     Error{Status: 401, Code: "42501", Message: "permission denied for table projects"},
+			kind:     client.ErrForbidden,
+			want:     client.Error{Status: 401, Code: "42501", Message: "permission denied for table projects"},
 			text:     `postgrest: HTTP 401 42501: permission denied for table projects`,
 		},
 		{
 			name:     "HTTP 403 without a SQLSTATE is forbidden",
 			status:   http.StatusForbidden,
 			response: `forbidden`,
-			kind:     ErrForbidden,
-			want:     Error{Status: 403, Message: "forbidden"},
+			kind:     client.ErrForbidden,
+			want:     client.Error{Status: 403, Message: "forbidden"},
 			text:     `postgrest: HTTP 403: forbidden`,
 		},
 		{
 			name:     "expired JWT is unauthorized",
 			status:   http.StatusUnauthorized,
 			response: `{"code":"PGRST303","message":"JWT expired","details":null,"hint":null}`,
-			kind:     ErrUnauthorized,
-			want:     Error{Status: 401, Code: "PGRST303", Message: "JWT expired"},
+			kind:     client.ErrUnauthorized,
+			want:     client.Error{Status: 401, Code: "PGRST303", Message: "JWT expired"},
 			text:     `postgrest: HTTP 401 PGRST303: JWT expired`,
 		},
 		{
-			name:     "unknown table is not found",
-			status:   http.StatusNotFound,
-			response: `{"code":"PGRST205","message":"Could not find the table 'console.nope' in the schema cache","details":null,"hint":"Perhaps you meant the table 'console.projects'"}`,
-			kind:     ErrNotFound,
-			want:     Error{Status: 404, Code: "PGRST205", Message: "Could not find the table 'console.nope' in the schema cache", Hint: "Perhaps you meant the table 'console.projects'"},
-			text:     `postgrest: HTTP 404 PGRST205: Could not find the table 'console.nope' in the schema cache (hint: Perhaps you meant the table 'console.projects')`,
+			name:   "unknown table is not found",
+			status: http.StatusNotFound,
+			response: `{"code":"PGRST205","message":"Could not find the table 'console.nope' in the schema cache",` +
+				`"details":null,"hint":"Perhaps you meant the table 'console.projects'"}`,
+			kind: client.ErrNotFound,
+			want: client.Error{
+				Status:  404,
+				Code:    "PGRST205",
+				Message: "Could not find the table 'console.nope' in the schema cache",
+				Hint:    "Perhaps you meant the table 'console.projects'",
+			},
+			text: `postgrest: HTTP 404 PGRST205: Could not find the table 'console.nope' in the schema cache (hint: Perhaps ` +
+				`you meant the table 'console.projects')`,
 		},
 		{
 			name:     "other HTTP 409 is a conflict",
 			status:   http.StatusConflict,
 			response: `{"code":"PGRST999","message":"conflict","details":null,"hint":null}`,
-			kind:     ErrConflict,
-			want:     Error{Status: 409, Code: "PGRST999", Message: "conflict"},
+			kind:     client.ErrConflict,
+			want:     client.Error{Status: 409, Code: "PGRST999", Message: "conflict"},
 			text:     `postgrest: HTTP 409 PGRST999: conflict`,
 		},
 		{
 			name:     "other HTTP 400 is invalid",
 			status:   http.StatusBadRequest,
 			response: `{"code":"22P02","message":"invalid input syntax for type integer: \"x\"","details":null,"hint":null}`,
-			kind:     ErrInvalid,
-			want:     Error{Status: 400, Code: "22P02", Message: `invalid input syntax for type integer: "x"`},
+			kind:     client.ErrInvalid,
+			want:     client.Error{Status: 400, Code: "22P02", Message: `invalid input syntax for type integer: "x"`},
 			text:     `postgrest: HTTP 400 22P02: invalid input syntax for type integer: "x"`,
 		},
 		{
 			name:     "server error has no kind",
 			status:   http.StatusBadGateway,
 			response: "<html>bad gateway</html>\n",
-			want:     Error{Status: 502, Message: "<html>bad gateway</html>"},
+			want:     client.Error{Status: 502, Message: "<html>bad gateway</html>"},
 			text:     `postgrest: HTTP 502: <html>bad gateway</html>`,
 		},
 	}
 
-	kinds := []error{ErrConflict, ErrInvalid, ErrForbidden, ErrUnauthorized, ErrNotFound, ErrNoRow}
+	kinds := []error{
+		client.ErrConflict,
+		client.ErrInvalid,
+		client.ErrForbidden,
+		client.ErrUnauthorized,
+		client.ErrNotFound,
+		client.ErrNoRow,
+	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			c, _ := newServer(t, testCase.status, testCase.response)
 
-			err := c.Get(context.Background(), ConsoleProfile, "projects", nil, nil)
+			err := c.Get(context.Background(), client.ConsoleProfile, "projects", nil, nil)
 
-			var got *Error
+			var got *client.Error
 			if !errors.As(err, &got) {
 				t.Fatalf("error = %v, want *Error", err)
 			}
@@ -709,32 +858,34 @@ func TestErrorResponses(t *testing.T) {
 }
 
 func TestRetryReadsTheReplicaAgain(t *testing.T) {
+	t.Parallel()
+
 	var calls atomic.Int32
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
 
 		if calls.Add(1) < 3 {
-			_, _ = w.Write([]byte(`[]`))
+			_, _ = writer.Write([]byte(`[]`))
 
 			return
 		}
 
-		_, _ = w.Write([]byte(`[{"id":9,"name":"new"}]`))
+		_, _ = writer.Write([]byte(`[{"id":9,"name":"new"}]`))
 	}))
 	t.Cleanup(server.Close)
 
-	c, err := New(server.URL, staticToken{token: "jwt-123"}, server.Client())
+	apiClient, err := client.New(server.URL, staticToken{token: "jwt-123"}, server.Client())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 
 	var got row
 
-	backoff := Backoff{Initial: time.Millisecond, Max: 2 * time.Millisecond, Timeout: 5 * time.Second}
+	backoff := client.Backoff{Initial: time.Millisecond, Max: 2 * time.Millisecond, Timeout: 5 * time.Second}
 
-	err = RetryNoRow(context.Background(), backoff, func(ctx context.Context) error {
-		return c.GetOne(ctx, ConsoleProfile, "projects", []Filter{Eq("id", "9")}, &got)
+	err = client.RetryNoRow(context.Background(), backoff, func(ctx context.Context) error {
+		return apiClient.GetOne(ctx, client.ConsoleProfile, "projects", []client.Filter{client.Eq("id", "9")}, &got)
 	})
 	if err != nil {
 		t.Fatalf("RetryNoRow: %v", err)
@@ -750,6 +901,8 @@ func TestRetryReadsTheReplicaAgain(t *testing.T) {
 }
 
 func TestGetFailsOnATruncatedAnswer(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name         string
 		status       int
@@ -757,31 +910,39 @@ func TestGetFailsOnATruncatedAnswer(t *testing.T) {
 		wantErr      bool
 	}{
 		{name: "a complete answer", status: http.StatusOK, contentRange: "0-1/*"},
-		{name: "an answer that PostgREST cut at max-rows", status: http.StatusPartialContent, contentRange: "0-999/*", wantErr: true},
+		{
+			name:         "an answer that PostgREST cut at max-rows",
+			status:       http.StatusPartialContent,
+			contentRange: "0-999/*",
+			wantErr:      true,
+		},
 		{name: "a partial answer with a total", status: http.StatusPartialContent, contentRange: "0-999/1500", wantErr: true},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Content-Range", testCase.contentRange)
 				w.WriteHeader(testCase.status)
 
-				if _, err := w.Write([]byte(`[{"id":1},{"id":2}]`)); err != nil {
+				_, err := w.Write([]byte(`[{"id":1},{"id":2}]`))
+				if err != nil {
 					t.Errorf("write the response: %v", err)
 				}
 			}))
 			t.Cleanup(server.Close)
 
-			c, err := New(server.URL, staticToken{token: "jwt-123"}, server.Client())
+			apiClient, err := client.New(server.URL, staticToken{token: "jwt-123"}, server.Client())
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
 
 			var rows []row
 
-			err = c.Get(context.Background(), ConsoleProfile, "projects", nil, &rows)
+			err = apiClient.Get(context.Background(), client.ConsoleProfile, "projects", nil, &rows)
 
 			if !testCase.wantErr {
 				if err != nil {
@@ -791,7 +952,7 @@ func TestGetFailsOnATruncatedAnswer(t *testing.T) {
 				return
 			}
 
-			if !errors.Is(err, ErrTruncated) {
+			if !errors.Is(err, client.ErrTruncated) {
 				t.Fatalf("error = %v, want one that wraps ErrTruncated", err)
 			}
 
@@ -803,36 +964,41 @@ func TestGetFailsOnATruncatedAnswer(t *testing.T) {
 }
 
 func TestGetLimitsTheSizeOfTheAnswer(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		padding int
 		wantErr bool
 	}{
 		{name: "below the limit", padding: 1 << 20},
-		{name: "at the limit", padding: maxBody - len(`[{"id":1}]`)},
-		{name: "above the limit", padding: maxBody - len(`[{"id":1}]`) + 1, wantErr: true},
+		{name: "at the limit", padding: client.MaxBody - len(`[{"id":1}]`)},
+		{name: "above the limit", padding: client.MaxBody - len(`[{"id":1}]`) + 1, wantErr: true},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 
 				// The spaces between the rows are valid JSON, so the body decodes when the client reads all of it.
-				if _, err := w.Write([]byte("[" + strings.Repeat(" ", testCase.padding) + `{"id":1}]`)); err != nil {
+				_, err := w.Write([]byte("[" + strings.Repeat(" ", testCase.padding) + `{"id":1}]`))
+				if err != nil {
 					t.Errorf("write the response: %v", err)
 				}
 			}))
 			t.Cleanup(server.Close)
 
-			c, err := New(server.URL, staticToken{token: "jwt-123"}, server.Client())
+			apiClient, err := client.New(server.URL, staticToken{token: "jwt-123"}, server.Client())
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
 
 			var rows []row
 
-			err = c.Get(context.Background(), ConsoleProfile, "projects", nil, &rows)
+			err = apiClient.Get(context.Background(), client.ConsoleProfile, "projects", nil, &rows)
 
 			if !testCase.wantErr {
 				if err != nil || len(rows) != 1 {
@@ -842,7 +1008,7 @@ func TestGetLimitsTheSizeOfTheAnswer(t *testing.T) {
 				return
 			}
 
-			if !errors.Is(err, ErrTooLarge) {
+			if !errors.Is(err, client.ErrTooLarge) {
 				t.Fatalf("error = %v, want one that wraps ErrTooLarge", err)
 			}
 		})
@@ -862,15 +1028,15 @@ type step struct {
 
 // newStepClient starts a server that expects the steps in order and returns a client for it. A request that
 // differs from its step fails the test, and so does a step that no request reached.
-func newStepClient(t *testing.T, steps []step) *Client {
+func newStepClient(t *testing.T, steps []step) *client.Client {
 	t.Helper()
 
 	next := 0
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
 		if next >= len(steps) {
-			t.Errorf("unexpected request %s %s", r.Method, r.URL.RequestURI())
-			w.WriteHeader(http.StatusInternalServerError)
+			t.Errorf("unexpected request %s %s", req.Method, req.URL.RequestURI())
+			writer.WriteHeader(http.StatusInternalServerError)
 
 			return
 		}
@@ -878,22 +1044,23 @@ func newStepClient(t *testing.T, steps []step) *Client {
 		want := steps[next]
 		next++
 
-		raw, err := io.ReadAll(r.Body)
+		raw, err := io.ReadAll(req.Body)
 		if err != nil {
 			t.Errorf("read the request body: %v", err)
 		}
 
-		checkStep(t, want, r, raw)
+		checkStep(t, want, req, raw)
 
 		status := want.status
 		if status == 0 {
 			status = http.StatusOK
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(status)
 
-		if _, err := w.Write([]byte(want.response)); err != nil {
+		_, err = writer.Write([]byte(want.response))
+		if err != nil {
 			t.Errorf("write the response: %v", err)
 		}
 	}))
@@ -906,7 +1073,7 @@ func newStepClient(t *testing.T, steps []step) *Client {
 		}
 	})
 
-	c, err := New(server.URL, staticToken{token: "jwt-123"}, server.Client())
+	c, err := client.New(server.URL, staticToken{token: "jwt-123"}, server.Client())
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -915,23 +1082,23 @@ func newStepClient(t *testing.T, steps []step) *Client {
 }
 
 // checkStep compares a request with the step that it should match.
-func checkStep(t *testing.T, want step, r *http.Request, body []byte) {
+func checkStep(t *testing.T, want step, request *http.Request, body []byte) {
 	t.Helper()
 
-	if want.method != "" && r.Method != want.method {
-		t.Errorf("method = %s, want %s", r.Method, want.method)
+	if want.method != "" && request.Method != want.method {
+		t.Errorf("method = %s, want %s", request.Method, want.method)
 	}
 
-	if want.uri != "" && r.URL.RequestURI() != want.uri {
-		t.Errorf("uri = %s, want %s", r.URL.RequestURI(), want.uri)
+	if want.uri != "" && request.URL.RequestURI() != want.uri {
+		t.Errorf("uri = %s, want %s", request.URL.RequestURI(), want.uri)
 	}
 
-	if want.acceptProfile != "" && r.Header.Get("Accept-Profile") != want.acceptProfile {
-		t.Errorf("Accept-Profile = %q, want %q", r.Header.Get("Accept-Profile"), want.acceptProfile)
+	if want.acceptProfile != "" && request.Header.Get("Accept-Profile") != want.acceptProfile {
+		t.Errorf("Accept-Profile = %q, want %q", request.Header.Get("Accept-Profile"), want.acceptProfile)
 	}
 
-	if want.contentProfile != "" && r.Header.Get("Content-Profile") != want.contentProfile {
-		t.Errorf("Content-Profile = %q, want %q", r.Header.Get("Content-Profile"), want.contentProfile)
+	if want.contentProfile != "" && request.Header.Get("Content-Profile") != want.contentProfile {
+		t.Errorf("Content-Profile = %q, want %q", request.Header.Get("Content-Profile"), want.contentProfile)
 	}
 
 	if want.body != "" && !sameJSON(t, want.body, string(body)) {
@@ -956,4 +1123,13 @@ func sameJSON(t *testing.T, want, got string) bool {
 	}
 
 	return reflect.DeepEqual(left, right)
+}
+
+// wrapErr adds the name of the step to an error from the client, and keeps a nil error as nil.
+func wrapErr(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	return fmt.Errorf("call: %w", err)
 }

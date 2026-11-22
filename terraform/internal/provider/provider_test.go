@@ -1,7 +1,8 @@
-package provider
+package provider_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"terraform-provider-data-proxy/internal/client"
+	dp "terraform-provider-data-proxy/internal/provider"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
@@ -31,8 +33,28 @@ import (
 	acc "github.com/hashicorp/terraform-plugin-testing/helper/resource"
 )
 
+// The errors that the tests make or expect.
+var (
+	errConnectionRefused = errors.New("DELETE schemas: connection refused")
+	errStillExists       = errors.New("the row still exists")
+	errNoEntry           = errors.New("the entry is missing")
+)
+
+// The fake client secrets of the tests: one that a configuration sets, and one that the environment sets.
+const (
+	fakeHCLSecret = "hcl-secret"
+	fakeEnvSecret = "env-secret"
+)
+
+// Test values that several tests share, so that a repeated text has one name.
+const (
+	nullJSON = "null"
+)
+
 // TestMetadata checks the type name and the version that the provider reports.
 func TestMetadata(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		version     string
@@ -45,9 +67,11 @@ func TestMetadata(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			var resp provider.MetadataResponse
 
-			New(testCase.version)().Metadata(context.Background(), provider.MetadataRequest{}, &resp)
+			dp.New(testCase.version)().Metadata(context.Background(), provider.MetadataRequest{}, &resp)
 
 			if resp.TypeName != testCase.wantType {
 				t.Errorf("TypeName = %q, want %q", resp.TypeName, testCase.wantType)
@@ -61,7 +85,9 @@ func TestMetadata(t *testing.T) {
 }
 
 func TestSchemaServedOverProtocol(t *testing.T) {
-	server, err := providerserver.NewProtocol6WithError(New("test")())()
+	t.Parallel()
+
+	server, err := providerserver.NewProtocol6WithError(dp.New("test")())()
 	if err != nil {
 		t.Fatalf("NewProtocol6WithError: %v", err)
 	}
@@ -127,13 +153,14 @@ func TestSchemaServedOverProtocol(t *testing.T) {
 
 	permissions := resp.DataSourceSchemas["data_proxy_permissions"]
 
-	if attributes := permissions.Block.Attributes; len(attributes) != 1 || attributes[0].Name != "permissions" || !attributes[0].Computed {
+	if attributes := permissions.Block.Attributes; len(attributes) != 1 || attributes[0].Name != "permissions" ||
+		!attributes[0].Computed {
 		t.Errorf("attributes of data_proxy_permissions = %v, want only the computed permissions", attributes)
 	}
 }
 
 // model builds the provider configuration. A nil text is a null value.
-func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) providerModel {
+func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) dp.ProviderModel {
 	text := func(value *string) types.String {
 		if value == nil {
 			return types.StringNull()
@@ -153,7 +180,7 @@ func model(endpoint, tokenURL, clientID, clientSecret *string, scopes []string) 
 		list = types.ListValueMust(types.StringType, elements)
 	}
 
-	return providerModel{
+	return dp.ProviderModel{
 		Endpoint:     text(endpoint),
 		TokenURL:     text(tokenURL),
 		ClientID:     text(clientID),
@@ -169,9 +196,25 @@ type diagnostic struct {
 	detail  string
 }
 
+// as returns the value as the type T, and fails the test when it has another type.
+func as[T any](tb testing.TB, value any) T {
+	tb.Helper()
+
+	typed, ok := value.(T)
+	if !ok {
+		tb.Fatalf("%T does not implement %T", value, new(T))
+	}
+
+	return typed
+}
+
 // diagnosticsOf converts the diagnostics of a response into diagnostic values.
 func diagnosticsOf(diagnostics diag.Diagnostics) []diagnostic {
-	var got []diagnostic
+	if len(diagnostics) == 0 {
+		return nil
+	}
+
+	got := make([]diagnostic, 0, len(diagnostics))
 
 	for _, entry := range diagnostics {
 		item := diagnostic{summary: entry.Summary(), detail: entry.Detail()}
@@ -187,25 +230,33 @@ func diagnosticsOf(diagnostics diag.Diagnostics) []diagnostic {
 }
 
 // fullEnv sets every variable of the provider environment, so a test can check that the environment fills each setting.
-var fullEnv = map[string]string{
-	EnvEndpoint:     "https://env.example.com",
-	EnvTokenURL:     "https://id.env.example.com/token",
-	EnvClientID:     "env-client",
-	EnvClientSecret: "env-secret",
-	EnvScopes:       "openid, data-proxy\tprofile",
+func fullEnv() map[string]string {
+	return map[string]string{
+		dp.EnvEndpoint:     "https://env.example.com",
+		dp.EnvTokenURL:     "https://id.env.example.com/token",
+		dp.EnvClientID:     "env-client",
+		dp.EnvClientSecret: fakeEnvSecret,
+		dp.EnvScopes:       "openid, data-proxy\tprofile",
+	}
 }
 
+//nolint:gosec // G101 reads the fake client secrets of the test cases as hardcoded credentials.
 func TestReadSettings(t *testing.T) {
-	hcl := model(new("https://hcl.example.com"), new("https://id.hcl.example.com/token"), new("hcl-client"), new("hcl-secret"), []string{"hcl"})
-	hclSettings := settings{
-		endpoint: "https://hcl.example.com",
-		credentials: client.Credentials{
-			TokenURL:     "https://id.hcl.example.com/token",
-			ClientID:     "hcl-client",
-			ClientSecret: "hcl-secret",
-			Scopes:       []string{"hcl"},
-		},
-	}
+	t.Parallel()
+
+	hcl := model(
+		new("https://hcl.example.com"),
+		new("https://id.hcl.example.com/token"),
+		new("hcl-client"),
+		new("hcl-secret"),
+		[]string{"hcl"},
+	)
+	hclSettings := dp.NewSettings("https://hcl.example.com", client.Credentials{
+		TokenURL:     "https://id.hcl.example.com/token",
+		ClientID:     "hcl-client",
+		ClientSecret: fakeHCLSecret,
+		Scopes:       []string{"hcl"},
+	})
 
 	unknownEndpoint := hcl
 	unknownEndpoint.Endpoint = types.StringUnknown()
@@ -215,9 +266,9 @@ func TestReadSettings(t *testing.T) {
 
 	tests := []struct {
 		name  string
-		model providerModel
+		model dp.ProviderModel
 		env   map[string]string
-		want  settings
+		want  dp.Settings
 		diags []diagnostic
 	}{
 		{
@@ -228,126 +279,156 @@ func TestReadSettings(t *testing.T) {
 		{
 			name:  "every attribute from the environment",
 			model: model(nil, nil, nil, nil, nil),
-			env:   fullEnv,
-			want: settings{
-				endpoint: "https://env.example.com",
-				credentials: client.Credentials{
-					TokenURL:     "https://id.env.example.com/token",
-					ClientID:     "env-client",
-					ClientSecret: "env-secret",
-					Scopes:       []string{"openid", "data-proxy", "profile"},
-				},
-			},
+			env:   fullEnv(),
+			want: dp.NewSettings("https://env.example.com", client.Credentials{
+				TokenURL:     "https://id.env.example.com/token",
+				ClientID:     "env-client",
+				ClientSecret: fakeEnvSecret,
+				Scopes:       []string{"openid", "data-proxy", "profile"},
+			}),
 		},
 		{
 			name:  "the block takes precedence over the environment",
 			model: hcl,
-			env:   fullEnv,
+			env:   fullEnv(),
 			want:  hclSettings,
 		},
 		{
 			name:  "the environment fills only what the block leaves out",
 			model: model(new("https://hcl.example.com"), nil, new("hcl-client"), nil, nil),
-			env:   fullEnv,
-			want: settings{
-				endpoint: "https://hcl.example.com",
-				credentials: client.Credentials{
-					TokenURL:     "https://id.env.example.com/token",
-					ClientID:     "hcl-client",
-					ClientSecret: "env-secret",
-					Scopes:       []string{"openid", "data-proxy", "profile"},
-				},
-			},
+			env:   fullEnv(),
+			want: dp.NewSettings("https://hcl.example.com", client.Credentials{
+				TokenURL:     "https://id.env.example.com/token",
+				ClientID:     "hcl-client",
+				ClientSecret: fakeEnvSecret,
+				Scopes:       []string{"openid", "data-proxy", "profile"},
+			}),
 		},
 		{
-			name:  "an empty scope list in the block takes precedence over the environment",
-			model: model(new("https://hcl.example.com"), new("https://id.hcl.example.com/token"), new("hcl-client"), new("hcl-secret"), []string{}),
-			env:   fullEnv,
-			want: settings{
-				endpoint: "https://hcl.example.com",
-				credentials: client.Credentials{
-					TokenURL:     "https://id.hcl.example.com/token",
-					ClientID:     "hcl-client",
-					ClientSecret: "hcl-secret",
-					Scopes:       []string{},
-				},
-			},
+			name: "an empty scope list in the block takes precedence over the environment",
+			model: model(
+				new("https://hcl.example.com"),
+				new("https://id.hcl.example.com/token"),
+				new("hcl-client"),
+				new("hcl-secret"),
+				[]string{},
+			),
+			env: fullEnv(),
+			want: dp.NewSettings("https://hcl.example.com", client.Credentials{
+				TokenURL:     "https://id.hcl.example.com/token",
+				ClientID:     "hcl-client",
+				ClientSecret: fakeHCLSecret,
+				Scopes:       []string{},
+			}),
 		},
 		{
-			name:  "no scopes anywhere",
-			model: model(new("https://hcl.example.com"), new("https://id.hcl.example.com/token"), new("hcl-client"), new("hcl-secret"), nil),
-			want: settings{
-				endpoint: "https://hcl.example.com",
-				credentials: client.Credentials{
-					TokenURL:     "https://id.hcl.example.com/token",
-					ClientID:     "hcl-client",
-					ClientSecret: "hcl-secret",
-					Scopes:       []string{},
-				},
-			},
+			name: "no scopes anywhere",
+			model: model(
+				new("https://hcl.example.com"),
+				new("https://id.hcl.example.com/token"),
+				new("hcl-client"),
+				new("hcl-secret"),
+				nil,
+			),
+			want: dp.NewSettings("https://hcl.example.com", client.Credentials{
+				TokenURL:     "https://id.hcl.example.com/token",
+				ClientID:     "hcl-client",
+				ClientSecret: fakeHCLSecret,
+				Scopes:       []string{},
+			}),
 		},
 		{
 			name:  "every required value missing",
 			model: model(nil, nil, nil, nil, nil),
-			env:   map[string]string{EnvScopes: "openid"},
-			want:  settings{credentials: client.Credentials{Scopes: []string{"openid"}}},
+			env:   map[string]string{dp.EnvScopes: "openid"},
+			want:  dp.NewSettings("", client.Credentials{Scopes: []string{"openid"}}),
 			diags: []diagnostic{
-				{path: "endpoint", summary: "Missing endpoint", detail: "Set endpoint in the provider block or in the DATA_PROXY_ENDPOINT environment variable."},
-				{path: "token_url", summary: "Missing token_url", detail: "Set token_url in the provider block or in the DATA_PROXY_TOKEN_URL environment variable."},
-				{path: "client_id", summary: "Missing client_id", detail: "Set client_id in the provider block or in the DATA_PROXY_CLIENT_ID environment variable."},
-				{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATA_PROXY_CLIENT_SECRET environment variable."},
+				{
+					path:    "endpoint",
+					summary: "Missing endpoint",
+					detail:  "Set endpoint in the provider block or in the DATA_PROXY_ENDPOINT environment variable.",
+				},
+				{
+					path:    "token_url",
+					summary: "Missing token_url",
+					detail:  "Set token_url in the provider block or in the DATA_PROXY_TOKEN_URL environment variable.",
+				},
+				{
+					path:    "client_id",
+					summary: "Missing client_id",
+					detail:  "Set client_id in the provider block or in the DATA_PROXY_CLIENT_ID environment variable.",
+				},
+				{
+					path:    "client_secret",
+					summary: "Missing client_secret",
+					detail:  "Set client_secret in the provider block or in the DATA_PROXY_CLIENT_SECRET environment variable.",
+				},
 			},
 		},
 		{
-			name:  "an empty string in the block hides the environment",
-			model: model(new("https://hcl.example.com"), new("https://id.hcl.example.com/token"), new("hcl-client"), new(""), []string{"hcl"}),
-			env:   fullEnv,
-			want: settings{
-				endpoint: "https://hcl.example.com",
-				credentials: client.Credentials{
-					TokenURL: "https://id.hcl.example.com/token",
-					ClientID: "hcl-client",
-					Scopes:   []string{"hcl"},
-				},
-			},
+			name: "an empty string in the block hides the environment",
+			model: model(
+				new("https://hcl.example.com"),
+				new("https://id.hcl.example.com/token"),
+				new("hcl-client"),
+				new(""),
+				[]string{"hcl"},
+			),
+			env: fullEnv(),
+			want: dp.NewSettings("https://hcl.example.com", client.Credentials{
+				TokenURL: "https://id.hcl.example.com/token",
+				ClientID: "hcl-client",
+				Scopes:   []string{"hcl"},
+			}),
 			diags: []diagnostic{
-				{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATA_PROXY_CLIENT_SECRET environment variable."},
+				{
+					path:    "client_secret",
+					summary: "Missing client_secret",
+					detail:  "Set client_secret in the provider block or in the DATA_PROXY_CLIENT_SECRET environment variable.",
+				},
 			},
 		},
 		{
 			name:  "an unknown endpoint",
 			model: unknownEndpoint,
-			env:   fullEnv,
-			want: settings{
-				credentials: hclSettings.credentials,
-			},
+			env:   fullEnv(),
+			want:  dp.NewSettings("", hclSettings.Credentials()),
 			diags: []diagnostic{
-				{path: "endpoint", summary: "Unknown endpoint", detail: "The provider can't start with an unknown endpoint. Give a known value, or leave it out and set DATA_PROXY_ENDPOINT."},
+				{
+					path:    "endpoint",
+					summary: "Unknown endpoint",
+					detail: "The provider can't start with an unknown endpoint. Give a known value, or leave it out and set " +
+						"DATA_PROXY_ENDPOINT.",
+				},
 			},
 		},
 		{
 			name:  "unknown scopes",
 			model: unknownScopes,
-			env:   fullEnv,
-			want: settings{
-				endpoint: hclSettings.endpoint,
-				credentials: client.Credentials{
-					TokenURL:     "https://id.hcl.example.com/token",
-					ClientID:     "hcl-client",
-					ClientSecret: "hcl-secret",
-				},
-			},
+			env:   fullEnv(),
+			want: dp.NewSettings(hclSettings.Endpoint(), client.Credentials{
+				TokenURL:     "https://id.hcl.example.com/token",
+				ClientID:     "hcl-client",
+				ClientSecret: fakeHCLSecret,
+			}),
 			diags: []diagnostic{
-				{path: "scopes", summary: "Unknown scopes", detail: "The provider can't start with unknown scopes. Give known values, or leave them out and set DATA_PROXY_SCOPES."},
+				{
+					path:    "scopes",
+					summary: "Unknown scopes",
+					detail: "The provider can't start with unknown scopes. Give known values, or leave them out and set " +
+						"DATA_PROXY_SCOPES.",
+				},
 			},
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			getenv := func(name string) string { return testCase.env[name] }
 
-			got, diagnostics := readSettings(context.Background(), testCase.model, getenv)
+			got, diagnostics := dp.ReadSettings(context.Background(), testCase.model, getenv)
 
 			if !reflect.DeepEqual(got, testCase.want) {
 				t.Errorf("settings = %+v, want %+v", got, testCase.want)
@@ -361,6 +442,8 @@ func TestReadSettings(t *testing.T) {
 }
 
 func TestSplitScopes(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		value string
@@ -370,12 +453,18 @@ func TestSplitScopes(t *testing.T) {
 		{name: "one scope", value: "openid", want: []string{"openid"}},
 		{name: "commas", value: "openid,profile", want: []string{"openid", "profile"}},
 		{name: "spaces", value: "openid profile", want: []string{"openid", "profile"}},
-		{name: "commas, spaces and empty items", value: " openid, ,profile\n email ", want: []string{"openid", "profile", "email"}},
+		{
+			name:  "commas, spaces and empty items",
+			value: " openid, ,profile\n email ",
+			want:  []string{"openid", "profile", "email"},
+		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			if got := splitScopes(testCase.value); !reflect.DeepEqual(got, testCase.want) {
+			t.Parallel()
+
+			if got := dp.SplitScopes(testCase.value); !reflect.DeepEqual(got, testCase.want) {
 				t.Errorf("splitScopes(%q) = %q, want %q", testCase.value, got, testCase.want)
 			}
 		})
@@ -387,7 +476,7 @@ func configure(t *testing.T, attributes map[string]tftypes.Value) provider.Confi
 	t.Helper()
 
 	ctx := context.Background()
-	dataProxy := New("test")()
+	dataProxy := dp.New("test")()
 
 	var schemaResp provider.SchemaResponse
 
@@ -405,7 +494,9 @@ func configure(t *testing.T, attributes map[string]tftypes.Value) provider.Confi
 
 	maps.Copy(values, attributes)
 
-	req := provider.ConfigureRequest{Config: tfsdk.Config{Schema: schemaResp.Schema, Raw: tftypes.NewValue(objectType, values)}}
+	req := provider.ConfigureRequest{
+		Config: tfsdk.Config{Schema: schemaResp.Schema, Raw: tftypes.NewValue(objectType, values)},
+	}
 
 	var resp provider.ConfigureResponse
 
@@ -435,16 +526,17 @@ type fakeAPI struct {
 func newFakeAPI(t *testing.T, tokenStatus, status int, body string) fakeAPI {
 	t.Helper()
 
-	identity := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(tokenStatus)
+	identity := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(tokenStatus)
 
 		response := `{"access_token":"jwt-123","token_type":"Bearer","expires_in":300}`
 		if tokenStatus != http.StatusOK {
 			response = `{"error":"unauthorized_client","error_description":"Invalid client or Invalid client credentials"}`
 		}
 
-		if _, err := w.Write([]byte(response)); err != nil {
+		_, err := writer.Write([]byte(response))
+		if err != nil {
 			t.Errorf("write the token response: %v", err)
 		}
 	}))
@@ -452,19 +544,20 @@ func newFakeAPI(t *testing.T, tokenStatus, status int, body string) fakeAPI {
 
 	var requests []apiRequest
 
-	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	api := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
 		requests = append(requests, apiRequest{
-			method:         r.Method,
-			uri:            r.URL.RequestURI(),
-			acceptProfile:  r.Header.Get("Accept-Profile"),
-			contentProfile: r.Header.Get("Content-Profile"),
-			authorization:  r.Header.Get("Authorization"),
+			method:         req.Method,
+			uri:            req.URL.RequestURI(),
+			acceptProfile:  req.Header.Get("Accept-Profile"),
+			contentProfile: req.Header.Get("Content-Profile"),
+			authorization:  req.Header.Get("Authorization"),
 		})
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(status)
 
-		if _, err := w.Write([]byte(body)); err != nil {
+		_, err := writer.Write([]byte(body))
+		if err != nil {
 			t.Errorf("write the API response: %v", err)
 		}
 	}))
@@ -508,7 +601,11 @@ func TestConfigure(t *testing.T) {
 			},
 			diags: func(fakeAPI) []diagnostic {
 				return []diagnostic{
-					{path: "client_secret", summary: "Missing client_secret", detail: "Set client_secret in the provider block or in the DATA_PROXY_CLIENT_SECRET environment variable."},
+					{
+						path:    "client_secret",
+						summary: "Missing client_secret",
+						detail:  "Set client_secret in the provider block or in the DATA_PROXY_CLIENT_SECRET environment variable.",
+					},
 				}
 			},
 		},
@@ -517,7 +614,11 @@ func TestConfigure(t *testing.T) {
 			change: func(attributes map[string]tftypes.Value) { attributes["endpoint"] = text("data-proxy.example.com") },
 			diags: func(fakeAPI) []diagnostic {
 				return []diagnostic{
-					{path: "endpoint", summary: "Invalid Data Proxy endpoint", detail: `endpoint "data-proxy.example.com": the scheme must be http or https`},
+					{
+						path:    "endpoint",
+						summary: "Invalid Data Proxy endpoint",
+						detail:  `endpoint "data-proxy.example.com": the scheme must be http or https`,
+					},
 				}
 			},
 		},
@@ -526,7 +627,10 @@ func TestConfigure(t *testing.T) {
 			change: func(attributes map[string]tftypes.Value) { attributes["token_url"] = text("id.example.com/token") },
 			diags: func(fakeAPI) []diagnostic {
 				return []diagnostic{
-					{summary: "Invalid Data Proxy credentials", detail: `token URL "id.example.com/token": the scheme must be http or https`},
+					{
+						summary: "Invalid Data Proxy credentials",
+						detail:  `token URL "id.example.com/token": the scheme must be http or https`,
+					},
 				}
 			},
 		},
@@ -559,11 +663,15 @@ func TestConfigure(t *testing.T) {
 			status: http.StatusOK,
 			body:   `["read_policy","create_policy"]`,
 			diags: func(fakeAPI) []diagnostic {
-				return []diagnostic{{
-					summary: "Missing read_config permission",
-					detail: `The token of the client "terraform" lacks the read_config permission, and the provider needs it to read the configuration. ` +
-						"Give the client a role that has read_config, such as dp_console or dp_admin. The token has these permissions: read_policy, create_policy.",
-				}}
+				return []diagnostic{
+					{
+						summary: "Missing read_config permission",
+						detail: `The token of the client "terraform" lacks the read_config permission, and the provider needs it to ` +
+							`read the configuration. ` +
+							"Give the client a role that has read_config, such as dp_console or dp_admin. The token has these " +
+							"permissions: read_policy, create_policy.",
+					},
+				}
 			},
 			requests: 1,
 		},
@@ -572,11 +680,15 @@ func TestConfigure(t *testing.T) {
 			status: http.StatusOK,
 			body:   `[]`,
 			diags: func(fakeAPI) []diagnostic {
-				return []diagnostic{{
-					summary: "Missing read_config permission",
-					detail: `The token of the client "terraform" lacks the read_config permission, and the provider needs it to read the configuration. ` +
-						"Give the client a role that has read_config, such as dp_console or dp_admin. The token has these permissions: none.",
-				}}
+				return []diagnostic{
+					{
+						summary: "Missing read_config permission",
+						detail: `The token of the client "terraform" lacks the read_config permission, and the provider needs it to ` +
+							`read the configuration. ` +
+							"Give the client a role that has read_config, such as dp_console or dp_admin. The token has these " +
+							"permissions: none.",
+					},
+				}
 			},
 			requests: 1,
 		},
@@ -603,11 +715,11 @@ func TestConfigure(t *testing.T) {
 			if testCase.env {
 				attributes = map[string]tftypes.Value{}
 				env = map[string]string{
-					EnvEndpoint:     api.endpoint,
-					EnvTokenURL:     api.tokenURL,
-					EnvClientID:     "env-client",
-					EnvClientSecret: "env-secret",
-					EnvScopes:       "openid profile",
+					dp.EnvEndpoint:     api.endpoint,
+					dp.EnvTokenURL:     api.tokenURL,
+					dp.EnvClientID:     "env-client",
+					dp.EnvClientSecret: fakeEnvSecret,
+					dp.EnvScopes:       "openid profile",
 				}
 			}
 
@@ -615,7 +727,7 @@ func TestConfigure(t *testing.T) {
 				testCase.change(attributes)
 			}
 
-			for _, name := range []string{EnvEndpoint, EnvTokenURL, EnvClientID, EnvClientSecret, EnvScopes} {
+			for _, name := range []string{dp.EnvEndpoint, dp.EnvTokenURL, dp.EnvClientID, dp.EnvClientSecret, dp.EnvScopes} {
 				t.Setenv(name, env[name])
 			}
 
@@ -635,7 +747,12 @@ func TestConfigure(t *testing.T) {
 			}
 
 			for _, request := range *api.requests {
-				wantRequest := apiRequest{method: http.MethodGet, uri: "/rpc/permissions", acceptProfile: "console", authorization: "Bearer jwt-123"}
+				wantRequest := apiRequest{
+					method:        http.MethodGet,
+					uri:           "/rpc/permissions",
+					acceptProfile: "console",
+					authorization: "Bearer jwt-123",
+				}
 				if request != wantRequest {
 					t.Errorf("request = %+v, want %+v", request, wantRequest)
 				}
@@ -661,7 +778,8 @@ func TestConfigure(t *testing.T) {
 	}
 }
 
-// testAccNamePrefix starts every name that an acceptance test creates, so a row that a test left behind is easy to find.
+// testAccNamePrefix starts every name that an acceptance test creates, so a row that a test left behind is easy to
+// find.
 const testAccNamePrefix = "tfacc"
 
 // testAccProviderName is the local name of the provider in the test configurations. A local name has no underscore,
@@ -669,15 +787,17 @@ const testAccNamePrefix = "tfacc"
 const testAccProviderName = "data-proxy"
 
 // testAccProviderFactories serves the provider inside the test process, so Terraform needs no provider binary.
-var testAccProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
-	testAccProviderName: providerserver.NewProtocol6WithError(New("test")()),
+func testAccProviderFactories() map[string]func() (tfprotov6.ProviderServer, error) {
+	return map[string]func() (tfprotov6.ProviderServer, error){
+		testAccProviderName: providerserver.NewProtocol6WithError(dp.New("test")()),
+	}
 }
 
 // testAccPreCheck fails the test when a required DATA_PROXY_* variable is empty.
 func testAccPreCheck(t *testing.T) {
 	t.Helper()
 
-	for _, name := range []string{EnvEndpoint, EnvTokenURL, EnvClientID, EnvClientSecret} {
+	for _, name := range []string{dp.EnvEndpoint, dp.EnvTokenURL, dp.EnvClientID, dp.EnvClientSecret} {
 		if os.Getenv(name) == "" {
 			t.Fatalf("set %s for the acceptance tests", name)
 		}
@@ -692,16 +812,16 @@ func testAccName() string {
 // testAccClient returns a client with the credentials of the DATA_PROXY_* variables.
 func testAccClient() (*client.Client, error) {
 	tokens, err := client.NewCredentialsSource(client.Credentials{
-		TokenURL:     os.Getenv(EnvTokenURL),
-		ClientID:     os.Getenv(EnvClientID),
-		ClientSecret: os.Getenv(EnvClientSecret),
-		Scopes:       splitScopes(os.Getenv(EnvScopes)),
+		TokenURL:     os.Getenv(dp.EnvTokenURL),
+		ClientID:     os.Getenv(dp.EnvClientID),
+		ClientSecret: os.Getenv(dp.EnvClientSecret),
+		Scopes:       dp.SplitScopes(os.Getenv(dp.EnvScopes)),
 	}, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build the token source: %w", err)
 	}
 
-	apiClient, err := client.New(os.Getenv(EnvEndpoint), tokens, nil)
+	apiClient, err := client.New(os.Getenv(dp.EnvEndpoint), tokens, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build the client: %w", err)
 	}
@@ -711,32 +831,35 @@ func testAccClient() (*client.Client, error) {
 
 // testAccCleanup deletes the rows of table that match every filter when the test ends. Cleanups run in reverse
 // order, so register a parent, such as a project, before its children.
-func testAccCleanup(t testing.TB, table string, filters ...client.Filter) {
-	t.Helper()
+func testAccCleanup(tb testing.TB, table string, filters ...client.Filter) {
+	tb.Helper()
 
 	if os.Getenv(acc.EnvTfAcc) == "" {
 		return
 	}
 
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), client.DefaultTimeout)
 		defer cancel()
 
 		apiClient, err := testAccClient()
 		if err != nil {
-			t.Errorf("clean up %s: %v", table, err)
+			tb.Errorf("clean up %s: %v", table, err)
 
 			return
 		}
 
-		if err := apiClient.Delete(ctx, client.ConsoleProfile, table, filters, nil); err != nil {
-			t.Errorf("clean up %s: %v", table, err)
+		err = apiClient.Delete(ctx, client.ConsoleProfile, table, filters, nil)
+		if err != nil {
+			tb.Errorf("clean up %s: %v", table, err)
 		}
 	})
 }
 
 // TestTestAccName checks that each name fits the name rules of the database and that two names differ.
 func TestTestAccName(t *testing.T) {
+	t.Parallel()
+
 	// These patterns copy the name checks of console.projects and console.schemas in migration 00012.
 	tests := []struct {
 		name    string
@@ -751,6 +874,8 @@ func TestTestAccName(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			for _, name := range []string{first, second} {
 				if !testCase.pattern.MatchString(name) {
 					t.Errorf("testAccName() = %q, want a match of %s", name, testCase.pattern)
@@ -807,21 +932,42 @@ func TestTestAccCleanup(t *testing.T) {
 			acceptance: true,
 			status:     http.StatusOK,
 			body:       `[{"name":"tfaccabc"}]`,
-			requests:   []apiRequest{{method: http.MethodDelete, uri: "/schemas?name=eq.tfaccabc", contentProfile: "console", authorization: "Bearer jwt-123"}},
+			requests: []apiRequest{
+				{
+					method:         http.MethodDelete,
+					uri:            "/schemas?name=eq.tfaccabc",
+					contentProfile: "console",
+					authorization:  "Bearer jwt-123",
+				},
+			},
 		},
 		{
 			name:       "no row left to delete",
 			acceptance: true,
 			status:     http.StatusOK,
 			body:       `[]`,
-			requests:   []apiRequest{{method: http.MethodDelete, uri: "/schemas?name=eq.tfaccabc", contentProfile: "console", authorization: "Bearer jwt-123"}},
+			requests: []apiRequest{
+				{
+					method:         http.MethodDelete,
+					uri:            "/schemas?name=eq.tfaccabc",
+					contentProfile: "console",
+					authorization:  "Bearer jwt-123",
+				},
+			},
 		},
 		{
 			name:       "the database refuses the delete",
 			acceptance: true,
 			status:     http.StatusForbidden,
 			body:       `{"code":"42501","message":"permission denied for table schemas"}`,
-			requests:   []apiRequest{{method: http.MethodDelete, uri: "/schemas?name=eq.tfaccabc", contentProfile: "console", authorization: "Bearer jwt-123"}},
+			requests: []apiRequest{
+				{
+					method:         http.MethodDelete,
+					uri:            "/schemas?name=eq.tfaccabc",
+					contentProfile: "console",
+					authorization:  "Bearer jwt-123",
+				},
+			},
 			errors: func(fakeAPI) []string {
 				return []string{"clean up schemas: postgrest: HTTP 403 42501: permission denied for table schemas"}
 			},
@@ -852,11 +998,11 @@ func TestTestAccCleanup(t *testing.T) {
 			}
 
 			t.Setenv(acc.EnvTfAcc, acceptance)
-			t.Setenv(EnvEndpoint, api.endpoint)
-			t.Setenv(EnvTokenURL, api.tokenURL)
-			t.Setenv(EnvClientID, "terraform")
-			t.Setenv(EnvClientSecret, "secret-123")
-			t.Setenv(EnvScopes, "")
+			t.Setenv(dp.EnvEndpoint, api.endpoint)
+			t.Setenv(dp.EnvTokenURL, api.tokenURL)
+			t.Setenv(dp.EnvClientID, "terraform")
+			t.Setenv(dp.EnvClientSecret, "secret-123")
+			t.Setenv(dp.EnvScopes, "")
 
 			recorder := &cleanupRecorder{TB: t}
 
@@ -944,10 +1090,10 @@ func newStepClient(t *testing.T, steps []step) *client.Client {
 
 	next := 0
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
 		if next >= len(steps) {
-			t.Errorf("unexpected request %s %s", r.Method, r.URL.RequestURI())
-			w.WriteHeader(http.StatusInternalServerError)
+			t.Errorf("unexpected request %s %s", req.Method, req.URL.RequestURI())
+			writer.WriteHeader(http.StatusInternalServerError)
 
 			return
 		}
@@ -955,22 +1101,23 @@ func newStepClient(t *testing.T, steps []step) *client.Client {
 		want := steps[next]
 		next++
 
-		raw, err := io.ReadAll(r.Body)
+		raw, err := io.ReadAll(req.Body)
 		if err != nil {
 			t.Errorf("read the request body: %v", err)
 		}
 
-		checkStep(t, want, r, raw)
+		checkStep(t, want, req, raw)
 
 		status := want.status
 		if status == 0 {
 			status = http.StatusOK
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(status)
 
-		if _, err := w.Write([]byte(want.response)); err != nil {
+		_, err = writer.Write([]byte(want.response))
+		if err != nil {
 			t.Errorf("write the response: %v", err)
 		}
 	}))
@@ -992,29 +1139,31 @@ func newStepClient(t *testing.T, steps []step) *client.Client {
 }
 
 // checkStep compares a request with the step that it should match.
-func checkStep(t *testing.T, want step, r *http.Request, body []byte) {
+func checkStep(t *testing.T, want step, req *http.Request, body []byte) {
 	t.Helper()
 
-	if want.method != "" && r.Method != want.method {
-		t.Errorf("method = %s, want %s", r.Method, want.method)
+	if want.method != "" && req.Method != want.method {
+		t.Errorf("method = %s, want %s", req.Method, want.method)
 	}
 
-	if want.uri != "" && r.URL.RequestURI() != want.uri {
-		t.Errorf("uri = %s, want %s", r.URL.RequestURI(), want.uri)
+	if want.uri != "" && req.URL.RequestURI() != want.uri {
+		t.Errorf("uri = %s, want %s", req.URL.RequestURI(), want.uri)
 	}
 
-	profile := r.Header.Get("Accept-Profile") + r.Header.Get("Content-Profile")
+	profile := req.Header.Get("Accept-Profile") + req.Header.Get("Content-Profile")
 	if want.profile != "" && profile != want.profile {
 		t.Errorf("profile = %q, want %q", profile, want.profile)
 	}
 
-	if want.body != "" && !sameJSON(want.body, string(body)) {
+	if want.body != "" && !dp.SameJSON(want.body, string(body)) {
 		t.Errorf("body = %s, want %s", body, want.body)
 	}
 }
 
 // timeoutAttributes are the types of the timeouts attribute of a resource.
-var timeoutAttributes = map[string]attr.Type{"create": types.StringType, "delete": types.StringType}
+func timeoutAttributes() map[string]attr.Type {
+	return map[string]attr.Type{"create": types.StringType, "delete": types.StringType}
+}
 
 // timeoutsOf builds the timeouts attribute of a model. An empty text leaves its timeout null.
 func timeoutsOf(create, deleted string) timeouts.Value {
@@ -1026,7 +1175,12 @@ func timeoutsOf(create, deleted string) timeouts.Value {
 		return types.StringValue(value)
 	}
 
-	return timeouts.Value{Object: types.ObjectValueMust(timeoutAttributes, map[string]attr.Value{"create": text(create), "delete": text(deleted)})}
+	return timeouts.Value{
+		Object: types.ObjectValueMust(
+			timeoutAttributes(),
+			map[string]attr.Value{"create": text(create), "delete": text(deleted)},
+		),
+	}
 }
 
 // resourceSchema returns the schema of a resource.
@@ -1111,11 +1265,16 @@ func dataSourceSchema(t *testing.T, source datasource.DataSource) datasourcesche
 }
 
 // readDataSource runs a data source on a config model and returns its diagnostics and its state.
-func readDataSource(t *testing.T, source datasource.DataSource, apiClient *client.Client, config any) (datasource.ReadResponse, []diagnostic) {
+func readDataSource(
+	t *testing.T,
+	source datasource.DataSource,
+	apiClient *client.Client,
+	config any,
+) (datasource.ReadResponse, []diagnostic) {
 	t.Helper()
 
 	ctx := context.Background()
-	s := dataSourceSchema(t, source)
+	providerSchema := dataSourceSchema(t, source)
 
 	withClient, ok := source.(datasource.DataSourceWithConfigure)
 	if !ok {
@@ -1130,11 +1289,11 @@ func readDataSource(t *testing.T, source datasource.DataSource, apiClient *clien
 		t.Fatalf("Configure: %v", configureResp.Diagnostics)
 	}
 
-	raw := tftypes.NewValue(s.Type().TerraformType(ctx), nil)
-	cfg := tfsdk.Config{Schema: s, Raw: raw}
+	raw := tftypes.NewValue(providerSchema.Type().TerraformType(ctx), nil)
+	cfg := tfsdk.Config{Schema: providerSchema, Raw: raw}
 
 	// A config is a state of the same schema for the purpose of building it from a model.
-	state := tfsdk.State{Schema: s, Raw: raw}
+	state := tfsdk.State{Schema: providerSchema, Raw: raw}
 
 	if diagnostics := state.Set(ctx, config); diagnostics.HasError() {
 		t.Fatalf("build the config: %v", diagnostics)
@@ -1142,7 +1301,7 @@ func readDataSource(t *testing.T, source datasource.DataSource, apiClient *clien
 
 	cfg.Raw = state.Raw
 
-	resp := datasource.ReadResponse{State: tfsdk.State{Schema: s, Raw: raw}}
+	resp := datasource.ReadResponse{State: tfsdk.State{Schema: providerSchema, Raw: raw}}
 
 	source.Read(ctx, datasource.ReadRequest{Config: cfg}, &resp)
 

@@ -1,4 +1,4 @@
-package provider
+package provider_test
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"terraform-provider-data-proxy/internal/client"
+	"terraform-provider-data-proxy/internal/provider"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -15,6 +16,8 @@ import (
 )
 
 func TestCompactJSON(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		raw  json.RawMessage
@@ -28,7 +31,9 @@ func TestCompactJSON(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			if got := string(compactJSON(testCase.raw)); got != testCase.want {
+			t.Parallel()
+
+			if got := string(provider.CompactJSON(testCase.raw)); got != testCase.want {
 				t.Errorf("compactJSON(%s) = %q, want %q", testCase.raw, got, testCase.want)
 			}
 		})
@@ -36,21 +41,45 @@ func TestCompactJSON(t *testing.T) {
 }
 
 func TestJSONValue(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		raw     json.RawMessage
 		current types.String
 		want    types.String
 	}{
-		{name: "keeps the layout of the state for the same JSON", raw: json.RawMessage(`{"b":1,"a":2}`), current: types.StringValue(`{"a": 2, "b": 1}`), want: types.StringValue(`{"a": 2, "b": 1}`)},
-		{name: "takes the new JSON when the value differs", raw: json.RawMessage(`{"a":3}`), current: types.StringValue(`{"a": 2}`), want: types.StringValue(`{"a":3}`)},
-		{name: "takes the compact JSON without a state", raw: json.RawMessage(`{ "a": 1 }`), current: types.StringNull(), want: types.StringValue(`{"a":1}`)},
-		{name: "a JSON null is null", raw: json.RawMessage("null"), current: types.StringValue(`{"a":1}`), want: types.StringNull()},
+		{
+			name:    "keeps the layout of the state for the same JSON",
+			raw:     json.RawMessage(`{"b":1,"a":2}`),
+			current: types.StringValue(`{"a": 2, "b": 1}`),
+			want:    types.StringValue(`{"a": 2, "b": 1}`),
+		},
+		{
+			name:    "takes the new JSON when the value differs",
+			raw:     json.RawMessage(`{"a":3}`),
+			current: types.StringValue(`{"a": 2}`),
+			want:    types.StringValue(`{"a":3}`),
+		},
+		{
+			name:    "takes the compact JSON without a state",
+			raw:     json.RawMessage(`{ "a": 1 }`),
+			current: types.StringNull(),
+			want:    types.StringValue(`{"a":1}`),
+		},
+		{
+			name:    "a JSON null is null",
+			raw:     json.RawMessage("null"),
+			current: types.StringValue(`{"a":1}`),
+			want:    types.StringNull(),
+		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			if got := jsonValue(testCase.raw, testCase.current); !got.Equal(testCase.want) {
+			t.Parallel()
+
+			if got := provider.JsonValue(testCase.raw, testCase.current); !got.Equal(testCase.want) {
 				t.Errorf("jsonValue = %v, want %v", got, testCase.want)
 			}
 		})
@@ -59,19 +88,23 @@ func TestJSONValue(t *testing.T) {
 
 // TestJSONRaw checks that a null or unknown text gives no JSON, and a known text gives itself.
 func TestJSONRaw(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name  string
 		input types.String
 		want  string
 	}{
-		{name: "null", input: types.StringNull()},
+		{name: nullJSON, input: types.StringNull()},
 		{name: "unknown", input: types.StringUnknown()},
 		{name: "a value", input: types.StringValue(`{"a":1}`), want: `{"a":1}`},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			got := jsonRaw(testCase.input)
+			t.Parallel()
+
+			got := provider.JsonRaw(testCase.input)
 
 			if (got == nil) != (testCase.want == "") || string(got) != testCase.want {
 				t.Errorf("jsonRaw() = %s, want %q", got, testCase.want)
@@ -82,26 +115,63 @@ func TestJSONRaw(t *testing.T) {
 
 // TestOptionalConversions checks the pointer and value conversions of the optional text and number attributes.
 func TestOptionalConversions(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		run  func() (got, want string)
 	}{
-		{name: "a nil text is null", run: func() (string, string) { return stringValue(nil).String(), types.StringNull().String() }},
-		{name: "a text is a value", run: func() (string, string) { return stringValue(new("x")).ValueString(), "x" }},
-		{name: "a null text has no pointer", run: func() (string, string) { return strconv.FormatBool(stringPointer(types.StringNull()) == nil), "true" }},
+		{
+			name: "a nil text is null",
+			run:  func() (string, string) { return provider.StringValue(nil).String(), types.StringNull().String() },
+		},
+		{
+			name: "a text is a value",
+			run:  func() (string, string) { return provider.StringValue(new("x")).ValueString(), "x" },
+		},
+		{
+			name: "a null text has no pointer",
+			run: func() (string, string) {
+				return strconv.FormatBool(provider.StringPointer(types.StringNull()) == nil), "true"
+			},
+		},
 		{name: "an unknown text has no pointer", run: func() (string, string) {
-			return strconv.FormatBool(stringPointer(types.StringUnknown()) == nil), "true"
+			return strconv.FormatBool(provider.StringPointer(types.StringUnknown()) == nil), "true"
 		}},
-		{name: "a text has a pointer", run: func() (string, string) { return *stringPointer(types.StringValue("x")), "x" }},
-		{name: "a nil number is null", run: func() (string, string) { return intValue(nil).String(), types.Int64Null().String() }},
-		{name: "a number is a value", run: func() (string, string) { return strconv.FormatInt(intValue(new(3)).ValueInt64(), 10), "3" }},
-		{name: "a null number has no pointer", run: func() (string, string) { return strconv.FormatBool(intPointer(types.Int64Null()) == nil), "true" }},
-		{name: "an unknown number has no pointer", run: func() (string, string) { return strconv.FormatBool(intPointer(types.Int64Unknown()) == nil), "true" }},
-		{name: "a number has a pointer", run: func() (string, string) { return strconv.Itoa(*intPointer(types.Int64Value(4))), "4" }},
+		{
+			name: "a text has a pointer",
+			run:  func() (string, string) { return *provider.StringPointer(types.StringValue("x")), "x" },
+		},
+		{
+			name: "a nil number is null",
+			run:  func() (string, string) { return provider.IntValue(nil).String(), types.Int64Null().String() },
+		},
+		{
+			name: "a number is a value",
+			run:  func() (string, string) { return strconv.FormatInt(provider.IntValue(new(3)).ValueInt64(), 10), "3" },
+		},
+		{
+			name: "a null number has no pointer",
+			run: func() (string, string) {
+				return strconv.FormatBool(provider.IntPointer(types.Int64Null()) == nil), "true"
+			},
+		},
+		{
+			name: "an unknown number has no pointer",
+			run: func() (string, string) {
+				return strconv.FormatBool(provider.IntPointer(types.Int64Unknown()) == nil), "true"
+			},
+		},
+		{
+			name: "a number has a pointer",
+			run:  func() (string, string) { return strconv.Itoa(*provider.IntPointer(types.Int64Value(4))), "4" },
+		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			if got, want := testCase.run(); got != want {
 				t.Errorf("got %q, want %q", got, want)
 			}
@@ -110,28 +180,41 @@ func TestOptionalConversions(t *testing.T) {
 }
 
 func TestJSONValidators(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		validator validator.String
 		value     types.String
 		wantError bool
 	}{
-		{name: "an object for an object", validator: jsonObject(), value: types.StringValue(`{"a":1}`)},
-		{name: "an empty object", validator: jsonObject(), value: types.StringValue(`{}`), wantError: true},
-		{name: "an array for an object", validator: jsonObject(), value: types.StringValue(`[1]`), wantError: true},
-		{name: "a scalar for an object", validator: jsonObject(), value: types.StringValue(`1`), wantError: true},
-		{name: "text that is not JSON", validator: jsonObject(), value: types.StringValue(`{`), wantError: true},
-		{name: "an array for an array", validator: jsonArray(), value: types.StringValue(`[{"a":1}]`)},
-		{name: "an object for an array", validator: jsonArray(), value: types.StringValue(`{"a":1}`), wantError: true},
-		{name: "a null value", validator: jsonObject(), value: types.StringNull()},
-		{name: "an unknown value", validator: jsonArray(), value: types.StringUnknown()},
+		{name: "an object for an object", validator: provider.JsonObject(), value: types.StringValue(`{"a":1}`)},
+		{name: "an empty object", validator: provider.JsonObject(), value: types.StringValue(`{}`), wantError: true},
+		{name: "an array for an object", validator: provider.JsonObject(), value: types.StringValue(`[1]`), wantError: true},
+		{name: "a scalar for an object", validator: provider.JsonObject(), value: types.StringValue(`1`), wantError: true},
+		{name: "text that is not JSON", validator: provider.JsonObject(), value: types.StringValue(`{`), wantError: true},
+		{name: "an array for an array", validator: provider.JsonArray(), value: types.StringValue(`[{"a":1}]`)},
+		{
+			name:      "an object for an array",
+			validator: provider.JsonArray(),
+			value:     types.StringValue(`{"a":1}`),
+			wantError: true,
+		},
+		{name: "a null value", validator: provider.JsonObject(), value: types.StringNull()},
+		{name: "an unknown value", validator: provider.JsonArray(), value: types.StringUnknown()},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			resp := validator.StringResponse{}
 
-			testCase.validator.ValidateString(context.Background(), validator.StringRequest{Path: path.Root("settings"), ConfigValue: testCase.value}, &resp)
+			testCase.validator.ValidateString(
+				context.Background(),
+				validator.StringRequest{Path: path.Root("settings"), ConfigValue: testCase.value},
+				&resp,
+			)
 
 			if resp.Diagnostics.HasError() != testCase.wantError {
 				t.Errorf("errors = %v, want an error: %t", resp.Diagnostics, testCase.wantError)
@@ -139,32 +222,36 @@ func TestJSONValidators(t *testing.T) {
 		})
 	}
 
-	if got := jsonObject().MarkdownDescription(context.Background()); !strings.Contains(got, "JSON object") {
+	if got := provider.JsonObject().MarkdownDescription(context.Background()); !strings.Contains(got, "JSON object") {
 		t.Errorf("description = %q, want it to name a JSON object", got)
 	}
 }
 
 func TestProviderClient(t *testing.T) {
+	t.Parallel()
+
 	var diagnostics diag.Diagnostics
 
-	if got := providerClient(nil, &diagnostics); got != nil || diagnostics.HasError() {
+	if got := provider.ProviderClient(nil, &diagnostics); got != nil || diagnostics.HasError() {
 		t.Errorf("providerClient(nil) = %v, %v, want nil and no error", got, diagnostics)
 	}
 
 	c := &client.Client{}
 
-	if got := providerClient(c, &diagnostics); got != c || diagnostics.HasError() {
+	if got := provider.ProviderClient(c, &diagnostics); got != c || diagnostics.HasError() {
 		t.Errorf("providerClient = %v, %v, want the client and no error", got, diagnostics)
 	}
 
-	if got := providerClient("not a client", &diagnostics); got != nil || !diagnostics.HasError() {
+	if got := provider.ProviderClient("not a client", &diagnostics); got != nil || !diagnostics.HasError() {
 		t.Errorf("providerClient(string) = %v, %v, want nil and an error", got, diagnostics)
 	}
 }
 
 func TestSchemasAreValid(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
-	dataProxy := New("test")()
+	dataProxy := provider.New("test")()
 
 	for _, newResource := range dataProxy.Resources(ctx) {
 		instance := newResource()

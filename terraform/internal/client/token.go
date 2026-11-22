@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -46,16 +45,17 @@ func NewCredentialsSource(credentials Credentials, httpClient *http.Client) (*Cr
 		return nil, fmt.Errorf("parse the token URL: %w", err)
 	}
 
-	if err := checkAddress("token URL", credentials.TokenURL, parsed); err != nil {
+	err = checkAddress("token URL", credentials.TokenURL, parsed)
+	if err != nil {
 		return nil, err
 	}
 
 	if credentials.ClientID == "" {
-		return nil, errors.New("the client ID is empty")
+		return nil, fmt.Errorf("the client ID %w", ErrEmptyName)
 	}
 
 	if credentials.ClientSecret == "" {
-		return nil, errors.New("the client secret is empty")
+		return nil, fmt.Errorf("the client secret %w", ErrEmptyName)
 	}
 
 	if httpClient == nil {

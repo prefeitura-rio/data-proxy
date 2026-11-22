@@ -22,6 +22,33 @@ var (
 	ErrNotFound = errors.New("not found")
 )
 
+// The errors of an input that the client refuses before it sends a request, for [errors.Is]. Each one holds the end of
+// its message, so a call wraps it with %w and the text stays the same.
+var (
+	// ErrEmptyName is a table, function, profile or client name that has no text.
+	ErrEmptyName = errors.New("is empty")
+	// ErrEmptyColumn is a filter that has no column.
+	ErrEmptyColumn = errors.New("has an empty column")
+	// ErrMissingFilter is a patch or a delete that has no filter, so it would change every row.
+	ErrMissingFilter = errors.New("give at least one filter")
+	// ErrQueryOrFragment is an endpoint that has a query or a fragment.
+	ErrQueryOrFragment = errors.New("remove the query and the fragment")
+	// ErrBadScheme is an address that is not http or https.
+	ErrBadScheme = errors.New("the scheme must be http or https")
+	// ErrEmptyHost is an address that has no host.
+	ErrEmptyHost = errors.New("the host is empty")
+	// ErrInsecureHost is a plain http address of a host that is not a loopback.
+	ErrInsecureHost = errors.New("use https, or http for a loopback host")
+	// ErrNoTokenSource is a client that has no source of tokens.
+	ErrNoTokenSource = errors.New("the token source is nil")
+	// ErrEmptyToken is a token source that returned an empty token.
+	ErrEmptyToken = errors.New("the token source returned an empty token")
+	// ErrReservedColumn is a filter on a name that PostgREST reads as a parameter.
+	ErrReservedColumn = errors.New("as a parameter, not as a column")
+	// ErrWantOne is a call that needs one row and got another number.
+	ErrWantOne = errors.New("want one")
+)
+
 // ErrTruncated is the error of a read that PostgREST cut at its row limit, so the rows are not all the matches.
 var ErrTruncated = errors.New("truncated answer")
 

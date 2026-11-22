@@ -1,10 +1,11 @@
-package provider
+package provider_test
 
 import (
 	"context"
 	"regexp"
 	"strings"
 	"terraform-provider-data-proxy/internal/client"
+	"terraform-provider-data-proxy/internal/provider"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -19,8 +20,7 @@ const projectRowJSON = `{"name":"sales","updated_at":"2026-01-01T00:00:00Z","upd
 func newTestProject(t *testing.T, steps []step) resource.Resource {
 	t.Helper()
 
-	testProject := newProjectResource()
-	testProject.(*projectResource).backoff = client.Backoff{}
+	testProject := provider.ProjectResourceWithNoRetry()
 
 	return configured(t, testProject, newStepClient(t, steps))
 }
@@ -36,6 +36,8 @@ func summaries(diagnostics []diagnostic) []string {
 }
 
 func TestProjectCreate(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		steps       []step
@@ -43,8 +45,17 @@ func TestProjectCreate(t *testing.T) {
 		wantDetail  string
 	}{
 		{
-			name:  "adds the project and saves the row",
-			steps: []step{{method: "POST", uri: "/projects", profile: "console", body: `{"name":"sales"}`, status: 201, response: "[" + projectRowJSON + "]"}},
+			name: "adds the project and saves the row",
+			steps: []step{
+				{
+					method:   "POST",
+					uri:      "/projects",
+					profile:  "console",
+					body:     `{"name":"sales"}`,
+					status:   201,
+					response: "[" + projectRowJSON + "]",
+				},
+			},
 		},
 		{
 			name:        "reports a project that exists",
@@ -62,17 +73,29 @@ func TestProjectCreate(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			testProject := newTestProject(t, testCase.steps)
-			s := resourceSchema(t, testProject)
-			plan := planOf(t, s, projectModel{Name: types.StringValue("sales"), ID: types.StringUnknown(), UpdatedAt: types.StringUnknown(), UpdatedBy: types.StringUnknown()})
-			resp := resource.CreateResponse{State: nullState(s)}
+			projectSchema := resourceSchema(t, testProject)
+			plan := planOf(
+				t,
+				projectSchema,
+				provider.ProjectModel{
+					Name:      types.StringValue("sales"),
+					ID:        types.StringUnknown(),
+					UpdatedAt: types.StringUnknown(),
+					UpdatedBy: types.StringUnknown(),
+				},
+			)
+			resp := resource.CreateResponse{State: nullState(projectSchema)}
 
 			testProject.Create(context.Background(), resource.CreateRequest{Plan: plan}, &resp)
 
 			got := diagnosticsOf(resp.Diagnostics)
 
 			if testCase.wantSummary != "" {
-				if len(got) != 1 || got[0].summary != testCase.wantSummary || !strings.Contains(got[0].detail, testCase.wantDetail) {
+				if len(got) != 1 || got[0].summary != testCase.wantSummary ||
+					!strings.Contains(got[0].detail, testCase.wantDetail) {
 					t.Fatalf("diagnostics = %+v, want %q with %q", got, testCase.wantSummary, testCase.wantDetail)
 				}
 
@@ -83,11 +106,12 @@ func TestProjectCreate(t *testing.T) {
 				t.Fatalf("diagnostics = %+v, want none", got)
 			}
 
-			var state projectModel
+			var state provider.ProjectModel
 
 			resp.State.Get(context.Background(), &state)
 
-			if state.ID.ValueString() != "sales" || state.Name.ValueString() != "sales" || state.UpdatedBy.ValueString() != "terraform" {
+			if state.ID.ValueString() != "sales" || state.Name.ValueString() != "sales" ||
+				state.UpdatedBy.ValueString() != "terraform" {
 				t.Errorf("state = %+v, want the row of sales", state)
 			}
 		})
@@ -95,13 +119,20 @@ func TestProjectCreate(t *testing.T) {
 }
 
 func TestProjectRead(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		steps       []step
 		wantRemoved bool
 		wantSummary string
 	}{
-		{name: "refreshes the row", steps: []step{{method: "GET", uri: "/projects?name=eq.sales", profile: "console", response: "[" + projectRowJSON + "]"}}},
+		{
+			name: "refreshes the row",
+			steps: []step{
+				{method: "GET", uri: "/projects?name=eq.sales", profile: "console", response: "[" + projectRowJSON + "]"},
+			},
+		},
 		{name: "drops a project that no longer exists", steps: []step{{response: "[]"}}, wantRemoved: true},
 		{
 			name:        "reports a read that fails",
@@ -112,9 +143,20 @@ func TestProjectRead(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			testProject := newTestProject(t, testCase.steps)
 			s := resourceSchema(t, testProject)
-			state := stateOf(t, s, projectModel{ID: types.StringValue("sales"), Name: types.StringValue("sales"), UpdatedAt: types.StringValue("old"), UpdatedBy: types.StringValue("old")})
+			state := stateOf(
+				t,
+				s,
+				provider.ProjectModel{
+					ID:        types.StringValue("sales"),
+					Name:      types.StringValue("sales"),
+					UpdatedAt: types.StringValue("old"),
+					UpdatedBy: types.StringValue("old"),
+				},
+			)
 			resp := resource.ReadResponse{State: state}
 
 			testProject.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
@@ -131,7 +173,7 @@ func TestProjectRead(t *testing.T) {
 					t.Errorf("state = %v, want it removed", resp.State.Raw)
 				}
 			default:
-				var read projectModel
+				var read provider.ProjectModel
 
 				resp.State.Get(context.Background(), &read)
 
@@ -144,16 +186,27 @@ func TestProjectRead(t *testing.T) {
 }
 
 func TestProjectDelete(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		steps       []step
 		wantSummary string
 		wantDetail  string
 	}{
-		{name: "removes the project", steps: []step{{method: "DELETE", uri: "/projects?name=eq.sales", profile: "console", response: "[]"}}},
 		{
-			name:        "shows why the database refuses a project with schemas",
-			steps:       []step{{status: 400, response: `{"code":"23001","message":"update or delete on table projects violates RESTRICT","hint":"delete the schemas first"}`}},
+			name:  "removes the project",
+			steps: []step{{method: "DELETE", uri: "/projects?name=eq.sales", profile: "console", response: "[]"}},
+		},
+		{
+			name: "shows why the database refuses a project with schemas",
+			steps: []step{
+				{
+					status: 400,
+					response: `{"code":"23001","message":"update or delete on table projects violates RESTRICT","hint":"delete ` +
+						`the schemas first"}`,
+				},
+			},
 			wantSummary: "Couldn't delete the project",
 			wantDetail:  "delete the schemas first",
 		},
@@ -161,9 +214,20 @@ func TestProjectDelete(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			testProject := newTestProject(t, testCase.steps)
 			s := resourceSchema(t, testProject)
-			state := stateOf(t, s, projectModel{ID: types.StringValue("sales"), Name: types.StringValue("sales"), UpdatedAt: types.StringValue("t"), UpdatedBy: types.StringValue("u")})
+			state := stateOf(
+				t,
+				s,
+				provider.ProjectModel{
+					ID:        types.StringValue("sales"),
+					Name:      types.StringValue("sales"),
+					UpdatedAt: types.StringValue("t"),
+					UpdatedBy: types.StringValue("u"),
+				},
+			)
 			resp := resource.DeleteResponse{State: state}
 
 			testProject.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
@@ -187,6 +251,8 @@ func TestProjectDelete(t *testing.T) {
 
 // TestProjectImportReadsByName checks that the import id becomes the name of the project.
 func TestProjectImportReadsByName(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		id   string
@@ -197,13 +263,19 @@ func TestProjectImportReadsByName(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			res := newTestProject(t, nil)
 			s := resourceSchema(t, res)
 			resp := resource.ImportStateResponse{State: nullState(s)}
 
-			res.(resource.ResourceWithImportState).ImportState(context.Background(), resource.ImportStateRequest{ID: testCase.id}, &resp)
+			as[resource.ResourceWithImportState](t, res).ImportState(
+				context.Background(),
+				resource.ImportStateRequest{ID: testCase.id},
+				&resp,
+			)
 
-			var state projectModel
+			var state provider.ProjectModel
 
 			resp.State.Get(context.Background(), &state)
 
@@ -216,6 +288,8 @@ func TestProjectImportReadsByName(t *testing.T) {
 
 // TestProjectUpdateNeverRuns checks that an update gives one error, because a project has nothing that can change.
 func TestProjectUpdateNeverRuns(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 	}{
@@ -224,6 +298,8 @@ func TestProjectUpdateNeverRuns(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			res := newTestProject(t, nil)
 			resp := resource.UpdateResponse{}
 
@@ -236,13 +312,14 @@ func TestProjectUpdateNeverRuns(t *testing.T) {
 	}
 }
 
+//nolint:paralleltest // Acceptance tests share one OpenTofu run.
 func TestAccProjectResource(t *testing.T) {
 	name := testAccName()
 	testAccCleanup(t, "projects", client.Eq("name", name))
 
 	acc.Test(t, acc.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProviderFactories,
+		ProtoV6ProviderFactories: testAccProviderFactories(),
 		Steps: []acc.TestStep{
 			{
 				Config: projectConfig(name),
@@ -256,16 +333,18 @@ func TestAccProjectResource(t *testing.T) {
 	})
 }
 
+//nolint:paralleltest // Acceptance tests share one OpenTofu run.
 func TestAccProjectResourceRefusesTheDefaultName(t *testing.T) {
 	acc.Test(t, acc.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProviderFactories,
+		ProtoV6ProviderFactories: testAccProviderFactories(),
 		Steps: []acc.TestStep{
 			{Config: projectConfig("default"), ExpectError: regexp.MustCompile(`value must be none of`)},
 		},
 	})
 }
 
+//nolint:paralleltest // Acceptance tests share one OpenTofu run.
 func TestAccProjectResourceRefusesToDeleteAProjectWithSchemas(t *testing.T) {
 	name := testAccName()
 	testAccCleanup(t, "projects", client.Eq("name", name))
@@ -273,7 +352,7 @@ func TestAccProjectResourceRefusesToDeleteAProjectWithSchemas(t *testing.T) {
 
 	acc.Test(t, acc.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProviderFactories,
+		ProtoV6ProviderFactories: testAccProviderFactories(),
 		Steps: []acc.TestStep{
 			{Config: projectConfig(name)},
 			{
@@ -283,7 +362,11 @@ func TestAccProjectResourceRefusesToDeleteAProjectWithSchemas(t *testing.T) {
 						t.Fatalf("testAccClient: %v", err)
 					}
 
-					if _, err := apiClient.CreateSchema(context.Background(), client.SchemaInput{Project: name, ShortName: "orders"}); err != nil {
+					_, err = apiClient.CreateSchema(
+						context.Background(),
+						client.SchemaInput{Project: name, ShortName: "orders"},
+					)
+					if err != nil {
 						t.Fatalf("add a schema outside Terraform: %v", err)
 					}
 				},
@@ -297,7 +380,8 @@ func TestAccProjectResourceRefusesToDeleteAProjectWithSchemas(t *testing.T) {
 						t.Fatalf("testAccClient: %v", err)
 					}
 
-					if err := apiClient.DeleteSchema(context.Background(), name+"__orders"); err != nil {
+					err = apiClient.DeleteSchema(context.Background(), name+"__orders")
+					if err != nil {
 						t.Fatalf("delete the schema outside Terraform: %v", err)
 					}
 				},

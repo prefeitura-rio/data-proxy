@@ -1,4 +1,4 @@
-package provider
+package provider_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"terraform-provider-data-proxy/internal/client"
+	"terraform-provider-data-proxy/internal/provider"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -30,33 +31,40 @@ func readPermissions(t *testing.T, status int, body string) ([]string, []diagnos
 
 	ctx := context.Background()
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.RequestURI() != "/rpc/permissions" || r.Header.Get("Accept-Profile") != "console" {
-			t.Errorf("request = %s %s with Accept-Profile %q, want GET /rpc/permissions with console", r.Method, r.URL.RequestURI(), r.Header.Get("Accept-Profile"))
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet || req.URL.RequestURI() != "/rpc/permissions" ||
+			req.Header.Get("Accept-Profile") != "console" {
+			t.Errorf(
+				"request = %s %s with Accept-Profile %q, want GET /rpc/permissions with console",
+				req.Method,
+				req.URL.RequestURI(),
+				req.Header.Get("Accept-Profile"),
+			)
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(status)
 
-		if _, err := w.Write([]byte(body)); err != nil {
+		_, err := writer.Write([]byte(body))
+		if err != nil {
 			t.Errorf("write the response: %v", err)
 		}
 	}))
 	t.Cleanup(server.Close)
 
-	c, err := client.New(server.URL, staticToken("jwt-123"), server.Client())
+	apiClient, err := client.New(server.URL, staticToken("jwt-123"), server.Client())
 	if err != nil {
 		t.Fatalf("client.New: %v", err)
 	}
 
-	dataSource, ok := newPermissionsDataSource().(datasource.DataSourceWithConfigure)
+	dataSource, ok := provider.NewPermissionsDataSource().(datasource.DataSourceWithConfigure)
 	if !ok {
 		t.Fatalf("the data source doesn't implement Configure")
 	}
 
 	var configureResp datasource.ConfigureResponse
 
-	dataSource.Configure(ctx, datasource.ConfigureRequest{ProviderData: c}, &configureResp)
+	dataSource.Configure(ctx, datasource.ConfigureRequest{ProviderData: apiClient}, &configureResp)
 
 	if configureResp.Diagnostics.HasError() {
 		t.Fatalf("Configure: %v", configureResp.Diagnostics)
@@ -79,7 +87,7 @@ func readPermissions(t *testing.T, status int, body string) ([]string, []diagnos
 		return nil, diagnosticsOf(resp.Diagnostics)
 	}
 
-	var state permissionsModel
+	var state provider.PermissionsModel
 
 	if diagnostics := resp.State.Get(ctx, &state); diagnostics.HasError() {
 		t.Fatalf("read the state: %v", diagnostics)
@@ -101,6 +109,8 @@ func readPermissions(t *testing.T, status int, body string) ([]string, []diagnos
 }
 
 func TestPermissionsDataSourceRead(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		status int
@@ -130,10 +140,13 @@ func TestPermissionsDataSourceRead(t *testing.T) {
 			name:   "the database refuses the function",
 			status: http.StatusForbidden,
 			body:   `{"code":"42501","message":"permission denied for function permissions"}`,
-			diags: []diagnostic{{
-				summary: "Couldn't read the permissions of the token",
-				detail:  "The database refused the request. The API answered: read the permissions of the token: postgrest: HTTP 403 42501: permission denied for function permissions",
-			}},
+			diags: []diagnostic{
+				{
+					summary: "Couldn't read the permissions of the token",
+					detail: "The database refused the request. The API answered: read the permissions of the token: postgrest: " +
+						"HTTP 403 42501: permission denied for function permissions",
+				},
+			},
 		},
 		{
 			name:   "the API refuses the token",
@@ -149,6 +162,8 @@ func TestPermissionsDataSourceRead(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, diags := readPermissions(t, testCase.status, testCase.body)
 
 			if !reflect.DeepEqual(diags, testCase.diags) {
@@ -163,6 +178,8 @@ func TestPermissionsDataSourceRead(t *testing.T) {
 }
 
 func TestPermissionsDataSourceConfigure(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name         string
 		providerData any
@@ -181,7 +198,9 @@ func TestPermissionsDataSourceConfigure(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			dataSource := &permissionsDataSource{}
+			t.Parallel()
+
+			dataSource := &provider.PermissionsDataSource{}
 
 			var resp datasource.ConfigureResponse
 
@@ -191,28 +210,33 @@ func TestPermissionsDataSourceConfigure(t *testing.T) {
 				t.Errorf("diagnostics = %+v, want %+v", got, testCase.diags)
 			}
 
-			if dataSource.client != nil {
-				t.Errorf("client = %v, want none", dataSource.client)
+			if dataSource.HasClient() {
+				t.Errorf("the data source has a client, want none")
 			}
 		})
 	}
 }
 
 func TestPermissionsDataSourceReadWithoutClient(t *testing.T) {
+	t.Parallel()
+
 	var resp datasource.ReadResponse
 
-	(&permissionsDataSource{}).Read(context.Background(), datasource.ReadRequest{}, &resp)
+	(&provider.PermissionsDataSource{}).Read(context.Background(), datasource.ReadRequest{}, &resp)
 
-	want := []diagnostic{{summary: "Unconfigured provider", detail: "The data source has no client, because the provider isn't configured."}}
+	want := []diagnostic{
+		{summary: "Unconfigured provider", detail: "The data source has no client, because the provider isn't configured."},
+	}
 	if got := diagnosticsOf(resp.Diagnostics); !reflect.DeepEqual(got, want) {
 		t.Errorf("diagnostics = %+v, want %+v", got, want)
 	}
 }
 
+//nolint:paralleltest // Acceptance tests share one OpenTofu run.
 func TestAccPermissionsDataSource(t *testing.T) {
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testAccProviderFactories,
+		ProtoV6ProviderFactories: testAccProviderFactories(),
 		Steps: []resource.TestStep{
 			{
 				Config: `data "data_proxy_permissions" "this" { provider = data-proxy }`,
