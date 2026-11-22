@@ -2,7 +2,7 @@
 
 # Build the notebook site into one folder: `nu console/notebooks/build.nu notebooks/query.py dist`. The script installs the
 # locked dependencies, exports the notebook with `marimo export html-wasm --offline`, bundles the two TypeScript scripts
-# with DuckDB-WASM (bundle.ts, esbuild), downloads the Parquet extension for the pinned DuckDB version, and adds the
+# with DuckDB-WASM (bundle.ts, Rolldown), downloads the Parquet extension for the pinned DuckDB version, and adds the
 # scripts and the stylesheet that hides the SQL cell button to index.html. The pins are marimo and Playwright in pyproject.toml, and DuckDB-WASM in package.json. The export
 # needs a Chromium, so Containerfile.console builds the site in a first stage that has one. A notebook fails to run when
 # two cells define the same name, so give each variable a name that no other cell uses.

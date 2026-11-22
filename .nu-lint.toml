@@ -18,12 +18,20 @@ redundant_ignore = "off"
 string_may_be_bare = "off"
 # The error of an external command stops the script, and the style guide forbids a `try` that only repeats it.
 unhandled_external_error = "off"
+# NU-16 and NU-18 retain native builtin diagnostics unless the caller needs additional context.
+catch_builtin_error_try = "off"
 
-# The rule does not see a doc comment above an @example attribute, and every exported command has one there.
-add_doc_comment_exported_fn = "off"
-# The test runner runs each test in its own Nushell, so that one test cannot change the state of another.
+# Subprocess tests isolate command environments from the test runner.
 redundant_nu_subprocess = "off"
-# The signed request to the object store needs curl, because `http` has no AWS signature.
-curl_to_http = "off"
 # A named parameter of a pure function reads better than input from a pipeline.
 positional_to_pipeline = "off"
+# NU-03 uses explicit get --optional pipelines for optional values.
+get_optional_to_cell_path = "off"
+# Keep one selection step per pipeline line for nested data.
+merge_get_cell_path = "off"
+# Explicit predicates preserve which null values and empty strings each pipeline retains.
+where_not_empty_to_compact = "off"
+# Single-line @example attributes keep example records on one line.
+wrap_wide_records = "off"
+# Single-line @example attributes keep example lists on one line.
+reflow_wide_lists = "off"

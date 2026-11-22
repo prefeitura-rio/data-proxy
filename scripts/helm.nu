@@ -1,4 +1,4 @@
-use lib.nu [parse-yaml]
+
 
 const CRD_SCHEMA = 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 
@@ -7,7 +7,7 @@ def main []: nothing -> nothing {
     helm unittest helm/
 
     helm template data-proxy helm/ -f helm/ci/test-values.yaml
-    | parse-yaml
+    | from yaml
     | compact
     | each {|doc|
         match $doc.kind {

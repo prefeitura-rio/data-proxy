@@ -5,13 +5,7 @@ A sync rebuilds application tables from the source. It doesn't rebuild access gr
 ## Operation
 
 ```mermaid
-%% Backup flow
-flowchart LR
-  subgraph job["Backup CronJob backup.schedule"]
-    export["Export access.policy<br/>and access.log"] --> prune["Delete access.log rows<br/>older than retentionDays"]
-  end
-  bucket[("Backup bucket<br/>prefix/date/")]
-  export -->|"upload two dumps"| bucket
+{{#include ../diagrams/backup-flow.mmd}}
 ```
 
 Set `backup.enabled` to create the backup CronJob. The two tables store the grants of every project, so one run backs up all of them.
@@ -107,9 +101,3 @@ Restore the database with the recovery of the whole cluster. Create a new cluste
 Don't change `cnpg.image` to a new major version in place. The image of `pg_duckdb` links `libduckdb.so` by an absolute path, so the CloudNativePG upgrade job can't start the old server. The job fails in seconds, and Helm rolls the release back.
 
 Create a new cluster that imports the old one instead, with `bootstrap.initdb.import` of the type `monolith`. See the [CloudNativePG import guide](https://cloudnative-pg.io/documentation/current/database_import/). Stop the writers first, because the import copies one snapshot. Run a base backup before you start, and check the row counts of both clusters before you delete the old one.
-
-<!-- nav:start -->
----
-
-[Previous: Metrics](./metrics.md) | [Next: Terraform provider](../terraform.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

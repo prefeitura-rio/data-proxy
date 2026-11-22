@@ -1,0 +1,21 @@
+%% Ingress paths
+flowchart LR
+  client["Client"]
+  subgraph gateway["Istio gateway"]
+    vs["VirtualService"]
+  end
+  jwt["JWT check<br/>ingress.auth.enabled"]
+  subgraph api["API host"]
+    proxy["Proxy to PostgREST<br/>/ and the tables"]
+    docs["Swagger UI<br/>/docs"]
+    console["Console<br/>/console"]
+  end
+  subgraph nb["Notebook host"]
+    site["Notebook site"]
+  end
+  client --> vs
+  vs -->|"/ and /docs"| jwt
+  jwt --> proxy
+  jwt --> docs
+  vs -->|"/console<br/>signs in with OIDC"| console
+  vs -->|"other host,<br/>other origin"| site

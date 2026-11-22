@@ -1,13 +1,22 @@
 name: Prewarm the container images
-description: Build the test PostgreSQL image in the background, while devenv evaluates the profile. With the keycloak input, restore the test Keycloak image from the cache, or build it. The devenv tasks then find the images.
+description: Prepare content-tagged test images in the background and record their completion status.
 inputs:
   keycloak:
     description: Prepare the Keycloak test image too.
     default: "false"
 outputs:
+  postgres-image:
+    description: The PostgreSQL image prepared by this run.
+    value: ${{ steps.start.outputs.postgres-image }}
+  keycloak-image:
+    description: The Keycloak image prepared by this run, or empty when not requested.
+    value: ${{ steps.start.outputs.keycloak-image }}
   keycloak-cache-hit:
-    description: "true when the cache had the Keycloak test image."
+    description: Whether the cache contained the Keycloak archive.
     value: ${{ steps.cache.outputs.cache-hit }}
+  keycloak-cache-key:
+    description: The architecture and recipe key for the Keycloak archive.
+    value: keycloak-image-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Containerfile.kc') }}
 runs:
   using: composite
   steps:
@@ -16,18 +25,51 @@ runs:
       uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: ~/.cache/data-proxy/keycloak-image.tar
-        key: keycloak-image-${{ runner.os }}-${{ hashFiles('Containerfile.kc') }}
-    - shell: bash
+        key: keycloak-image-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Containerfile.kc') }}
+    - id: start
+      shell: bash
       env:
         KEYCLOAK: ${{ inputs.keycloak }}
         CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
       run: |
-        setsid nohup podman build --file Containerfile.pg --tag localhost/data-proxy-test-pg:dev "$(mktemp -d)" > "$RUNNER_TEMP/prewarm-postgres.log" 2>&1 &
+        set -euo pipefail
+        state="$RUNNER_TEMP/data-proxy-prewarm"
+        mkdir -p "$state"
+        rm -f "$state"/*.status "$state"/*.status.tmp "$state"/*.pid
+        cat > "$state/prepare" <<'PREPARE'
+        set -euo pipefail
+        status=$1
+        image=$2
+        context=$(mktemp -d)
+        finish() {
+          local result=$?
+          rm -rf "$context"
+          printf "%s\n" "$result" > "$status.tmp"
+          mv "$status.tmp" "$status"
+          exit "$result"
+        }
+        trap finish EXIT
+        case "$3" in
+          build) podman build --file "$4" --tag "$image" "$context" ;;
+          load) podman load --input "$4" ;;
+          *) exit 2 ;;
+        esac
+        podman image exists "$image"
+        PREPARE
+        tag=$(sha256sum Containerfile.postgres)
+        postgres="localhost/data-proxy-test-pg:${tag:0:12}"
+        echo "postgres-image=$postgres" >> "$GITHUB_OUTPUT"
+        setsid --fork --wait nohup bash "$state/prepare" "$state/postgres.status" "$postgres" build Containerfile.postgres > "$state/postgres.log" 2>&1 &
+        echo "$!" > "$state/postgres.pid"
+        keycloak_image=""
         if [ "$KEYCLOAK" = "true" ]; then
+          tag=$(sha256sum Containerfile.kc)
+          keycloak_image="localhost/data-proxy-test-kc:${tag:0:12}"
           if [ "$CACHE_HIT" = "true" ]; then
-            setsid nohup podman load --input ~/.cache/data-proxy/keycloak-image.tar > "$RUNNER_TEMP/prewarm-keycloak.log" 2>&1 &
+            setsid --fork --wait nohup bash "$state/prepare" "$state/keycloak.status" "$keycloak_image" load "$HOME/.cache/data-proxy/keycloak-image.tar" > "$state/keycloak.log" 2>&1 &
           else
-            tag=$(sha256sum Containerfile.kc | cut -c1-12)
-            setsid nohup podman build --file Containerfile.kc --tag "localhost/data-proxy-test-kc:$tag" "$(mktemp -d)" > "$RUNNER_TEMP/prewarm-keycloak.log" 2>&1 &
+            setsid --fork --wait nohup bash "$state/prepare" "$state/keycloak.status" "$keycloak_image" build Containerfile.kc > "$state/keycloak.log" 2>&1 &
           fi
+          echo "$!" > "$state/keycloak.pid"
         fi
+        echo "keycloak-image=$keycloak_image" >> "$GITHUB_OUTPUT"

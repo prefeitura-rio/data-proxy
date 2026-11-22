@@ -1,4 +1,4 @@
-use lib.nu [fail read-text write-text]
+use lib.nu [checked fail   ]
 
 const SKIPPED_FOLDERS = [
     '**/node_modules/**'
@@ -8,7 +8,11 @@ const SKIPPED_FOLDERS = [
     '**/__pycache__/**'
 ]
 
-const COMMIT_TYPES = '^(feat|fix|refactor|test|docs|chore|revert)(\([a-z0-9,_ -]+\))?!?: '
+# Historical commit subjects exempt from validation until they leave the last 50 commits.
+const ALLOWED_SUBJECTS = [
+    'chore: Configure Renovate (#5)'
+]
+
 const HEADER = '(?s)\{#\n(\{.*?\})\n#\}'
 const HEADER_WORDS = 40
 const FUNCTION_LINES = 60
@@ -80,8 +84,6 @@ const BUILTINS = [
 const NU_LIBS = [
     scripts/lib.nu
     helm/files/scripts/lib.nu
-    scripts/tests/
-    helm/files/scripts/tests/
 ]
 
 export const RULES = [
@@ -93,7 +95,6 @@ export const RULES = [
     [NIX-18, $NIX, '\brec \{|= rec ', '#', [], "Bind the shared names in a let block."]
     [NIX-20, $NIX, '\bimport <[a-z]+>', '#', [], "Don't use a lookup path."]
     [NU-15, $NU, '\berror make\b', '#', [...$NU_LIBS console/notebooks/build.nu], "Stop with fail from lib.nu."]
-    [NU-16, $NU, '(^|[|={(])\s*(open|save|mkdir|rm|cp|mv)\s', '#', [...$NU_LIBS console/notebooks/build.nu], "Use the file helpers of lib.nu."]
     [SQL-04, $SQL, '^\s+\w+\s+(timestamp(?! with)|(big)?serial)\b', '--', [], "Use timestamptz and bigint GENERATED ALWAYS AS IDENTITY for a column."]
     [SQL-24, $SQL, r#'"' \|\| replace\('#, '--', [sync/src/sync/templates/postgres/views/routing/quoting.sql], "Quote a DuckDB identifier with quote_column()."]
     [SQL-29, [...$SQL 'sync/tests/templates/**/*.sql'], '^-- noqa: disable=[A-Z0-9,]*PRS', '', $PARSER_DISABLED, "Make SQLFluff parse the template, or add it to the allowed list with a reason."]
@@ -101,7 +102,8 @@ export const RULES = [
     [GEN-11, ['console/ui/src/**/*.ts'], '^\t{2,}(//|/\*)', '', [], "Write no comment inside a function body."]
 ]
 
-# Return the findings of one rule in the text of one file, as `file:line: ID message`. A line that starts with the skip prefix is a comment.
+# Return rule violations with file paths, line numbers and messages.
+@example "Report a matching source rule" { line-findings {id: DEMO, pattern: bad, skip: '#', message: 'Avoid bad'} 'example.nu' 'bad' } --result ['example.nu:1: DEMO Avoid bad']
 export def line-findings [rule: record, file: string, text: string]: nothing -> list<string> {
     $text
     | lines
@@ -123,6 +125,7 @@ def description-words [header: record]: nothing -> int {
 }
 
 # Return a problem for each header of a template whose description has more than 40 words.
+@example "Check an unannotated SQL statement" { header-problems 'example.sql' 'SELECT 1;' } --result []
 export def header-problems [file: string, text: string]: nothing -> list<string> {
     $text
     | parse --regex $HEADER
@@ -139,8 +142,8 @@ export def header-problems [file: string, text: string]: nothing -> list<string>
     | each {|header| $'($file): SQL-30 The description of ($header.name) has ($header.words) words.' }
 }
 
-# Return a problem for a file whose header comment has more than 40 lines. The header is the first block of comment lines,
-# after a shebang, a blank line and the `use` lines.
+# Report file header comments that exceed 40 lines.
+@example "Check a short file header" { file-header-problems 'example.nu' '# A short header.' } --result []
 export def file-header-problems [file: string, text: string]: nothing -> list<string> {
     let size = $text
     | lines
@@ -158,6 +161,7 @@ export def file-header-problems [file: string, text: string]: nothing -> list<st
 }
 
 # Return a problem for each `define` of a Helm helper that has no comment above it.
+@example "Check an empty helper file" { define-problems 'example.tpl' '' } --result []
 export def define-problems [file: string, text: string]: nothing -> list<string> {
     let lines = $text | lines
 
@@ -186,8 +190,8 @@ def names-in [list: string]: nothing -> list<string> {
     $list | split row ',' | each {|item| $item | str replace --regex '=.*$' '' | str trim }
 }
 
-# Return a problem for each variable that a template uses and its header doesn't list in `inputs`. A macro header and a
-# name that the template defines, imports or gets from Jinja are not inputs.
+# Report template variables missing from header inputs and local definitions.
+@example "Check a literal SQL statement" { input-problems 'example.sql' 'SELECT 1;' } --result []
 export def input-problems [file: string, text: string]: nothing -> list<string> {
     let headers = $text | parse --regex $HEADER
 
@@ -242,8 +246,7 @@ export def input-problems [file: string, text: string]: nothing -> list<string> 
     | each {|variable| $'($file): SQL-31 The template uses ($variable), and its header has no input of that name.' }
 }
 
-# Return the index of the line where the function that starts at the line `start` ends. A body in dollar quotes ends
-# with the line that closes the quote, and any other function ends with its first line that ends in a semicolon.
+# Return the closing line index of a SQL function.
 def function-end [lines: list<string>, start: int]: nothing -> int {
     mut index = $start
     mut tag = ''
@@ -277,6 +280,7 @@ def function-end [lines: list<string>, start: int]: nothing -> int {
 }
 
 # Return a problem for each function over 60 lines in the text of a SQL file, unless the file is allowed.
+@example "Check a short SQL function" { function-problems 'example.sql' 'CREATE FUNCTION example() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;' } --result []
 export def function-problems [file: string, text: string, ...allowed: string]: nothing -> list<string> {
     if (excluded $file ...$allowed) {
         return []
@@ -299,6 +303,7 @@ export def function-problems [file: string, text: string, ...allowed: string]: n
 }
 
 # Return a problem for each migration that disagrees with the list of hashes: a changed, a new and a missing file.
+@example "Validate matching migration checksums" { migration-problems 'abc  migrations/example.sql' [{file: 'migrations/example.sql', hash: abc}] } --result []
 export def migration-problems [sums: string, files: table<file: string, hash: string>]: nothing -> list<string> {
     let listed = $sums
     | lines
@@ -333,11 +338,12 @@ def reserved-names [text: string, list: string, name: string]: nothing -> list<s
 }
 
 # Return a problem for each reserved project name that one of the three lists lacks: the console, the Terraform provider and the proxy.
+@example "Compare reserved project names" { reserved-project-problems ((open --raw 'console/ui/src/lib/projects.ts' | decode utf-8)) ((open --raw 'provider/internal/provider/names.go' | decode utf-8)) ((open --raw 'proxy/src/proxy/constants.lua' | decode utf-8)) }
 export def reserved-project-problems [console: string, provider: string, proxy: string]: nothing -> list<string> {
     let lists = [
         [file names];
         [console/ui/src/lib/projects.ts (reserved-names $console '(?s)RESERVED_PROJECTS = \[(?<body>[^\]]*)\]' "'(?<name>\\w+)'")]
-        [terraform/internal/provider/names.go (reserved-names $provider '(?s)reservedProjects = \[\]string\{(?<body>[^}]*)\}' '"(?<name>\w+)"')]
+        [provider/internal/provider/names.go (reserved-names $provider '(?s)func reservedProjects\(\) \[\]string \{\s*return \[\]string\{(?<body>[^}]*)\}' '"(?<name>\w+)"')]
         [proxy/src/proxy/constants.lua (reserved-names $proxy '(?s)reserved_projects = \{(?<body>.*?)\n\t\}' '(?<name>\w+) = true')]
     ]
 
@@ -361,29 +367,55 @@ def migration-files []: nothing -> table<file: string, hash: string> {
     glob $'($MIGRATIONS)/*/*.sql'
     | each {|file| $file | path relative-to (pwd) }
     | sort
-    | each {|file| {file: $file, hash: (read-text $file | hash sha256)} }
+    | each {|file| {file: $file, hash: ((open --raw $file | decode utf-8) | hash sha256)} }
 }
 
 # Return true when the path starts with one of the files or folders that the rule allows.
+@example "Match an allowed directory" { excluded 'migrations/console/example.sql' 'migrations/' } --result true
 export def excluded [file: string, ...except: string]: nothing -> bool {
     $except | any {|head| $file | str starts-with $head }
 }
 
-# Return the problems of the commit subjects that break the Conventional Commits rules of the guide.
-export def commit-problems [...subjects: string]: nothing -> list<string> {
+# Return repository-specific commit type and summary violations.
+@example "Check commit policy" { commit-policy-problems [fix] 'fix: validate schema names' } --result []
+export def commit-policy-problems [types: list<string>, ...subjects: string]: nothing -> list<string> {
     $subjects
-    | where not ($it | str starts-with 'Merge ')
+    | where $it not-in $ALLOWED_SUBJECTS
     | each {|subject|
-        if $subject =~ '^(ci|perf)(\(|!|:)' {
-            let advice = if ($subject | str starts-with 'ci') { 'Use chore for CI work.' } else { 'Use feat or fix for performance work.' }
-            $'($subject): GIT-03 ($advice)'
-        } else if $subject !~ $COMMIT_TYPES {
-            $'($subject): GIT-02 Use feat, fix, refactor, test, docs, chore or revert.'
-        } else if $subject =~ $'($COMMIT_TYPES)[A-Z]' {
-            $subject + ': GIT-01 Write type(scope): summary in lower case.'
+        let kind = $subject | split row --regex '[(!:]' | first
+
+        if $kind not-in $types {
+            let advice = match $kind {
+                ci => 'Use chore for CI work.'
+                perf => 'Use feat or fix for performance work.'
+                _ => $'Use ($types | str join ", ").'
+            }
+            $'($subject): GIT-02 ($advice)'
+        } else if $subject =~ '^[^(\s!:]+(?:\([^)]*\))?!?: [A-Z]' {
+            $subject + ': GIT-01 Start the summary in lower case.'
         }
     }
     | compact
+}
+
+# Validate recent commit syntax with Cocogitto and enforce repository-specific policies.
+def "main commits" []: nothing -> nothing {
+    let revisions = git rev-list --max-count=50 HEAD | lines
+    let range = if ($revisions | length) == 50 { [$'($revisions | last)..HEAD'] } else { [] }
+
+    checked 'cog check' cog check --ignore-merge-commits ...$range | ignore
+
+    let types = open cog.toml | get commit_types | columns
+    let subjects = git log --max-count=50 --format=%P%x09%s
+    | lines
+    | parse --regex '^(?<parents>[^\t]*)\t(?<subject>.*)$'
+    | where parents !~ ' '
+    | get subject
+    let problems = commit-policy-problems $types ...$subjects
+
+    if ($problems | is-not-empty) {
+        fail $"The commits break repository policy:\n($problems | str join (char nl))"
+    }
 }
 
 # Return the files that match the globs of a rule, outside the folders of tools, as paths from the repository root.
@@ -405,24 +437,24 @@ def sql-files []: nothing -> list<string> {
     | uniq
 }
 
-# Write the hash of each console migration to the list that SQL-17 checks. Run it only for a migration that no install applied.
+# Write migration checksums after adding unapplied migrations.
 def "main sums" []: nothing -> nothing {
     migration-files
     | each {|row| $'($row.hash)  ($row.file)' }
     | str join (char nl)
     | $in + (char nl)
-    | write-text $SUMS
+    | save --force $SUMS
 }
 
-# Check the code against the rules that a pattern can check, the SQL files against the rules of size, and the last 50 commit subjects.
+# Check source rules, SQL constraints, migration checksums and recent commit subjects.
 def main []: nothing -> nothing {
     let files = $RULES
-    | each {|rule| files-of $rule | each {|file| line-findings $rule $file (read-text $file) } | flatten }
+    | each {|rule| files-of $rule | each {|file| line-findings $rule $file ((open --raw $file | decode utf-8)) } | flatten }
     | flatten
 
     let sql = sql-files
     | each {|file|
-        let text = read-text $file
+        let text = open --raw $file | decode utf-8
 
         let sizes = function-problems $file $text ...$LONG_FUNCTIONS
 
@@ -436,23 +468,23 @@ def main []: nothing -> nothing {
         ...(sql-files)
         ...$test_templates
     ]
-    | each {|file| input-problems $file (read-text $file) }
+    | each {|file| input-problems $file ((open --raw $file | decode utf-8)) }
     | flatten
 
     let headers = $HEADED
     | each {|pattern| glob $pattern --exclude $SKIPPED_FOLDERS }
     | flatten
     | uniq
-    | each {|file| file-header-problems ($file | path relative-to (pwd)) (read-text $file) }
+    | each {|file| file-header-problems ($file | path relative-to (pwd)) ((open --raw $file | decode utf-8)) }
     | flatten
 
     let helpers = glob $CHART_HELPERS
-    | each {|file| define-problems ($file | path relative-to (pwd)) (read-text $file) }
+    | each {|file| define-problems ($file | path relative-to (pwd)) ((open --raw $file | decode utf-8)) }
     | flatten
 
-    let migrations = migration-problems (read-text $SUMS) (migration-files)
-    let reserved = reserved-project-problems (read-text console/ui/src/lib/projects.ts) (read-text terraform/internal/provider/names.go) (read-text proxy/src/proxy/constants.lua)
-    let commits = commit-problems ...(git log --max-count=50 --format=%s | lines)
+    let migrations = migration-problems ((open --raw $SUMS | decode utf-8)) (migration-files)
+    let reserved = reserved-project-problems ((open --raw console/ui/src/lib/projects.ts | decode utf-8)) ((open --raw provider/internal/provider/names.go | decode utf-8)) ((open --raw proxy/src/proxy/constants.lua | decode utf-8))
+    main commits
     let found = [
         ...$files
         ...$sql
@@ -461,7 +493,6 @@ def main []: nothing -> nothing {
         ...$helpers
         ...$migrations
         ...$reserved
-        ...$commits
     ]
 
     if ($found | is-not-empty) {

@@ -1,6 +1,6 @@
 # Style
 
-These rules cover the code and the docs of this repository. Read the section for the files that you change. [AGENTS.md](../AGENTS.md) maps each path to its section. The [style guide](../STYLEGUIDE.md) has the rules that matter most and the definition of done.
+These rules cover the code and the docs of this repository. Read the section for the files that you change. [AGENTS.md](https://github.com/prefeitura-rio/data-proxy/blob/main/AGENTS.md) maps each path to its section. The [style guide](https://github.com/prefeitura-rio/data-proxy/blob/main/STYLEGUIDE.md) has the rules that matter most and the definition of done.
 
 ## The rule format
 
@@ -9,7 +9,7 @@ Each rule is one line: `- **PY-07** The rule. [must, ruff]`.
 1. The ID has a prefix for the area and a number. Cite the ID in a review or a commit message.
 2. `must` means the change can't merge when it breaks the rule. `should` means break it only with a reason.
 3. The last word of the tag names what checks the rule: a tool, a devenv task or `review`.
-4. A rule has at most 40 words, and an area has at most 2000 words. `docs:lint:style` checks the format and that each cited ID exists.
+4. A rule has at most 40 words, and an area has at most 2000 words. Review the format and each cited ID by hand.
 
 ## The areas
 
@@ -23,7 +23,7 @@ Each rule is one line: `- **PY-07** The rule. [must, ruff]`.
 | [Nushell](#nushell) | NU | `scripts/*.nu`, `helm/files/scripts/*.nu` |
 | [Nix](#nix) | NIX | The names, the layout, the tasks and the doc comments |
 | [SQL](#sql) | SQL | Templates, migrations and permissions |
-| [Go](#go) | GO | `terraform/**`, the Terraform provider |
+| [Go](#go) | GO | `provider/**`, the Terraform provider |
 | [TypeScript](#typescript) | TS | `console/ui/src/**/*.ts` and the browser tests |
 | [Svelte](#svelte) | SV | `console/ui/src/**/*.svelte` |
 | [Notebooks](#notebooks) | NB | `console/notebooks/**` |
@@ -52,7 +52,7 @@ These rules apply to every file. The pages for each area add more.
 - **GEN-09** Keep DBOS workflows deterministic, and put I/O in steps. [must, review]
 - **GEN-10** Don't re-implement DBOS checkpoints. [must, review]
 - **GEN-11** Write no comment inside a function body. Put the reason in the comment above the function, or use a name. The check covers Nushell and TypeScript. [must, code]
-- **GEN-12** Start a file with at most one header comment of 40 lines or fewer. It says what the file does and how to run it. Put the detail of a function above the function. [must, code]
+- **GEN-12** Outside Nushell, use at most one file header of 40 lines that explains purpose and usage. Nushell documentation follows NU-11. [must, code]
 - **GEN-13** Write a `{{/* */}}` comment above each `define` of the Helm chart. It says what the helper returns, and it names the keys of a dict input. [must, code]
 
 See [Architecture](architecture/index.md) for the layers. See [Database Schema](database.md) for roles, row policies and privileged functions.
@@ -103,26 +103,26 @@ Applies to: every test, in `sync/`, `proxy/`, `console/`, `helm/` and `k6/`.
 - **TEST-02** Make a unit test check one unit exhaustively: a function, a class, a method or an SQL template. Cover every input, every branch and the edge cases. [must, review]
 - **TEST-03** Make an integration test check one behavior that can cross units or services. Examples are a state commit, a catalog read and a request through the proxy. [must, review]
 - **TEST-04** Don't let the infrastructure decide the level. A template test on the real PostgreSQL server is a unit test, because it checks that template alone. [must, review]
-- **TEST-05** Name the task type by what the test needs. A `unit` task needs no service, and an `int` task starts services. [must, devenv]
-- **TEST-06** Mark a test that needs the PostgreSQL server with `postgres`. `sync:test:unit` skips it, and `sync:test:int` runs it. [must, devenv]
-- **TEST-07** Call no service in a unit test, except the engine of the template that it tests: the PostgreSQL test server or an in-memory DuckDB. [must, review]
+- **TEST-05** Run the tests of a component from its `enterTest`, in this order: the unit tests, then the integration tests. A unit test needs no service. [must, devenv]
+- **TEST-06** Mark a test that needs the PostgreSQL server with `postgres`. The unit run skips it, and the integration run of `devenv --profile sync test` runs it. [must, devenv]
+- **TEST-07** Call no service in a unit test. The one exception is the engine of the template that it tests, such as the PostgreSQL test server or an in-memory DuckDB. [must, review]
 - **TEST-08** Don't mock PostgreSQL in an integration test. Mock only external services, such as BigQuery. [must, review]
 - **TEST-09** Use E2E tests only for what needs the deployed stack. [should, review]
 
-| Level | Location | Task | Covers |
+| Level | Location | Command | Covers |
 | --- | --- | --- | --- |
-| Unit | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/` | `sync:test:unit`, `proxy:test:unit`, `chart:test:unit` | One behavior of a function, class, method or template |
-| Integration | `sync/tests/integration/` | `sync:test:int` | Flows that cross the database, the cache or the storage |
-| Integration | `proxy/tests/integration/` | `proxy:test:int` | The request path: routing, retry, cache, filter pushdown |
-| Unit | `console/ui/src/**/*.test.ts` | `console:test:unit` | One module of `lib/` and `lib/server/` |
-| Integration | `console/ui/tests/` | `console:test:int` | The console as a user sees it |
+| Unit | `sync/tests/unit/`, `proxy/tests/unit/`, `helm/tests/` | `devenv --profile <component> test` | One behavior of a function, class, method or template |
+| Integration | `sync/tests/integration/` | `devenv --profile sync test` | Flows that cross the database, the cache or the storage |
+| Integration | `proxy/tests/integration/` | `devenv --profile proxy test` | The request path: routing, retry, cache, filter pushdown |
+| Unit | `console/ui/src/**/*.test.ts` | `devenv --profile console test` | One module of `lib/` and `lib/server/` |
+| Integration | `console/ui/tests/` | `devenv --profile console test` | The console as a user sees it |
 | E2E | `k6/e2e.js`, `k6/scenarios/` | `cluster k6 e2e` | The deployed k3d cluster |
 
 ### Writing tests
 
 - **TEST-10** Keep a test module for tests only. Put fixtures in `sync/tests/fixtures/` and test-double dataclasses in `sync/tests/fixtures/types.py`. Put builders in the module of `sync/tests/helpers/` for their area (`core`, `state`, `dbos`, `ducklake`, `routing`, `rbac` or `console`). [must, review]
 - **TEST-11** Merge small test files that cover one module. [should, review]
-- **TEST-12** Test your own code and no code of a third party, such as DBOS, PostgREST, Keycloak, Kubernetes, Redis, a cloud SDK or a browser engine. [must, review]
+- **TEST-12** Test your own code. Don't test the code of a third party, such as DBOS, PostgREST, Keycloak, Kubernetes, Redis, a cloud SDK or a browser engine. [must, review]
 - **TEST-13** Stub the call at the edge of your code, and test what your code does with the answer. [must, review]
 - **TEST-14** Use table-driven cases with an `id` that names the scenario. Use Hypothesis only for invariants over generated inputs. [must, review]
 - **TEST-15** Use `pytest-bdd` for integration behavior that crosses the database, the cache or the storage. [should, review]
@@ -209,7 +209,7 @@ The proxy is OpenResty and Lua code in `proxy/src/proxy`. It runs in the pinned 
 #### Layout and dependencies
 
 - **LUA-01** Keep one named module for each concern: `cache`, `config`, `constants`, `handler`, `limiter`, `log`, `main`, `parser`, `postgrest`, `redis`, `regex`, `request`, `response`, `schemas`, `settings`, `sync` and `utils`. [must, review]
-- **LUA-02** Write a module in this order: imports, local variables, local functions, classes and the returned object (the module table, the functions on it and `return`). [must, review]
+- **LUA-02** Write a module in this order: imports, local variables, local functions, classes and the returned object. The returned object is the module table, the functions on it and `return`. [must, review]
 - **LUA-03** Put a local variable that needs a local function right after that function. [must, review]
 - **LUA-04** Declare the module table with the other local variables when nothing else needs it later. [should, review]
 - **LUA-05** Name modules `proxy.<name>`. Let `nginx.conf` load only `proxy.main`. [must, review]
@@ -244,7 +244,7 @@ The proxy is OpenResty and Lua code in `proxy/src/proxy`. It runs in the pinned 
 
 #### Checks
 
-- **LUA-31** Run `devenv --profile proxy tasks run proxy:lint:lua proxy:test:unit` before review. [must, devenv]
+- **LUA-31** Run `devenv --profile proxy test` before review. [must, devenv]
 - **LUA-32** Keep `proxy:lint:lua` green: `luacheck` (line length 120, complexity 10) with `lx lint` and the LuaLS type check at the Hint level with no problems. [must, luacheck+luals]
 - **LUA-33** Let the git hook run `lx fmt` (StyLua), and use tabs. [must, stylua]
 - **LUA-34** Restore `proxy/lux.lock` with `git checkout -- proxy/lux.lock` after a sync that only reorders it. [should, review]
@@ -359,16 +359,16 @@ Nushell scripts run the Helm jobs and the local commands.
 - **NU-08** Use one command for one kind of quote (`quote-identifier`, `quote-literal`). Don't pass the kind as a string. [must, review]
 - **NU-09** Give each script one `main` command, and give each CronJob its own script. [must, review]
 - **NU-10** Use pipelines for data transforms and `for` for ordered external side effects. [should, nu-lint]
-- **NU-11** Add input and output types and `@example` blocks to an exported reusable helper. [should, review]
+- **NU-11** In `scripts/**` and `helm/files/scripts/**`, document each function with one comment line of at most 25 words before its attributes or declaration. Keep extended explanations in Markdown. [must, review]
 - **NU-12** Don't import modules across `helm/files/scripts/` and `scripts/`. They're separate codebases. [must, review]
 - **NU-13** Run `nu --ide-check` on a changed file. [should, review]
-- **NU-14** Write an expression that three places repeat as a helper (`app-schema`, `role-literals`). Keep one table for a list that several commands read (`IMAGES` in `scripts/lib.nu`). [should, review]
+- **NU-14** Extract repeated domain logic into helpers. Use native commands for file and parsing operations. Keep shared lists in one table (`IMAGES` in `scripts/lib.nu`). [should, review]
 
 ### Errors and files
 
 - **NU-15** Stop a script with `fail $message` from `lib.nu`. It logs the message and raises an error with a label on the message in the caller. Don't call `error make`. `console/notebooks/build.nu` is standalone and keeps its own `fail`. [must, code]
-- **NU-16** In `scripts/` and `helm/files/scripts/`, read and write files only through the helpers of `lib.nu`: `read-text`, `read-data`, `write-text`, `parse-json`, `parse-toml`, `parse-yaml`, `make-dir` and `remove-path`. [must, code]
-- **NU-17** Wrap `cd` and `http get` in `try` at the call, because the helpers of `lib.nu` wrap only files. [must, review]
+- **NU-16** Use native file and parsing commands. Add context only when native diagnostics lack the operation or target. [must, review]
+- **NU-17** Add context to `cd` and HTTP failures at the call when native diagnostics lack necessary information. [must, review]
 - **NU-18** Let an error of a builtin or an external command stop the script. Use `try` only to add context that the error lacks, such as the table that failed, or to clean up. [must, review]
 - **NU-19** Use `check-result` for the record that `complete` returns, and `wait-until` for a wait. Don't write the exit-code check or the polling loop again. [must, review]
 
@@ -379,9 +379,9 @@ Nushell scripts run the Helm jobs and the local commands.
 
 ### Tooling and tests
 
-- **NU-20** Keep `nu:lint:scripts` green. It runs `nu-lint` and fails on a finding, because `nu-lint` exits with 0 in that case. [must, nu-lint]
+- **NU-20** Keep `tools:lint:nu` green. It runs `nu-lint` and fails on a finding, because `nu-lint` exits with 0 in that case. [must, nu-lint]
 - **NU-21** Give each rule that `.nu-lint.toml` turns off a comment with the reason. [must, review]
-- **NU-22** Run `devenv --profile repo tasks run nu:test:unit` after a script change. `run.nu` finds every `test ...` command, so a new test needs no registration. [must, devenv]
+- **NU-22** Give every exported function a single-line `@example` with concrete inputs. Add `--result` to deterministic pure examples. Never execute operational examples as documentation tests. [must, review]
 
 ```nu
 use ./lib.nu [quote-pg execute-sql]
@@ -406,15 +406,15 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 - **NIX-01** Name a task `<component>:<verb>:<target>`. [must, devenv]
 - **NIX-02** Use one of these verbs: `install`, `build`, `lint`, `test`, `setup`, `fetch`, `clean` or `open`. [must, devenv]
 - **NIX-03** Name the target for the object of the verb, in the singular, such as `py`, `image` or `db`. For `test`, the target is the task type: `unit` or `int`. [must, review]
-- **NIX-04** Name a task that groups other tasks with the component `repo`: `repo:lint` and `repo:test:unit`. `devenv tasks run repo` runs both. [must, devenv]
-- **NIX-05** Run a group with a namespace prefix. `devenv tasks run sync:test` runs the sync tests of the active profile. [should, review]
-- **NIX-06** Choose the component from three kinds. A deployable is `sync`, `proxy`, `console`, `chart` or `tf`. A part of the test stack is `pg`, `pgrest`, `kc`, `s3` or `nb`. A repository tool is `nu`, `ci`, `ctr`, `docs`, `nix` or `repo`. [must, devenv]
+- **NIX-04** Name a task that groups other tasks `<component>:<verb>`, such as `tools:lint`. Use it only where the tasks have different components of their own. [must, devenv]
+- **NIX-05** Run a group with a namespace prefix. `devenv --profile sync tasks run sync:lint` runs every lint task of the sync profile. [should, review]
+- **NIX-06** Choose the component from three kinds. A deployable is `sync`, `proxy`, `console`, `chart` or `tf`. A part of the test stack is `pg`, `pgrest`, `kc`, `s3` or `nb`. A repository tool is `docs` or `tools`. [must, devenv]
 - **NIX-07** Abbreviate a name that's long. Use the same short form in every layer: the task, the process, the profile and the test image. A file name keeps the full word. [must, review]
-- **NIX-08** Use these short forms: PostgreSQL `pg`, PostgREST `pgrest`, Keycloak `kc`, SeaweedFS `s3`, notebooks `nb`, containers `ctr`, workflows `wf`, diagrams `diag`, provision `prov` and configure `conf`. Terraform is `tf`. [must, review]
+- **NIX-08** Use these short forms: PostgreSQL `pg`, PostgREST `pgrest`, Keycloak `kc`, SeaweedFS `s3`, notebooks `nb`, containers `ctr`, workflows `wf`, diagrams `diag`, provision `prov` and configure `conf`. Terraform is `tf`, and a format check is `fmt`. [must, review]
 - **NIX-09** Add a word to this list before you use a new short form. [must, review]
 - **NIX-10** Keep the full words in environment variables and in the names of registry images, because the tests and the chart read them. [must, review]
-- **NIX-11** Name a profile `<component>` for the whole stack of a component and `<component>-unit` for the part that needs no service. [must, review]
-- **NIX-12** Name a profile by its job. `shared.nix` has `base` and `python`, which the others use. `repo` runs lint and unit tasks, and `integration` has the integration suites. `nix` checks the profiles, and `default` is the shell of a developer. [must, review]
+- **NIX-11** Name a profile for one folder: `<component>`, and keep it in the `devenv.nix` of that folder. The file has the lint tasks, the unit task, the services and `enterTest` of the component. [must, review]
+- **NIX-12** Name a profile by its job. `base` and `python` are the parts that the others use. `tools` has the tasks that belong to no component, and `default` is the shell of a developer. [must, review]
 - **NIX-13** Give a file in `nix/stack/` or `nix/profiles/` the full name of its part or profile, such as `postgres.nix` or `integration.nix`. [must, review]
 - **NIX-14** Put a component profile in the folder of the component, and list the folder under `imports:` in `devenv.yaml`. Put an input that only that component uses in the `devenv.yaml` of the folder. [must, review]
 - **NIX-15** Import `nix/profiles/*` in the root `devenv.nix`. [must, review]
@@ -422,7 +422,7 @@ Nix files build the test setup of the devenv profiles. The profile of a componen
 devenv rejects a task name that breaks these rules when it evaluates a profile. The verbs and the components are in `nix/utils/naming.nix`.
 
 ```text
-✅ sync:test:int        console:setup:db      repo:lint
+✅ sync:lint:fmt        console:setup:db      tools:lint:nu
 ❌ sync:tests:int       console:db            lint:all
 ```
 
@@ -441,7 +441,7 @@ devenv rejects a task name that breaks these rules when it evaluates a profile. 
 - **NIX-20** Don't use lookup paths such as `<nixpkgs>`. The lock file of devenv pins every input. [must, code]
 - **NIX-21** Name the arguments of a function in a set pattern, and give an optional argument a default with `?`. [must, review]
 - **NIX-22** Use `inherit (set) name;` instead of `name = set.name;`. [should, review]
-- **NIX-23** Write a path that Nix must track as a path literal, such as `../../Containerfile.pg`. A string path breaks in the sandbox. [must, review]
+- **NIX-23** Write a path that Nix must track as a path literal, such as `../../Containerfile.postgres`. A string path breaks in the sandbox. [must, review]
 - **NIX-24** Keep a value in one place. A login and an address live in `nix/data.nix`, and a port lives on its process. [must, review]
 - **NIX-25** Declare the port of a process with `ports.<name>.allocate = <base>`, and read it with `data.port "<process>" "<name>"`. A devenv service sets its `port` option, as `services.redis` does. Don't write a port number in another place. [must, review]
 - **NIX-26** Take `utils` and `data` from the module arguments. Don't import `nix/utils/` or `nix/data.nix` in a module. [must, review]
@@ -460,29 +460,26 @@ Read each file from the top to the bottom. The main part of the file is the last
 1. The argument set, then `utils`.
 2. Constants that the file uses more than once.
 3. Helper functions, each after the values it uses.
-4. Parts that the main block uses more than once, such as a `mkTaskChain` result.
+4. Shared values that the main block uses more than once.
 5. The main block: `profiles.<name>`, `processes` or `services`.
 
 - **NIX-30** Bind a name in `let` only if the file uses it at least twice. Write a value that the file uses once where it's used. [must, review]
 - **NIX-31** In a profile `module`, keep this order: `imports`, `env`, `packages`, `languages`, `scripts`, `git-hooks`, `tasks`, `enterTest`. [must, review]
-- **NIX-32** In `tasks`, put the group tasks (`repo:lint`, `repo:test:unit`) last. [must, review]
+- **NIX-32** Write a check as a task, and add a git hook for it with `utils.mkHook`. The hook runs the task. A check never changes a file. [must, review]
 - **NIX-33** Always declare processes and tasks. Don't gate them on `config.devenv.isTesting`, so `devenv up` and `devenv test` run the same stack. [must, review]
-- **NIX-34** Gate only `console:open:browser`, because it would open a browser and hang `devenv test`. [must, review]
+- **NIX-34** Gate only `console:open:browser`, because it would open a browser and block `devenv test`. [must, review]
 - **NIX-35** Don't give a local function the name of a helper in `nix/utils/`. Name it for what it builds, such as `mkNginx`. [must, review]
-- **NIX-54** Put a helper in the file of its topic in `nix/utils/`. The file takes `{ lib, pkgs, config, utils, ... }` and returns its helpers, and `import-tree` adds it to `utils`. [must, review]
+- **NIX-54** Put a helper in the file of its topic in `nix/utils/`. The file takes `{ lib, pkgs, config, utils, ... }` and returns its helpers. Add the file to the list in `nix/utils/default.nix`. [must, review]
 
 #### Processes and tasks
 
 - **NIX-36** Make a service that stays up a `processes` entry. Make a command that runs and exits a `tasks` entry. Don't run a one-shot command as a process. [must, review]
-- **NIX-37** Use `utils.mkTask` for one task and `utils.mkTaskChain` for steps in order. Add the other options of a process or task with `//`. [should, review]
+- **NIX-37** Use native task dependencies for independent commands and one sequential task for ordered initialization. Use `utils.mkTask` for a single command. [should, review]
 - **NIX-38** Let a task that a process needs use `before`. Let a task that needs a running service use `after` and `wantedBy` with `utils.processTask "<name>"`. [must, review]
-- **NIX-39** Define the `<component>:test:int` tasks in `nix/profiles/integration.nix`, so the job that runs one fetches no tool of another profile. [must, review]
-- **NIX-40** Define a `<component>:test:unit` task in the unit profile of its component. [must, review]
-- **NIX-41** Use `execIfModified` on a build task, on a lint or unit task and on a suite that starts services, with the input files from `utils.mkInputs`. [must, review]
+- **NIX-41** Use `execIfModified` on source lint and format checks, with inputs from `utils.mkInputs`. Rebuild generated artifacts on each request, because task-state caches omit them. [must, review]
 - **NIX-42** List files and globs that end in an extension, never a folder or `dir/**`. Use `utils.mkGlobs` for the files of a folder. [must, devenv]
 - **NIX-43** Build a file from variables with the `files` option, and put it in the state folder with `utils.fileEntry`. Use a derivation only when the input is YAML or another format that Nix can't read. [must, review]
 - **NIX-44** Give a task that reads a generated file `after = [ "devenv:files" ]`. [must, review]
-- **NIX-45** Keep each devenv profile under its limit in `nix/profiles/nix.nix`. Run `nix:lint:closure` after you add a package to a profile, a task or a process. [must, devenv]
 
 #### Documentation of a function
 
@@ -514,7 +511,7 @@ command = command: mkProbe (lib.escapeShellArgs command);
 
 #### Tests
 
-- **NIX-53** Run `devenv --profile integration tasks run <component>:test:int` for each component that a change touches. The first run can fail when a hook formats a file. Run it again. [must, review]
+- **NIX-53** Run `devenv --profile <component> test` for each component that a change touches. The first run can fail when a hook formats a file. Run it again. [must, review]
 
 ## SQL
 
@@ -585,7 +582,7 @@ Add a permission in these steps:
 
 1. Add it under `[permissions.<object>]` in `helm/files/config/rbac.toml`, and give it to a role.
 2. Call `rbac.can('<name>')` in the SQL that needs it.
-3. Run `devenv --profile repo tasks run chart:lint:toml`. It checks the file with `taplo` and the JSON schema.
+3. Run `devenv --profile chart tasks run chart:lint:toml`. It checks the file with `taplo` and the JSON schema.
 4. Add a role test in `sync/tests/unit/test_templates_roles.py`.
 5. Update the permission tables in `docs/security/permissions.md`.
 
@@ -593,9 +590,9 @@ The `configure-db` job runs `verify-rbac` and fails if the database differs from
 
 ## Go
 
-Applies to: `terraform/**`.
+Applies to: `provider/**`.
 
-The Terraform provider of Data Proxy is a Go module in `terraform/`, with its own `go.mod`. It uses the Terraform Plugin Framework. The [Terraform provider](terraform.md) page says how to build it and use it.
+The Terraform provider of Data Proxy is a Go module in `provider/`, with its own `go.mod`. It uses the Terraform Plugin Framework. The [Terraform provider](terraform.md) page says how to build it and use it.
 
 ### Code
 
@@ -616,8 +613,8 @@ The Terraform provider of Data Proxy is a Go module in `terraform/`, with its ow
 
 ### Tooling and tests
 
-- **GO-09** Keep `tf:lint:go` green. It fails when `gofumpt` would change a file, and it runs `golangci-lint`. [must, golangci-lint]
-- **GO-10** Keep `tf:test:unit` green. It runs `go test ./...` without `TF_ACC`, so the acceptance tests don't run. [must, devenv]
+- **GO-09** Keep `tf:lint:go` green. It runs `golangci-lint` with the strict set of `provider/.golangci.yaml`. The git hook formats the files with `gofumpt`. [must, golangci-lint]
+- **GO-10** Keep `devenv --profile provider test` green. It runs `go test ./...` without `TF_ACC`, then the acceptance tests. [must, devenv]
 - **GO-11** Write a table of cases with a `name` field, and run each case with `t.Run(testCase.name, ...)`. [must, review]
 - **GO-12** Test the client against an `httptest` server. Test a delay with a fake clock, never with a real wait. [must, review]
 - **GO-13** Name a Go file with one word, and keep one test file for it with the same name and the suffix `_test`. Put a helper that several test files share in `provider_test.go` or `client_test.go`. `main.go` has no test. [should, review]
@@ -647,12 +644,12 @@ The console is a SvelteKit app in `console/ui/`. The sources of the rules are th
 
 ### Code
 
-- **TS-05** Use `strict` and `noUncheckedIndexedAccess`. Lint with the typescript-eslint `strictTypeChecked` and `stylisticTypeChecked` configurations. [must, eslint]
-- **TS-06** Don't use `any`, the non-null `!` or a type assertion. Only `as const` is allowed. [must, eslint]
+- **TS-05** Use `strict` and `noUncheckedIndexedAccess`. Lint with the type-aware rules of Oxlint, which carry over the `strictTypeChecked` and `stylisticTypeChecked` configurations of typescript-eslint. [must, oxlint]
+- **TS-06** Don't use `any`, the non-null `!` or a type assertion. Only `as const` is allowed. [must, oxlint]
 - **TS-07** Type a value where it enters the program, with a valibot schema. Examples are a PostgREST answer, a response of the identity provider, a cookie, a request body, a form field and a message from a frame. [must, review]
 - **TS-08** Derive the type with `v.InferOutput`. `lib/types.ts` has the schemas of the rows, so a column that a view loses fails at the first read, with the field in the message. [should, review]
-- **TS-09** Use `type` for object types. Use `interface` only where a library needs declaration merging, such as `App.Locals` and `Window`. [must, eslint]
-- **TS-10** Use named exports. A `.svelte` file and a SvelteKit route file are the only exceptions. [must, eslint]
+- **TS-09** Use `type` for object types. Use `interface` only where a library needs declaration merging, such as `App.Locals` and `Window`. [must, oxlint]
+- **TS-10** Use named exports. A `.svelte` file and a SvelteKit route file are the only exceptions. [must, oxlint]
 - **TS-11** Return a `Result` for a failure that the caller can handle, such as an answer of PostgREST. Throw for an input that the program can't run without. [must, review]
 - **TS-12** Write no comment inside a function. Write a one-line `/** */` summary above an exported function only when its name doesn't say enough. [must, code]
 - **TS-13** Give a lint disable comment a reason. A marker that a tool reads, such as `// pragma: allowlist secret`, is allowed. [must, review]
@@ -664,7 +661,7 @@ The console is a SvelteKit app in `console/ui/`. The sources of the rules are th
 
 ### Tooling
 
-`devenv --profile console tasks run console:lint:ui` runs `svelte-check`, ESLint (`eslint-plugin-svelte` recommended and typescript-eslint) and `prettier --check`, for `console/ui/` and `console/notebooks/`. Run `pnpm format` in the folder to format. prek runs the hooks `prettier` and `eslint` at commit time. They use the binaries of `console/ui/node_modules`, so run `pnpm install` once.
+`devenv --profile console test` runs these checks for `console/ui/` and `console/notebooks/`. `svelte-check --tsgo` type checks the app with the TypeScript 7 compiler, which comes from the alias `@typescript/native`. Oxlint runs its type-aware rules. ESLint checks only the `.svelte` files with `eslint-plugin-svelte`, because Oxlint doesn't run the Svelte template rules. `oxfmt --check` checks the format. The notebooks use `tsc` of TypeScript 7 and Oxlint, and Rolldown bundles the page script. Run `pnpm format` in the folder to format. prek runs the hooks of these checks at commit time. They use the binaries of `console/ui/node_modules`, so run `pnpm install` once.
 
 ### Tests
 
@@ -730,7 +727,7 @@ Applies to: `docs/**`, `README.md`, `AGENTS.md`, `STYLEGUIDE.md`.
 #### Writing
 
 - **DOC-01** Use Simplified Technical English: short sentences, active voice, one idea per sentence. [must, vale]
-- **DOC-02** Keep a sentence at 25 words or fewer and a paragraph at 6 sentences or fewer. `docs:lint:style` checks the sentences. [must, devenv]
+- **DOC-02** Keep a sentence at 25 words or fewer and a paragraph at 6 sentences or fewer. `docs:lint:prose` checks the sentences with Vale. [must, vale]
 - **DOC-03** Expand an acronym at its first use on a page, and define each project term once in `docs/glossary.md`. Add a row to its Tools table for each new tool. [must, vale]
 - **DOC-04** Use the fixed terms `access policy` (the table), `row policy` (the PostgreSQL rule) and `sync run`. [must, review]
 - **DOC-05** Write `contains`, `stores` or `has`, and not `holds`. Write `immediately`, and not `at once`. Vale enforces the word swaps and the ban on semicolons. [must, vale]
@@ -738,7 +735,7 @@ Applies to: `docs/**`, `README.md`, `AGENTS.md`, `STYLEGUIDE.md`.
 - **DOC-39** Write a list as `a, b and c`, with no comma before `and` or `or`. Keep the comma when `and` joins two clauses. [should, review]
 - **DOC-07** Rephrase a sentence that Vale flags, such as the acronym for a web address, some adverbs and acronyms in headings. Don't ignore the message. [must, vale]
 - **DOC-08** Use generic examples unless a real value is required. [should, review]
-- **DOC-09** Say "the source" for the product, and name BigQuery only on a page about the BigQuery adapter or for a value that's specific to it. [must, review]
+- **DOC-09** Say "the source" for the product. Name BigQuery only on a page about the BigQuery adapter, or for a value that's specific to it. [must, review]
 - **DOC-10** Verify claims against the source, the Helm templates, the tests or a command that you ran. [must, review]
 
 #### Pages and links
@@ -747,28 +744,29 @@ Applies to: `docs/**`, `README.md`, `AGENTS.md`, `STYLEGUIDE.md`.
 - **DOC-12** Name a file with one word, and use two words only if one word is unclear. [should, review]
 - **DOC-13** Give each topic one page, and link to it from the other pages. [must, review]
 - **DOC-14** Link to a page with a relative link such as `[Roles](../security/roles.md#roles)`. Write the heading slug in lower case with hyphens. Start a link in the same folder with `./`. Link to a folder with its `index.md`. [must, devenv]
-- **DOC-15** Run `docs:lint:links` after you move a page or a heading. Marksman completes and follows the links in the editor, but it doesn't flag a broken one. [must, devenv]
-- **DOC-16** End every page with the navigation block (Previous, Next, Index and Home) that `docs:build:nav` writes. Don't edit the block by hand. [must, devenv]
-- **DOC-17** Put the page order in `docs/.nav.json`. Add a new page to that file, and link it from its parent page. [must, devenv]
-- **DOC-18** Expect `docs:lint:nav` to fail on a missing page, a page without a link from its parent or an old navigation block. [must, devenv]
-- **DOC-19** Don't write by hand a table that a file already defines. `docs/security/roles.md` has a role table that `docs:build:roles` writes from `rbac.toml`, and `docs:lint:roles` checks it. [must, devenv]
-- **DOC-20** Run `nix:lint:cmd` after you rename a task or a profile. It fails on a `devenv` command in a page that names a profile or a task that doesn't exist. [must, devenv]
+- **DOC-15** Run `docs:lint:book` after you move a page or a heading. Add native redirects under `[output.html.redirect]` in `book.toml` for old page addresses. Keep destinations relative to preserve version prefixes. [must, devenv]
+- **DOC-17** Maintain `docs/SUMMARY.md` by hand. It defines chapter order, hierarchy and sidebar labels. Add each new chapter to it. No script generates it. [must, review]
+- **DOC-42** Don't link from a page of `docs/` to a file outside `docs/` with a relative link, because the site has only `docs/`. Link to the file on GitHub with a full URL. [must, devenv]
+- **DOC-43** Let CI publish each chart release to `gh-pages` and GitHub Pages. The site keeps each version and replaces `latest/` with the last publication. Never push to `gh-pages` by hand. [must, review]
+- **DOC-18** Expect `docs:lint:book` to fail on a chapter without a file and on a broken link. Check by hand that `docs/SUMMARY.md` lists each chapter. [must, review]
+- **DOC-19** Use a native mdBook include for content that another file defines. The Roles page includes `rbac.toml`, the source of the permissions and role inheritance. [must, review]
+- **DOC-20** Review documented devenv commands after you rename a task or a profile. Confirm that the commands still name a profile and task that exist. [must, review]
 
 #### Vale
 
-- **DOC-21** Let the `vale` git hook check the staged `*.md`, `*.py` and `*.nu` files at commit time. Run `vale <file>` in the `repo` shell to check a file earlier. [must, vale]
+- **DOC-21** Let the `docs-lint` git hook run the docs checks at commit time. Run `vale <file>` in the `docs` shell to check a file earlier. [must, vale]
 - **DOC-22** Let `DataProxy.Terms` fix the casing of product names: PostgreSQL, PostgREST, SeaweedFS, DuckDB and BigQuery. [must, vale]
 - **DOC-23** Add a word to `.vale/styles/config/vocabularies/data-proxy/accept.txt` at the end of the file only. [must, vale]
-- **DOC-35** Write a style area as a list of rules in [the rule format](#the-rule-format). Keep a rule to 40 words and an area to 2000 words. [must, devenv]
+- **DOC-35** Write a style area as a list of rules in [the rule format](#the-rule-format). Keep a rule to 40 words and an area to 2000 words. [must, review]
 
 ### Diagrams
 
-Applies to: `docs/**/*.md`.
+Applies to: `docs/**/*.md`, `docs/diagrams/*.mmd`.
 
 #### Where a diagram lives
 
-- **DOC-24** Give a diagram one owner page, and write it there as a `mermaid` fence. Other pages link to the owner. [must, review]
-- **DOC-25** Give every diagram a short name, and write it as the first line of the fence, in a `%%` comment. Don't add a caption line under it. [must, review]
+- **DOC-24** Give each diagram one owner page. Store its source in `docs/diagrams/<name>.mmd`. The owner page includes that file inside a `mermaid` fence through mdBook. Other pages link to the owner. [must, review]
+- **DOC-25** Give every diagram a short name. Write that name in a `%%` comment on the first line of its `.mmd` source. Add no caption line under it. [must, review]
 - **DOC-26** Draw one context diagram on `docs/index.md` and one overview diagram of the whole system on `docs/architecture/index.md`. [must, review]
 - **DOC-27** Name a node with letters, digits and underscores, and don't use a keyword such as `call` or `end` as a name. Don't start a label with `1.`, because Mermaid reads a list. [must, review]
 - **DOC-28** Pick the diagram type from the question that the page answers, as the next table shows. Use a table when a diagram adds nothing. [must, review]
@@ -789,10 +787,10 @@ Applies to: `docs/**/*.md`.
 
 #### How to draw it
 
-- **DOC-29** Write a diagram in Mermaid, in a `mermaid` fence on its owner page. Don't write a diagram in another language, and don't commit an image of it. [must, review]
-- **DOC-30** Don't edit a diagram of `docs/model.md`. `docs:build:model` writes it from the database with `tbls`, and you commit `docs/diagrams/` and the page. [must, devenv]
-- **DOC-31** Preview a diagram with `devenv --profile default up docs`. GitHub and the MkDocs script `docs/javascripts/mermaid.js` render each fence in the browser. [should, review]
-- **DOC-33** Set no color in a diagram unless the color carries a meaning, so that GitHub shows it in the theme of the reader. [must, review]
+- **DOC-29** Write diagram source in Mermaid, in a `.mmd` file. Use native mdBook inclusion instead of copying that source into Markdown. Never commit an image of the diagram. [must, review]
+- **DOC-30** Diagram only tables Data Proxy owns. `docs:build:model` generates two database `.mmd` files with `tbls`. Never edit these outputs by hand. Commit them and include them through mdBook. [must, devenv]
+- **DOC-31** Preview the site and its diagrams with `devenv --profile docs up docs`. mdBook draws each `mermaid` fence in the browser, with the scripts of the `mdbook-mermaid` package. [should, review]
+- **DOC-33** Set no color in a diagram unless the color carries a meaning. Then the diagram follows the light or dark theme of the reader. [must, review]
 - **DOC-34** Add a link that the database has no foreign key for to `docs/.tbls.yaml`, and not to a diagram. [must, review]
 
 ## Git
@@ -817,7 +815,7 @@ Applies to: every commit.
 - **GIT-06** Expect these release levels: a type with `!` bumps major, `feat:` bumps minor, `fix:` bumps patch and all other types create no release. `cog` applies the rules, and `cog.toml` has its settings. [must, cog]
 - **GIT-07** Use `!` only with `feat` or `fix` release commits. Explain the migration in the body. Don't use a `BREAKING CHANGE` footer. [must, cog]
 - **GIT-08** Don't edit `CHANGELOG.md` by hand. The release step writes it from the commits, and it lists only breaking changes, features and fixes. [must, cog]
-- **GIT-11** Expect no chart release from a commit that changes only `terraform/`, `docs/` or `llms.txt`, even as a `feat` or a `fix`. `ci plan chart` skips such a commit. [must, ci]
+- **GIT-11** Expect no chart release from a commit that changes only `provider/` or `docs/`, even as a `feat` or a `fix`. `ci plan chart` skips such a commit. [must, ci]
 
 ```text
 feat(sync)!: require DBOS workflow recovery
@@ -833,9 +831,3 @@ Migration:
 
 - **GIT-09** Know that prek runs the hooks at commit time. If a hook rewrites a file, stage the file again and commit again. [must, review]
 - **GIT-10** Know that `ripsecrets` blocks a line that looks like a secret. Add a whole file to `.secretsignore`, or mark one line with `pragma: allowlist secret`, as `helm/tests/ducklake_catalog_test.yaml` does. [must, ripsecrets]
-
-<!-- nav:start -->
----
-
-[Previous: Query tab](console/query.md) | [Next: Development](dev/index.md) | [Home](./index.md)
-<!-- nav:end -->

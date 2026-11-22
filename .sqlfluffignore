@@ -8,7 +8,10 @@ sync/src/sync/templates/postgres/insert_scope.sql
 sync/src/sync/templates/postgres/macros.sql
 
 # These contain dialect-specific syntax not supported by SQLFluff.
+# The two DESCRIBE templates give an unknown number of columns (AM04), because the source decides them.
+sync/src/sync/templates/duckdb/describe_parquet.sql
 sync/src/sync/templates/duckdb/describe_source.sql
+sync/src/sync/templates/postgres/describe_source.sql
 sync/src/sync/templates/duckdb/setup.sql
 
 # Jinja macro source and imports are validated through rendering.

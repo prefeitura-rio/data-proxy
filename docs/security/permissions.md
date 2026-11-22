@@ -57,9 +57,3 @@ This table lists what a client sees and why. A status can come from the gateway,
 | `409` | A sync run is in the wrong status for the action, or the provision job hasn't created the schema yet. | Database |
 | `503` | `PROXY_MAX_INFLIGHT` requests already wait for PostgREST. | Proxy |
 | `502`, `503` or `504` | PostgREST fails. The proxy retries a `GET` or `HEAD` twice and then returns the last answer. | PostgREST or proxy |
-
-<!-- nav:start -->
----
-
-[Previous: Required JWT claims](./claims.md) | [Next: Roles](./roles.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

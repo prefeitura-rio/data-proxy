@@ -60,9 +60,3 @@ cosign verify ghcr.io/prefeitura-rio/data-proxy-sync:<tag> \
   --certificate-identity-regexp 'https://github.com/prefeitura-rio/data-proxy/.github/workflows/ci.yaml@.*' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
-
-<!-- nav:start -->
----
-
-[Previous: Topology](./topology.md) | [Next: Environment Variables](./environment.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

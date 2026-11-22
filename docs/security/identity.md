@@ -5,22 +5,7 @@ This page shows how to set up the `role` and `schemas` claims in your identity p
 The diagram shows what happens to a token on its way to the data.
 
 ```mermaid
-%% API client token
-sequenceDiagram
-  participant c as API client
-  participant idp as Identity provider
-  participant gw as Istio gateway
-  participant pgrst as PostgREST
-  participant db as PostgreSQL
-  c->>idp: ask for a token
-  idp-->>c: JWT with role, schemas<br/>and preferred_username
-  c->>gw: request with Authorization: Bearer
-  gw->>idp: signing keys (JWKS), cached
-  gw->>gw: check signature, issuer,<br/>audience and expiry
-  gw->>pgrst: request
-  pgrst->>db: switch to the role claim
-  db-->>pgrst: rows allowed by the policy
-  pgrst-->>c: answer
+{{#include ../diagrams/api-client-token.mmd}}
 ```
 
 ## Set up the role claim in an identity provider
@@ -44,7 +29,7 @@ Add a second mapper for the `schemas` claim (a user attribute with several value
 
 A user who needs two roles takes a role that inherits both in `rbac.toml`, because a token has one.
 
-An older Keycloak writes the single client role as the text `[dp_admin]`, even when *Multivalued* is off. PostgREST then finds no role. In that case replace the mapper with a *User Attribute* mapper: the user attribute `role`, the claim name `role` and the type String. Then give each user the attribute `role` with the name of one role. `nu scripts/kc.nu check` reports this case.
+An older Keycloak writes the single client role as the text `[dp_admin]`, even when *Multi-valued* is off. PostgREST then finds no role. In that case replace the mapper with a *User Attribute* mapper: the user attribute `role`, the claim name `role` and the type String. Then give each user the attribute `role` with the name of one role. `nu scripts/kc.nu check` reports this case.
 
 The `k3d` test realm has one client, `idp`, that's set up like this recipe:
 
@@ -74,7 +59,21 @@ The access policy subject must equal the configured identity claim in the end-us
 
 ## Create the console client
 
-`scripts/kc.nu` prints the document for the Keycloak partial import and checks a token. The header of the script has the steps. Print the document with `nu scripts/kc.nu client --host <host> > console-client.json`, import it in the realm and check a token with `nu scripts/kc.nu check <access_token> --issuer <issuer>`.
+`scripts/kc.nu` generates the console client from `rbac.toml` and checks token claims.
+
+1. Generate the partial import document:
+
+   ```nu
+   nu scripts/kc.nu client --host $env.API_HOST o> console-client.json
+   ```
+
+2. Open **Realm settings → Action → Partial import** and import that file. It creates `data-proxy-console-web`, its client roles and the claim mappers.
+3. Open **Clients → data-proxy-console-web → Credentials** and copy the client secret to the console configuration.
+4. Give each user one client role and the `schemas` or `projects` attribute. For a realm with a declarative user profile, run `nu scripts/kc.nu user-profile-attribute`. Add those definitions under `attributes` in **Realm settings → User profile → JSON editor**.
+5. If you rename the client, update the **Client ID** of its role mapper in the dedicated client scope.
+6. To test a password login, temporarily enable **Direct access grants** for the client. Request a token with `nu scripts/token.nu`, using its issuer, client ID, secret, username and password flags. Use the returned `access_token` with `nu scripts/kc.nu check <access_token> --issuer <issuer>`. Disable **Direct access grants** after the check.
+
+The check validates the issuer, audience, role, access claims and username against the expected configuration. It inspects claims, not the signature. Use `--audience` when the gateway expects an audience other than `data-proxy`.
 
 ## Use another identity provider
 
@@ -102,9 +101,3 @@ A claim that names a role that isn't in `rbac.toml` never gains rights. PostgRES
 Two checks keep `rbac.toml` and the database in step. `chart:lint:toml` checks `rbac.toml` against `rbac.schema.json`: each object has a description and an action, and each role has a name. The `configure-db` Job runs `verify-rbac` after it loads the rules. It fails in three cases. A role is missing. A request role can log in or is a superuser. The serving login belongs to a role that the file doesn't list. A role that left the file can't keep its rights without a failed upgrade.
 
 A permission that the SQL asks for and the file lacks ends as an HTTP 500 at run time. The `roles` scenario of the end-to-end suite checks this.
-
-<!-- nav:start -->
----
-
-[Previous: Requests](./requests.md) | [Next: Tokens](./tokens.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

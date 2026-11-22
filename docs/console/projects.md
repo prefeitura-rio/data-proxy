@@ -12,9 +12,3 @@ A project groups schemas under one name. The Config tab lists the schemas by pro
 ## Who reads what
 
 The `projects` claim of a token gives every schema of a project, also one that the project gets later. The [claims page](../security/claims.md) says how the claim works. The view `catalog` lists each project, schema and table with its `ltree` path. The row policies show a token only the rows that it may read.
-
-<!-- nav:start -->
----
-
-[Previous: Configuration](./configuration.md) | [Next: Changes](./changes.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

@@ -1,0 +1,6 @@
+%% Code map
+flowchart LR
+  proxy["<b>proxy/</b><br/>OpenResty and Lua.<br/>The request path."] ~~~ sync["<b>sync/</b><br/>Python and DBOS.<br/>Source to DuckLake."] ~~~ console["<b>console/</b><br/>SvelteKit app, notebook<br/>site and SQL migrations."]
+  helm["<b>helm/</b><br/>The chart, the job scripts<br/>and the SQL templates."] ~~~ k6["<b>k6/</b><br/>Load and end-to-end tests."] ~~~ nix["<b>nix/ and */devenv.nix</b><br/>Profiles, processes<br/>and tasks."]
+  scripts["<b>scripts/</b><br/>Nushell commands for<br/>developers and CI."] ~~~ k3d["<b>k3d/</b><br/>The local cluster."] ~~~ docs["<b>docs/</b><br/>This wiki."]
+  terraform["<b>provider/</b><br/>Go. The Terraform<br/>provider of Data Proxy."]

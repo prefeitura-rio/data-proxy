@@ -3,27 +3,7 @@
 The chart exposes the console, the notebooks and the API through the Istio gateway.
 
 ```mermaid
-%% Ingress paths
-flowchart LR
-  client["Client"]
-  subgraph gateway["Istio gateway"]
-    vs["VirtualService"]
-  end
-  jwt["JWT check<br/>ingress.auth.enabled"]
-  subgraph api["API host"]
-    proxy["Proxy to PostgREST<br/>/ and the tables"]
-    docs["Swagger UI<br/>/docs"]
-    console["Console<br/>/console"]
-  end
-  subgraph nb["Notebook host"]
-    site["Notebook site"]
-  end
-  client --> vs
-  vs -->|"/ and /docs"| jwt
-  jwt --> proxy
-  jwt --> docs
-  vs -->|"/console<br/>signs in with OIDC"| console
-  vs -->|"other host,<br/>other origin"| site
+{{#include ../diagrams/ingress-paths.mmd}}
 ```
 
 ## Console and notebooks
@@ -53,9 +33,3 @@ The chart makes a read-only identity next to the admin identity of the S3 secret
 Set `ingress.enabled` to create the VirtualService. Set `ingress.auth.enabled` to create JSON Web Token (JWT) authentication and authorization resources. Create the configured Gateway before installing the chart.
 
 The values `ingress.retries.attempts`, `perTryTimeout` and `retryOn` set the retries of the gateway. Don't put `503` in `retryOn`. The proxy answers `503` with `Retry-After` when it sheds a request, because too many requests wait for PostgREST. A retry sends the same request again and adds load to a system that's already full. The proxy already retries PostgREST itself, so use `reset,connect-failure`.
-
-<!-- nav:start -->
----
-
-[Previous: Initialization](./initialization.md) | [Next: Topology](./topology.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

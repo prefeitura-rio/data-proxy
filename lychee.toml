@@ -1,0 +1,4 @@
+offline = true
+include_fragments = "full"
+no_progress = true
+exclude_path = ["docs/SUMMARY.md"]

@@ -123,9 +123,3 @@ token --issuer https://sso.example.com/realms/prod --client-id my-client --usern
 ```
 
 The client secret can also come from `KEYCLOAK_CLIENT_SECRET`. `--username` and `--password` switch to the password grant, and `--scope` adds scopes.
-
-<!-- nav:start -->
----
-
-[Previous: Sync](./sync.md) | [Next: Proxy](proxy/index.md) | [Home](./index.md)
-<!-- nav:end -->

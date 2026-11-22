@@ -14,6 +14,22 @@ let
   stateFile = name: "${config.devenv.state}/${name}";
 
   /**
+    The name of a test container. The name carries a hash of the state folder of the profile, so two profiles or two
+    worktrees never share a container, and `podman run --replace` never stops the container of another run.
+
+    # Type
+
+    ```
+    container :: String -> String
+    ```
+  */
+  container =
+    name:
+    "data-proxy-test-${name}-${
+      builtins.substring 0 8 (builtins.hashString "sha256" config.devenv.state)
+    }";
+
+  /**
     A `files` entry for a file in the state folder of the test run. Read the path of the file with `stateFile`.
 
     # Type
@@ -57,6 +73,7 @@ let
 in
 {
   inherit
+    container
     fileEntry
     postgresUrl
     stateFile

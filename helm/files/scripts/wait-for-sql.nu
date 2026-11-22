@@ -1,6 +1,6 @@
 use ./lib.nu [wait-for-sql]
 
-# Wait until the SQL in PROBE answers true. PROBE_NAME says what the probe waits for. PROBE_URL names the database, and the default is the one of the PG variables.
+# Wait until PROBE succeeds against the configured PostgreSQL connection.
 def main []: nothing -> nothing {
     let name = $env.PROBE_NAME
     let probe = $env.PROBE

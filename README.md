@@ -6,7 +6,7 @@ The source is the authoritative data store. BigQuery is the only source adapter 
 
 ## Documentation
 
-The documentation is a wiki of linked Markdown files in `docs/`. Start at [docs/index.md](docs/index.md).
+The documentation is a book of linked Markdown files in `docs/`. Read the [latest publication](https://prefeitura-rio.github.io/data-proxy/latest/) or download its [LLM bundle](https://prefeitura-rio.github.io/data-proxy/latest/llms.txt). Each chart release also publishes a version folder, such as `v2.21.0/`. The latest publication can be an older release when you publish that release again.
 
 - [Architecture](docs/architecture/index.md) — components, DuckLake pieces and the serving, sync and console layers.
 - [Sync](docs/sync.md) — `sync.json`, table strategies, partition batches and DuckLake sort keys.
@@ -20,9 +20,9 @@ The documentation is a wiki of linked Markdown files in `docs/`. Start at [docs/
 - [Development](docs/dev/index.md) — local setup, devenv, checks, tests and CI.
 - [Operations](docs/operations/index.md) — Helm chart, topology, settings, scaling, metrics and backups.
 
-### Browse the wiki
+### Browse the book
 
-The pages link to each other with relative Markdown links. Open the repository in an editor that has the [Marksman](https://github.com/artempyanykh/marksman) language server, which the devenv shell provides. Then use go to definition on a link, find references on a heading and completion inside a link target. The [documentation rules](docs/style.md#documentation) lists the rules for a page.
+The pages link to each other with relative Markdown links. Run `devenv --profile docs up docs` to read them in a browser, in the dark theme or the light ones. The [documentation rules](docs/style.md#documentation) lists the rules for a page.
 
 ## License
 

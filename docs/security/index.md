@@ -43,9 +43,3 @@ sync:
 - The `schemas` claim of the token must contain `test`.
 - The database matches the `preferred_username` claim with `access.policy.subject`.
 - A row is visible only when its unit columns match an active access policy row.
-
-<!-- nav:start -->
----
-
-[Previous: SQL Templates](../sql.md) | [Next: Required JWT claims](./claims.md) | [Home](../index.md)
-<!-- nav:end -->

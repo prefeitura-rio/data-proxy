@@ -65,9 +65,3 @@ DBOS sync workers write the catalogs as the `ops` role, through the primary. Str
 The catalog contains DuckLake metadata, not PostgreSQL application rows. DuckLake table configuration uses `SET PARTITIONED BY` and `SET SORTED BY` for partition and RLS-related columns.
 
 [Database roles and grants](grants.md) describes the roles, the security and the pushdown of the predicates and the S3 access.
-
-<!-- nav:start -->
----
-
-[Previous: Table settings](proxy/reload.md) | [Next: Database roles and grants](./grants.md) | [Home](./index.md)
-<!-- nav:end -->

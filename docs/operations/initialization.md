@@ -13,31 +13,7 @@ SeaweedFS stores Parquet data in its own configured storage. The PostgreSQL data
 Three Jobs prepare the database, and each one waits for what it needs. A migration contains what changes only when a developer changes it. A Job contains what depends on a secret, on `rbac.toml`, on the schemas of the console or on a sync run.
 
 ```mermaid
-%% Install Jobs sequence
-sequenceDiagram
-  participant h as Helm install or upgrade
-  participant cfg as configure-db Job
-  participant mig as migrate-db Job
-  participant prov as provision Job
-  participant pg as PostgreSQL primary
-  participant pgr as PostgREST
-  h->>cfg: start
-  cfg->>pg: wait for the writer
-  cfg->>pg: request roles
-  h->>mig: start
-  mig->>pg: wait for the request roles
-  mig->>pg: dbos migrate
-  mig->>pg: goose up (application and catalog databases)
-  cfg->>pg: wait for the rbac schema
-  cfg->>pg: DuckDB secrets and the rules of rbac.toml
-  h->>prov: start
-  prov->>pg: wait for the migrations and the rules
-  prov->>pg: fill an empty configuration
-  prov->>pg: schemas, access policies, reader roles
-  prov->>pg: set pgrst.db_schemas
-  opt the schema list changed
-    pg->>pgr: NOTIFY after the standbys replay
-  end
+{{#include ../diagrams/install-jobs-sequence.mmd}}
 ```
 
 | Job | Waits for | Work |
@@ -61,11 +37,15 @@ Goose records each migration in `public.goose_db_version` of its database. Betwe
 `provision` also exists as a suspended CronJob, `<release>-provision`, that a Job comes from when a schema changes (see [Run a Job on demand](initialization.md#run-a-job-on-demand)). On install and upgrade, it does these steps:
 
 - It fills an empty configuration once from `sync.config`. Afterward the console controls the configuration.
-- For each schema in `console.schemas`, it creates the PostgreSQL schema and its access policy, with row policies that ask for `read_policy` and `edit_policy`.
-- It sets `pgrst.db_schemas` on the `serving` login to the schemas plus `console`, in that order, because the first schema is the default profile of PostgREST.
-- It tells PostgREST to reload only when that list changes. The database waits until every standby replayed the change, then sends a `NOTIFY` on the `pgrst` channel.
+- For each configured schema, it creates the catalog reader role before the application schema. The application schema marks completed creation, so another run can detect unfinished work.
+- It sets `pgrst.db_schemas` on the `serving` login to the data schemas, then `console` and `access`. The first schema is the default PostgREST profile.
+- It reloads PostgREST only when the list changes and restores the previous list if the reload fails.
 
-PostgREST serves a schema that an editor adds within seconds. The job drops a schema that an editor removes: the files first, then the catalog, then the schema of the database. See [Console](../console/configuration.md#remove-a-table-or-a-schema).
+The database waits until every standby replays the change, then sends a `NOTIFY` on the `pgrst` channel.
+
+Before reconciliation, `provision` renames legacy catalog schemas and reader roles to their physical names. It rereads configuration for up to three passes to handle edits during reconciliation. The initial import uses the administrator role for one transaction, because the Job has no end-user token. The migrations create the shared `access` schema and its policies.
+
+PostgREST serves a schema that an editor adds within seconds. The job removes obsolete schema files first, then the catalog and its reader role, then the application schema. The application schema marks completed removal, so another run can detect unfinished work. See [Console](../console/configuration.md#remove-a-table-or-a-schema).
 
 ### Roll back
 
@@ -94,9 +74,3 @@ kubectl -n data-proxy create job --from=cronjob/<release>-configure-db configure
 The sync ServiceAccount may read the CronJobs and create Jobs in its namespace, and nothing more.
 
 The PostgREST Deployment uses an HTTP readiness probe on `/`. It isn't Ready until PostgREST is serving its configured schema.
-
-<!-- nav:start -->
----
-
-[Previous: Helm Chart](./helm.md) | [Next: Ingress](./ingress.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

@@ -1,0 +1,7 @@
+%% Backup flow
+flowchart LR
+  subgraph job["Backup CronJob backup.schedule"]
+    export["Export access.policy<br/>and access.log"] --> prune["Delete access.log rows<br/>older than retentionDays"]
+  end
+  bucket[("Backup bucket<br/>prefix/date/")]
+  export -->|"upload two dumps"| bucket

@@ -1,6 +1,7 @@
 use std/log
 
-# Log an error and stop the script with the same message. The label points at the message in the caller.
+# Log an error and stop the script with contextual failure details.
+@example "Stop with an error" { fail 'Example failure' }
 export def fail [message: string]: nothing -> error {
     log error $message
 
@@ -12,61 +13,8 @@ export def fail [message: string]: nothing -> error {
     }
 }
 
-# Return the text of a file, or fail with the reason.
-export def read-text [file: path]: nothing -> string {
-    try {
-        open --raw $file | decode utf-8
-    } catch {|err|
-        fail $'Cannot read ($file): ($err.msg)'
-    }
-}
-
-# Save the text from the pipeline to a file, or fail with the reason.
-export def write-text [file: path]: string -> nothing {
-    let text = $in
-
-    try {
-        $text | save --force $file
-    } catch {|err|
-        fail $'Cannot write ($file): ($err.msg)'
-    }
-}
-
-# Parse JSON text of an object from the pipeline, or fail with the reason.
-export def parse-json []: string -> record {
-    let text = $in
-
-    try {
-        $text | from json
-    } catch {|err|
-        fail $'Invalid JSON: ($err.msg)'
-    }
-}
-
-# Parse TOML text from the pipeline, or fail with the reason.
-export def parse-toml []: string -> record {
-    let text = $in
-
-    try {
-        $text | from toml
-    } catch {|err|
-        fail $'Invalid TOML: ($err.msg)'
-    }
-}
-
-# Remove a file or a folder, or fail with the reason. A path that is already gone is not an error.
-export def remove-path [target: path]: nothing -> nothing {
-    try {
-        rm --recursive --force $target
-    } catch {|err|
-        fail $'Cannot remove ($target): ($err.msg)'
-    }
-}
-
 # Return the output of a finished command, or fail with its error text.
-@example "A command that failed" {
-    {stdout: '', stderr: 'boom', exit_code: 1} | check-result 'the command'
-}
+@example "Read successful command output" { {stdout: 'ready', stderr: '', exit_code: 0} | check-result 'probe' } --result 'ready'
 export def check-result [what: string]: record<stdout: string, stderr: string, exit_code: int> -> string {
     let result = $in
 
@@ -78,9 +26,7 @@ export def check-result [what: string]: record<stdout: string, stderr: string, e
 }
 
 # Run a check until it returns true, and fail when the timeout ends first.
-@example "A check that is true at once" {
-    wait-until 'the answer' {|| true }
-}
+@example "Wait for a ready check" { wait-until 'readiness' {|| true } }
 export def wait-until [
     description: string
     check: closure
@@ -105,13 +51,7 @@ export def wait-until [
 }
 
 # Dump one PostgreSQL table to a file using pg_dump.
-@example "Dump one table" {
-    dump-table postgres://user:password@host/db {
-        schema: access
-        table: policy
-        file: /tmp/access-policy.dump
-    }
-}
+@example "Dump an access table" { dump-table 'postgresql://localhost/example' {schema: access, table: policy, file: '/tmp/policy.dump'} }
 export def dump-table [dsn: string, config: record<schema: string, table: string, file: string>]: nothing -> nothing {
     try {
         pg_dump $dsn --format=custom --no-owner --no-acl --enable-row-security --table=$"($config.schema).($config.table)" --data-only --file=($config.file)
@@ -119,15 +59,7 @@ export def dump-table [dsn: string, config: record<schema: string, table: string
 }
 
 # Return the list of schemas to process, filtered by SCHEMA env var when set.
-@example "Return all configured schemas" {
-    {
-        schemas: {
-            alpha: {}
-            beta: {}
-        }
-    }
-    | schema-list
-} --result "[alpha, beta]"
+@example "Read configured schemas" { with-env {SCHEMA: ''} { {schemas: {alpha: {}, beta: {}}} | schema-list } } --result [alpha beta]
 export def schema-list []: record -> list<string> {
     let all = $in.schemas | columns
     let target = $env.SCHEMA?
@@ -140,25 +72,19 @@ export def schema-list []: record -> list<string> {
 }
 
 # Run one read query on the database and return the rows as text, one line for each row and a comma between the columns.
-@example "Read the names of the schemas" {
-    query-sql 'SELECT name FROM console.schemas' | lines
-}
+@example "Read configured schema names" { query-sql 'SELECT name FROM console.schemas' }
 export def query-sql [query: string]: nothing -> string {
     psql $env.PG_DATABASE_URL --no-psqlrc --quiet -t -A -F ',' -c $query | complete | check-result 'SQL query'
 }
 
 # Read the synchronization configuration from the console tables or fail with contextual logging.
-@example "Read configured schemas" {
-    sync-config | get schemas | columns
-}
+@example "Read configured schema names" { sync-config | get schemas | columns }
 export def sync-config []: nothing -> record {
-    query-sql 'SELECT console.sync_config()' | parse-json
+    query-sql 'SELECT console.sync_config()' | from json
 }
 
 # Wait until a relation exists in PostgreSQL or fail after the configured timeout.
-@example "Wait for the state table" {
-    wait-for-relation data_proxy.state --timeout 1min
-}
+@example "Wait for a state table" { wait-for-relation 'data_proxy.state' }
 export def wait-for-relation [
     relation: string
     --timeout: duration = 10min
@@ -173,10 +99,8 @@ export def wait-for-relation [
     }
 }
 
-# Wait until a SQL probe answers true, or fail after the configured timeout. The probe runs on the database of the PG variables, or on the one in --dsn.
-@example "Wait until the roles exist" {
-    wait-for-sql 'the request roles' "SELECT count(*) = 2 FROM pg_roles WHERE rolname IN ('anon', 'dp_api')" --timeout 1min
-}
+# Wait until the configured SQL probe succeeds or reaches its timeout.
+@example "Wait for database roles" { wait-for-sql 'request roles' "SELECT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon')" }
 export def wait-for-sql [
     description: string
     probe: string
@@ -202,9 +126,7 @@ export def wait-for-sql [
 }
 
 # Return the psql arguments for one PostgreSQL readiness probe.
-@example "Include a connection DSN" {
-    postgres-ready-args postgres://test
-} --result "[postgres://test, --no-psqlrc, --quiet, -t, -A, -c, SELECT 1]"
+@example "Construct probe arguments" { postgres-ready-args 'postgresql://localhost/example' }
 export def postgres-ready-args [dsn?: string]: nothing -> list<string> {
     let args = [
         --no-psqlrc
@@ -223,11 +145,7 @@ export def postgres-ready-args [dsn?: string]: nothing -> list<string> {
 }
 
 # Wait until PostgreSQL accepts connections or fail after the configured timeout.
-@example "Probe with a test closure" {
-    wait-for-postgres postgres://test --timeout 0sec --probe {|args|
-        {exit_code: 0 stderr: ''}
-    }
-}
+@example "Wait for PostgreSQL" { wait-for-postgres 'postgresql://localhost/example' }
 export def wait-for-postgres [
     dsn?: string
     --timeout: duration = 10min
@@ -244,9 +162,7 @@ export def wait-for-postgres [
 }
 
 # Quote a PostgreSQL identifier for use in rendered SQL.
-@example "Quote an identifier that holds a double quote" {
-    quote-identifier 'test"schema'
-} --result '"test""schema"'
+@example "Quote an identifier" { quote-identifier 'orders' } --result '"orders"'
 export def quote-identifier [value: string]: nothing -> string {
     let escaped = $value | str replace --all '"' '""'
 
@@ -254,9 +170,7 @@ export def quote-identifier [value: string]: nothing -> string {
 }
 
 # Quote a PostgreSQL literal for use in rendered SQL.
-@example "Quote a Portuguese literal" {
-    quote-literal "d'água"
-} --result "'d''água'"
+@example "Quote a SQL literal" { quote-literal 'orders' } --result "'orders'"
 export def quote-literal [value: string]: nothing -> string {
     let escaped = $value | str replace --all "'" "''"
 
@@ -264,19 +178,19 @@ export def quote-literal [value: string]: nothing -> string {
 }
 
 # Return the quoted identifier of the application schema, from DBOS_APP_SCHEMA or the default.
+@example "Quote the application schema" { with-env {DBOS_APP_SCHEMA: data_proxy} { app-schema } } --result '"data_proxy"'
 export def app-schema []: nothing -> string {
     quote-identifier ($env.DBOS_APP_SCHEMA? | default data_proxy)
 }
 
 # Return the names of the roles as quoted literals, separated by commas, for a SQL list.
-@example "Quote two role names" {
-    [dp_api dp_admin] | role-literals
-} --result "'dp_api', 'dp_admin'"
+@example "Quote request roles" { [dp_api dp_admin] | role-literals } --result "'dp_api', 'dp_admin'"
 export def role-literals []: list<string> -> string {
     each {|name| quote-literal $name } | str join ', '
 }
 
 # Read the rbac.toml file and return what the load_rbac template needs: the parsed rules and the hash of the file text.
+@example "Read RBAC template inputs" { rbac-context 'helm/files/config/rbac.toml' | get source_hash }
 export def rbac-context [file?: path]: nothing -> record {
     let file = $file | default ($env.RBAC_FILE? | default ./rbac.toml)
 
@@ -284,34 +198,30 @@ export def rbac-context [file?: path]: nothing -> record {
         fail $'The rules file does not exist: ($file)'
     }
 
-    let text = read-text $file
+    let text = open --raw $file | decode utf-8
 
     {
-        rules: ($text | parse-toml)
+        rules: ($text | from toml)
         source_hash: ($text | hash sha256)
     }
 }
 
 # Render one Jinja SQL template with a strict JSON context.
-@example "Render one SQL template" {
-    render-sql postgres/create_schema.sql {schema: data_proxy}
-}
+@example "Render a role template" { render-sql 'postgres/reset_db_schemas.sql' {serving_role: '"serving"'} }
 export def render-sql [name: path, context: record]: nothing -> string {
     let context_file = mktemp --tmpdir --suffix .json
     let template_dir = $env.SQL_TEMPLATE_DIR? | default /templates
 
-    $context | to json | write-text $context_file
+    $context | to json | save --force $context_file
 
     let result = minijinja-cli --strict --autoescape none --format json $'($template_dir)/($name)' $context_file | complete
-    remove-path $context_file
+    rm --recursive --force $context_file
 
     $result | check-result $'rendering of the SQL template ($name)'
 }
 
 # Render a Jinja SQL template and execute it against PostgreSQL.
-@example "Execute SQL with template context" {
-    execute-sql postgres/create_schema.sql {schema: data_proxy}
-}
+@example "Apply a role template" { execute-sql 'postgres/reset_db_schemas.sql' {serving_role: '"serving"'} --dsn 'postgresql://localhost/example' }
 export def execute-sql [
     template: path
     context: record = {}
@@ -334,6 +244,7 @@ export def execute-sql [
 }
 
 # Return the configured object-store endpoint with an explicit scheme.
+@example "Normalize an object-store endpoint" { with-env {S3_ENDPOINT: 'localhost:8333', S3_USE_SSL: 'false'} { endpoint-url } } --result 'http://localhost:8333'
 export def endpoint-url []: nothing -> string {
     let endpoint = $env.S3_ENDPOINT
 
@@ -346,7 +257,8 @@ export def endpoint-url []: nothing -> string {
     $'($scheme)://($endpoint)'
 }
 
-# Return the rclone remote environment for the configured object store. The credentials default to AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.
+# Return the configured object-store environment with AWS credential defaults.
+@example "Inspect an object-store backend" { with-env {S3_ENDPOINT: 'localhost:8333'} { rclone-env --access-key example --secret-key example | get RCLONE_CONFIG_STORE_TYPE } } --result 's3'
 export def rclone-env [
     --access-key: string
     --secret-key: string
@@ -376,26 +288,16 @@ export def rclone-env [
 # The schemas of the system, which a removal never touches.
 const SYSTEM_SCHEMAS = [console data_proxy dbos rbac public access]
 
-# Find the schemas that the console no longer lists. A schema of the data has the name `<project>__<schema>`, so every
-# schema with that form, except the configured ones, is one that a removal drops.
-@example "A schema with the form and no row in the console" {
-    [default__kept sales__gone public]
-    | orphans default__kept
-} --result [sales__gone]
+# Return data schemas that the console no longer configures.
+@example "Find an obsolete data schema" { [public default__old sales__orders] | orphans sales__orders } --result [default__old]
 export def orphans [...configured: string]: list<string> -> list<string> {
     where $it =~ '^[a-z][a-z0-9]*__'
     | where $it not-in $SYSTEM_SCHEMAS and $it not-in $configured
     | sort
 }
 
-# The name of the S3 folder of a schema: the short name in the project default, and `<project>_<schema>` in another
-# project.
-@example "A schema of the project default" {
-    legacy-name default__api_bcadastro
-} --result api_bcadastro
-@example "A schema of another project" {
-    legacy-name sales__orders
-} --result sales_orders
+# Return the legacy S3 folder name for a schema.
+@example "Read a legacy storage name" { legacy-name sales__orders } --result 'sales_orders'
 export def legacy-name [schema: string]: nothing -> string {
     let parts = $schema | split row '__' --number 2
 
@@ -406,10 +308,8 @@ export def legacy-name [schema: string]: nothing -> string {
     }
 }
 
-# The remote path of the data files of one schema. It refuses a name that could leave the catalog folder.
-@example "The folder of one schema" {
-    data-prefix bucket ducklake default__e2e_new
-} --result 'store:bucket/ducklake/e2e_new'
+# Return a schema data path while refusing names outside the catalog folder.
+@example "Locate schema data files" { data-prefix bucket ducklake sales__orders } --result 'store:bucket/ducklake/sales_orders'
 export def data-prefix [bucket: string, catalog_path: string, schema: string]: nothing -> string {
     if ($schema | is-empty) or $schema =~ '/|\.\.' {
         fail $'Refusing to purge the data of the schema "($schema)"'
@@ -426,9 +326,7 @@ const KEY_FIELDS = {
 }
 
 # Return whether a JWKS key has a kid, a known type, and every field of that type.
-@example "An RSA key with its fields" {
-    {kty: RSA, kid: a, n: x, e: AQAB} | jwks-key-valid
-} --result true
+@example "Validate an RSA key shape" { {kid: example, kty: RSA, n: modulus, e: AQAB} | jwks-key-valid } --result true
 export def jwks-key-valid []: record -> bool {
     let key = $in
     let fields = if $key.kty? == null { null } else { $KEY_FIELDS | get --optional $key.kty }
@@ -436,7 +334,8 @@ export def jwks-key-valid []: record -> bool {
     $fields != null and ([kid ...$fields] | all {|field| ($key | get --optional $field) not-in [null ''] })
 }
 
-# The UIDs of the sync pods that are running and not deleting, from the list that kubectl prints. They are the live executors of DBOS.
+# Return the identifiers of running sync pods that have no deletion timestamp.
+@example "Read live worker identifiers" { {items: [{metadata: {uid: worker}, status: {phase: Running}}]} | live-executor-ids } --result [worker]
 export def live-executor-ids []: record -> list<string> {
     get items
     | where $it.status.phase == Running
@@ -444,7 +343,8 @@ export def live-executor-ids []: record -> list<string> {
     | get metadata.uid
 }
 
-# The two tables that a backup dumps, and the remote folder of the day.
+# Return the access tables and dated storage folder for a backup.
+@example "Locate a daily backup" { backup-plan bucket backups '2026-01-01' | get remote_prefix } --result 'store:bucket/backups/2026-01-01'
 export def backup-plan [bucket: string, prefix: string, date: string]: nothing -> record {
     {
         dumps: [
@@ -455,10 +355,8 @@ export def backup-plan [bucket: string, prefix: string, date: string]: nothing -
     }
 }
 
-# The value of the PostgREST setting that lists the schemas it serves. The console and the access schema come last, because the first schema is the default profile.
-@example "The console and the access schema after the data schemas" {
-    served-schemas b a
-} --result 'a,b,console,access'
+# Return the PostgREST schema list with data schemas before console and access.
+@example "Order served schemas" { served-schemas sales__orders default__people } --result 'default__people,sales__orders,console,access'
 export def served-schemas [...names: string]: nothing -> string {
     ($names | sort) ++ ['console' 'access'] | str join ','
 }

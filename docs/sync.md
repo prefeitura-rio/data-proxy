@@ -132,9 +132,3 @@ The provision job creates the role that reads the metadata of each configured sc
 Application table names are PostgreSQL views over DuckLake functions.
 
 ---
-
-<!-- nav:start -->
----
-
-[Previous: Console layer](architecture/console.md) | [Next: Using the API](./using.md) | [Home](./index.md)
-<!-- nav:end -->

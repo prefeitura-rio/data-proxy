@@ -1,0 +1,87 @@
+name: Release provider
+on:
+  push:
+    tags:
+      - "v*"
+concurrency:
+  group: provider-release
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  release:
+    name: Verify and release provider
+    if: vars.TERRAFORM_REGISTRY_HOST != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require reviewed main history
+        run: git merge-base --is-ancestor HEAD refs/remotes/origin/main
+      - id: prewarm
+        uses: ./.github/actions/prewarm-images
+        with:
+          keycloak: true
+      - uses: ./.github/actions/cache-nix
+      - uses: ./.github/actions/setup-devenv
+      - uses: ./.github/actions/cache-packages
+      - uses: ./.github/actions/cache-go
+      - name: Validate the release tag and version
+        shell: devenv --profile provider shell -- bash -e {0}
+        run: nu scripts/ci.nu validate terraform "$PROVIDER_TAG"
+        env:
+          PROVIDER_TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TERRAFORM_REGISTRY_HOST: ${{ vars.TERRAFORM_REGISTRY_HOST }}
+          TERRAFORM_REGISTRY_NAMESPACE: ${{ vars.TERRAFORM_REGISTRY_NAMESPACE }}
+          TERRAFORM_REGISTRY_BUCKET: ${{ vars.TERRAFORM_REGISTRY_BUCKET }}
+      - uses: ./.github/actions/wait-images
+        with:
+          postgres-image: ${{ steps.prewarm.outputs.postgres-image }}
+          keycloak-image: ${{ steps.prewarm.outputs.keycloak-image }}
+      - name: Test the tagged provider
+        run: devenv --profile provider test
+      - name: Prepare the signing key and Cocogitto notes
+        id: signing
+        shell: devenv --profile provider shell -- bash -e {0}
+        run: nu scripts/ci.nu prepare terraform "$PROVIDER_TAG"
+        env:
+          PROVIDER_TAG: ${{ github.ref_name }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      - name: Publish with GoReleaser from nixpkgs
+        shell: devenv --profile provider shell -- bash -e {0}
+        run: goreleaser release --clean --config provider/.goreleaser.yaml --release-notes packaged/provider-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          TERRAFORM_REGISTRY_HOST: ${{ vars.TERRAFORM_REGISTRY_HOST }}
+          TERRAFORM_REGISTRY_NAMESPACE: ${{ vars.TERRAFORM_REGISTRY_NAMESPACE }}
+      - name: Authenticate registry publication
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - name: Publish registry metadata
+        shell: devenv --profile provider shell -- bash -e {0}
+        run: nu scripts/ci.nu publish terraform
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TERRAFORM_REGISTRY_NAMESPACE: ${{ vars.TERRAFORM_REGISTRY_NAMESPACE }}
+          TERRAFORM_REGISTRY_BUCKET: ${{ vars.TERRAFORM_REGISTRY_BUCKET }}
+      - name: Remove the isolated signing keyring
+        if: always() && (steps.signing.outcome == 'success' || steps.signing.outcome == 'failure')
+        shell: devenv --profile provider shell -- nu {0}
+        run: |
+          let home = $env.RUNNER_TEMP | path join data-proxy-provider-gnupg
+
+          if ($home | path exists) {
+              gpgconf --homedir $home --kill gpg-agent | complete | ignore
+              rm --recursive --force $home
+          }

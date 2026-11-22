@@ -19,49 +19,7 @@ The serving layer answers API reads. It checks the token, uses the cache and rea
 The diagram shows one API read, from the JWT check at the gateway to the cached answer. It covers the cache, the role switch, the row-level security checks, the DuckLake scan and the fallback to the source.
 
 ```mermaid
-%% API read sequence
-sequenceDiagram
-  participant c as Client
-  participant gw as Istio gateway
-  participant n as Proxy
-  participant r as Redis
-  participant api as PostgREST
-  participant db as PostgreSQL standby
-  participant s3 as SeaweedFS
-  participant src as Source
-  c->>gw: GET with Bearer JWT
-  gw->>gw: check the JWT
-  alt JWT not valid
-    gw-->>c: 401
-  else JWT valid
-    gw->>n: forward the request
-    n->>r: look up the cache key
-    alt cache hit
-      r-->>n: cached answer
-      n-->>c: response (HIT)
-    else cache miss
-      n->>api: forward the JWT
-      api->>api: switch to the role
-      api->>db: read-only transaction (PgDog)
-      db->>db: pre_request, checks
-      alt not allowed
-        db-->>c: 403
-      else no policy match
-        db-->>api: empty list
-      else allowed
-        db->>s3: scan Parquet (RLS)
-        s3-->>db: rows
-        opt fallback
-          db->>src: read other partitions
-          src-->>db: rows
-        end
-        db-->>api: rows
-      end
-      api-->>n: rows, X-Source
-      n->>r: store if not empty
-      n-->>c: response (MISS)
-    end
-  end
+{{#include ../diagrams/api-read-sequence.mmd}}
 ```
 
 The table view calls a function that checks the access policy. The function plans DuckLake and the optional partition fallback from `data_proxy.state`, and it reads them in order. It passes the access policy predicate to DuckDB, so the Parquet scan returns only authorized rows. PostgREST filters aren't pushed into DuckDB. PostgreSQL applies them after the function returns the authorized rows.
@@ -101,9 +59,3 @@ A backend that attached earlier sees a new snapshot at the start of its next que
 The DuckDB secrets `ducklake_catalog_pg` (the PostgreSQL login of the catalog) and `ducklake_catalog` (the catalog itself) contain the address and the credentials. The `configure-db` Job writes them as persistent secrets to the shared volume. The same Job sets default privileges, so `duckdb` can read every metadata schema that `ops` creates later.
 
 The writer writes the Parquet files before it commits the snapshot, so a catalog never points at a missing file. A standby can be a few seconds behind the primary. Snapshot expiration keeps the files that an older snapshot uses. See [Sync layer](sync.md#ducklake-write-path).
-
-<!-- nav:start -->
----
-
-[Previous: Architecture](./index.md) | [Next: Sync layer](./sync.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

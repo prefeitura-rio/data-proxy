@@ -89,7 +89,7 @@ Import with the physical name. An imported schema has deletion protection.
 
 The console and the provider check a new name before they send a request. The database doesn't check these rules, so an old name stays valid.
 
-- A project name can't be `access`, `console`, `rbac`, `dbos`, `public`, `duckdb`, `rpc`, `docs` or `v1`. A URL or a PostgreSQL schema of the system uses these names.
+- A project name can't be `access`, `console`, `rbac`, `dbos`, `public`, `duckdb`, `rpc`, `docs` or `v1`. A web address or a PostgreSQL schema of the system uses these names.
 - A schema short name has no two underscores in a row.
 - `<project>__<short_name>` has at most 56 bytes. The project `default` counts with its name, so a short name in `default` has at most 47 bytes.
 
@@ -126,7 +126,7 @@ resource "data_proxy_table" "orders" {
 - `strategy`: `full` (default) or `partitioned`. `n` and `fallback` need `partitioned`.
 - `cache_ttl`: the seconds that the proxy caches an answer.
 - `partitioning`: a JSON array of partition transforms. `sort`: a list of columns.
-- `rls`: a row policy. The schema needs a `claim`, or the database refuses it. Policies are alternatives. Write one condition as `column_name` and `unit_type`. Write two or more conditions that all must match as `condition` blocks. The two forms do not mix, and one `condition` block is refused. The order of the blocks stays the same.
+- `rls`: a row policy. The schema needs a `claim`, or the database refuses it. Policies are alternatives. Write one condition as `column_name` and `unit_type`. Write two or more conditions that all must match as `condition` blocks. The two forms don't mix, and one `condition` block is refused. The order of the blocks stays the same.
 
 A change of `rls` replaces the policies of the table in one call, so a failure leaves the old policies. A change of the strategy, the partitioning, the sort or the policies makes the next sync rebuild the table. Import with the name.
 
@@ -210,14 +210,14 @@ output "ready" {
 
 ## Develop
 
-The provider is a Go module in `terraform/`. This section says how to build, run and test it.
+The provider is a Go module in `provider/`. This section says how to build, run and test it.
 
 ### Build and test
 
-Run the commands in `terraform/`. The module has its own `go.mod`, so the commands don't build the rest of the repository.
+Run the commands in `provider/`. The module has its own `go.mod`, so the commands don't build the rest of the repository.
 
 ```bash
-cd terraform
+cd provider
 go build ./...
 go vet ./...
 go test ./...
@@ -227,19 +227,19 @@ go test ./...
 
 Terraform downloads a provider from the registry. To test your local binary, add a `dev_overrides` block to the command-line configuration file `~/.terraformrc`. The block tells Terraform to load the provider from a folder on your machine.
 
-1. Build the binary with the name that Terraform expects. `terraform/bin/` is in `.gitignore`.
+1. Build the binary with the name that Terraform expects. `provider/bin/` is in `.gitignore`.
 
    ```bash
-   cd terraform
+   cd provider
    go build -o bin/terraform-provider-data-proxy .
    ```
 
-2. Add the block to `~/.terraformrc`. Write the absolute path of `terraform/bin` in your clone.
+2. Add the block to `~/.terraformrc`. Write the absolute path of `provider/bin` in your clone.
 
    ```hcl
    provider_installation {
      dev_overrides {
-       "registry.example.com/example/data-proxy" = "/home/you/data-proxy/terraform/bin"
+       "registry.example.com/example/data-proxy" = "/home/you/data-proxy/provider/bin"
      }
      direct {}
    }
@@ -251,22 +251,22 @@ The `direct {}` block keeps the normal download for every other provider. Build 
 
 #### Acceptance tests
 
-An acceptance test runs the provider through Terraform against a real API. It's a `TestAcc` function in `terraform/internal/provider/`. It runs only when `TF_ACC` is set, so `go test ./...` compiles it and skips it.
+An acceptance test runs the provider through Terraform against a real API. It's a `TestAcc` function in `provider/internal/provider/`. It runs only when `TF_ACC` is set, so `go test ./...` compiles it and skips it.
 
 ```bash
-devenv --profile terraform tasks run tf:test:int
+devenv --profile provider test
 ```
 
-The task runs `devenv --profile terraform-acc test`. That profile starts the console stack: PostgreSQL, SeaweedFS, Keycloak, PostgREST and the console. It sets `TF_ACC=1` and the `DATA_PROXY_*` variables. The provider calls the local PostgREST. It gets its token from the local Keycloak with the test client `terraform`. That client has the role `dp_admin` and the `schemas` claim `*`. The stack needs Podman, as the [tests page](dev/tests.md#the-test-stack) says.
+That profile starts the console stack: PostgreSQL, SeaweedFS, Keycloak, PostgREST and the console. It sets `TF_ACC=1` and the `DATA_PROXY_*` variables. The provider calls the local PostgREST. It gets its token from the local Keycloak with the test client `terraform`. That client has the role `dp_admin` and the `schemas` claim `*`. The stack needs Podman, as the [tests page](dev/tests.md#the-test-stack) says.
 
-To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `terraform-acc` shell, because the tests call OpenTofu.
+To run one test, start the console stack and set the variables yourself. PostgREST listens on port 13000 and Keycloak on port 18180 when the ports are free. Run `go test` in the `provider` shell, because the tests call OpenTofu.
 
 ```bash
 devenv --profile console up -d
 devenv processes wait
 export TF_ACC=1 DATA_PROXY_ENDPOINT=http://127.0.0.1:13000 DATA_PROXY_CLIENT_ID=terraform DATA_PROXY_CLIENT_SECRET=test-secret
 export DATA_PROXY_TOKEN_URL=http://localhost:18180/realms/dev/protocol/openid-connect/token
-devenv --profile terraform shell -- go -C terraform test -count=1 -run TestAccPermissionsDataSource ./...
+devenv --profile provider shell -- go -C provider test -count=1 -run TestAccPermissionsDataSource ./...
 ```
 
 A new acceptance test uses the helpers in `acceptance_test.go`. Give `testAccPreCheck` to `PreCheck` and `testAccProviderFactories` to `ProtoV6ProviderFactories`. Name each object with `testAccName`, which returns `tfacc` and 10 random letters and digits. Register `testAccCleanup` for each object, so a failed step leaves no row behind. Register a parent before its children, because the cleanups run in reverse order.
@@ -275,63 +275,69 @@ The client `terraform` has the `schemas` claim `*`, so a test can add projects a
 
 ## Releases
 
-The Terraform provider has its own versions and its own releases. A chart release doesn't release the provider, and a provider release doesn't change the chart or production.
+Cocogitto manages provider versions, changelogs and tags. GoReleaser packages, signs and publishes the provider from standard `vX.Y.Z` tags. Both tools come from nixpkgs in the provider profile. Chart releases retain independent `helm-vX.Y.Z` tags. Registry commands use host-provided `gh` and `gcloud`, outside the provider package set.
 
-### How a release happens
+### Prepare a release
 
-CI runs on every push to `main`. When `repo` and `test-terraform` pass, the job `terraform` of CI runs the action `terraform-release` on the same commit. The action decides whether a release is due. The job doesn't wait for the chart release. A failed provider release turns the run red, so the chart stays out of staging.
+Use a clean release worktree and obtain approval before creating release commits or tags. Preview the provider version without changing the checkout:
 
-1. `ci plan terraform` reads the commits that changed `terraform/` since the last tag `terraform-v<version>`.
-2. A `feat` or a breaking commit raises the minor version, and a `fix` raises the patch. Other types give no release. The major version stays 0 until a person sets it.
-3. `ci release terraform` builds the provider for Linux, macOS and Windows, packs each binary in a zip archive, and signs the checksums with the GPG key.
-4. It creates the GitHub Release `terraform-v<version>` with the archives, the checksum file and its signature. The notes list the commit subjects under `terraform/`.
-5. `ci publish terraform` writes the registry files from every release and uploads them to a bucket.
+```bash
+devenv --profile provider shell -- cog bump --package v --auto --dry-run
+```
 
-A tag that exists already makes the job fail, so a version never changes after its release. To release a version by hand, start CI with the input `provider_version`.
+After approval, use the same command without `--dry-run`. Cocogitto writes `provider/CHANGELOG.md`, creates the version commit and adds its local tag. Review the release changes through a pull request. Merge without rewriting the release commit, then push its tag only after the commit enters main history. A squash or rebase changes commit identity and invalidates the original tag for publication. Never move a published tag.
+
+The first new-format release needs an explicit version above all historical `terraform-v*` releases. The existing history reaches `terraform-v0.2.0`, so `0.3.0` illustrates a valid next version:
+
+```bash
+devenv --profile provider shell -- cog bump --package v --version 0.3.0 --dry-run
+```
+
+Select and approve the actual version before removing `--dry-run`. Preserve every historical tag and release. Once a reviewed `v*` baseline exists, native automatic bumps use that provider history. No automatic provider bump runs on main, and CI has no `provider_version` input.
+
+### How publication works
+
+1. `provider.yaml` receives a `v*` tag push and verifies that its commit belongs to main history.
+2. Preflight rejects malformed tags, non-stable versions, reused versions and versions below a published release.
+3. The workflow runs the provider tests against the exact tagged commit.
+4. Cocogitto supplies the notes, and GoReleaser builds Linux and macOS binaries for amd64 and arm64, plus Windows on amd64.
+5. GoReleaser signs the checksums with the existing GPG secrets and publishes the GitHub Release.
+6. `ci publish terraform` generates static registry documents from actual published assets and uploads them to the bucket.
+
+The GoReleaser project name is `data-proxy`. Binaries retain Terraform's required `terraform-provider-data-proxy` prefix. ZIP and checksum names follow GoReleaser defaults. Historical releases retain their original names and URLs.
 
 ### The registry
 
-The registry is a set of static JSON files, as the [registry protocol](https://developer.hashicorp.com/terraform/internet-documentation/provider-registry-protocol) describes. The release workflow writes them to a public bucket. The ingress of Data Proxy sends `/.well-known/terraform.json` and `/v1/providers/` to that bucket, so the host of the API also serves the registry. The archives stay in GitHub Releases, and the JSON files point to them.
-
-The provider and the scripts have no host name. Every name comes from a variable.
+The registry contains static JSON files, as the [registry protocol](https://developer.hashicorp.com/terraform/internet-documentation/provider-registry-protocol) describes. The ingress sends `/.well-known/terraform.json` and `/v1/providers/` to its public bucket. Archives remain in GitHub Releases. The publisher reads all release pages and supports both tag formats. It advertises provider archives with signed checksums.
 
 | Variable | Where | Content |
 | --- | --- | --- |
-| `TERRAFORM_REGISTRY_HOST` | GitHub repository variable | The host that serves the registry. The provider reports `<host>/<namespace>/data-proxy` as its address. |
-| `TERRAFORM_REGISTRY_NAMESPACE` | GitHub repository variable | The namespace in the address and in the registry paths. |
-| `TERRAFORM_REGISTRY_BUCKET` | GitHub repository variable | The bucket that stores the registry files. |
+| `TERRAFORM_REGISTRY_HOST` | GitHub repository variable | The registry host that the provider reports in its address. |
+| `TERRAFORM_REGISTRY_NAMESPACE` | GitHub repository variable | The namespace in provider addresses and registry paths. |
+| `TERRAFORM_REGISTRY_BUCKET` | GitHub repository variable | The bucket that stores public registry documents. |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT` | GitHub repository variables | The identity that writes the bucket. |
-| `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE` | GitHub secrets | The key that signs the checksums. |
-| `ingress.registry.bucket` | Chart value | The bucket that the ingress serves. An empty value adds no route. |
+| `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE` | GitHub secrets | The existing checksum signing key and passphrase. |
+| `ingress.registry.bucket` | Chart value | The bucket behind the registry routes. An empty value adds no route. |
 
-Terraform and OpenTofu refuse a provider from a registry unless a GPG key signs its checksums. The workflow gets the public key from the private key, so the secrets are the only key input.
+Terraform and OpenTofu require signed checksums for registry providers. The workflow exports the public key from the isolated signing keyring. GoReleaser receives the passphrase through standard input. Cleanup removes the temporary keyring even after failure.
 
-### Set up the registry
+### Configure the registry
 
-1. Create a GPG key without an expiry date, and add its private key and its passphrase as the secrets `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE`.
-2. In the infra repository, set the variable `terraform_registry` of the GCP module with the repository that publishes. Apply the module. It creates the bucket, the service account and the identity pool.
-3. Set `terraform_registry_enabled` of the k8s module, and apply it. It adds the route values for the ingress and the Istio objects for the storage host.
-4. Copy the outputs of the GCP module into the GitHub variables of the table above. The workflow does nothing while `TERRAFORM_REGISTRY_HOST` is empty.
+1. Create a GPG signing key and store its private key and passphrase in the two GitHub secrets.
+2. Configure `terraform_registry` in the infra repository and apply that module to create the bucket and workload identity.
+3. Configure `terraform_registry_enabled` in the Kubernetes module and apply it to add the ingress routes.
+4. Set the repository variables from the module outputs. Provider publication remains disabled while `TERRAFORM_REGISTRY_HOST` is empty.
 
-The route needs a chart version that has `ingress.registry`. Staging gets each chart first, and production waits for an approval.
+The route needs a chart version with `ingress.registry`. Staging receives the chart first, and production requires approval.
 
-### Roll back and rotate
+### Recover publication
 
-- A bad release stays in the registry. Fix it with a new `fix` commit. Or delete the GitHub Release and run `ci publish terraform` again, which drops the version from the files.
-- To rotate the key, add the new key and rerun `ci publish terraform`. A release that the old key signed fails to install with the new key, so keep the old key until you release again.
+A bad release needs a new version. Preserve published tags and artifacts. If GitHub publication succeeds but registry publication fails, rerun only the registry command from a trusted checkout. Install `gh` and `gcloud` on the recovery host. Provide Google Cloud credentials, `GITHUB_REPOSITORY`, `GITHUB_SERVER_URL`, the registry variables, `GNUPGHOME` and `GPG_FINGERPRINT`. The keyring must contain the existing public signing key. Never rebuild and overwrite a published version to repair registry metadata.
 
-### Commands
+```bash
+devenv --profile provider shell -- nu scripts/ci.nu publish terraform
+```
 
-| Command | Work |
-| --- | --- |
-| `ci plan terraform` | Writes `release` and `version` from the commits since the last provider tag. |
-| `ci release terraform <version>` | Builds, signs and publishes the GitHub Release. |
-| `ci publish terraform` | Writes the registry files from the releases and uploads them to the bucket. |
+Keep the existing signing key while historical versions depend on it. Key rotation needs a separate migration for those signatures.
 
-[CI and releases](dev/ci.md) describes the chart release.
-
-<!-- nav:start -->
----
-
-[Previous: Backups](operations/backups.md) | [Home](./index.md)
-<!-- nav:end -->
+[CI and releases](dev/ci.md) describes chart publication and component isolation.

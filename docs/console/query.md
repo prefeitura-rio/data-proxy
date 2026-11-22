@@ -13,21 +13,7 @@ The notebook runs on its own origin, `notebooks.<domain>`, which is a different 
 The grant that the console server builds for one schema has four steps, which the diagram shows:
 
 ```mermaid
-%% Query tab grant
-sequenceDiagram
-  participant u as Browser
-  participant app as Console server
-  participant api as PostgREST
-  participant db as Catalog database
-  participant s3 as Object storage
-  u->>app: choose a table
-  app->>api: 1. authorize: table_files
-  api-->>app: allowed, or 403 and 409
-  app->>db: 2. list the data and delete files<br/>as console_signer
-  db-->>app: file paths
-  app->>app: 3. sign a GET link for each path<br/>valid for 5 minutes
-  app-->>u: grant with the signed links
-  u->>s3: 4. read Parquet with a signed link
+{{#include ../diagrams/query-tab-grant.mmd}}
 ```
 
 1. **Authorize.** The server calls `GET /rpc/table_files?schema_name=<schema>&table_name=<source table>` with the token of the user. `console.table_files` needs `read_files` and checks the schemas of the token.
@@ -70,9 +56,3 @@ Every link is a `GET`. A `HEAD` request on a link signed for `GET` answers 403, 
 The bucket needs a cross-origin resource sharing (CORS) rule for the notebook origin. The rule allows `GET`, `HEAD` and the `Range` header, and it exposes `Content-Length`, `Content-Range`, `ETag` and `Accept-Ranges`. Without `Content-Range`, DuckDB fails with the message No magic bytes found. Set `s3.bootstrap.corsOrigins`, and the bootstrap Job sets the rule through the S3 API. It skips a GCS endpoint, which needs its own command.
 
 The notebook origin sends a Content Security Policy that allows only its own files and the storage host. [Notebooks](../notebooks.md) describes the build of the site.
-
-<!-- nav:start -->
----
-
-[Previous: Changes](./changes.md) | [Next: Style](../style.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

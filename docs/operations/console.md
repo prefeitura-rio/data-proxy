@@ -14,9 +14,3 @@ The console server reads these variables. The chart sets them from its values. S
 | `NOTEBOOK_ORIGIN`, `CATALOG_URL`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` | The query tab. Without them, the tab says that it isn't set up. `S3_REGION` is optional. `NOTEBOOK_ORIGIN` must be another origin than `ORIGIN`, and the console answers every request with an error when both match. |
 | `GRANT_TTL_SECONDS` | Optional. The lifetime of the signed links in seconds. The default is 300. The page renews a grant at 80% of it. |
 | `S3_ADMIN_ACCESS_KEY`, `S3_ADMIN_SECRET_KEY`, `S3_IAM_ENDPOINT` | Optional. They turn on one storage identity for each schema. The IAM endpoint is the storage endpoint by default. |
-
-<!-- nav:start -->
----
-
-[Previous: Proxy variables](./proxy.md) | [Next: KEDA Scaling](./keda.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

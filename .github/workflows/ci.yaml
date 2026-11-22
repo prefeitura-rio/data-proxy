@@ -15,12 +15,14 @@ on:
       - k6/**
       - migrations/**
       - scripts/**
-      - terraform/**
-      - Containerfile.sync
-      - Containerfile.jobs
-      - Containerfile.pg
-      - Containerfile.proxy
-      - Containerfile.console
+      - docs/**
+      - book.toml
+      - repomix.config.json
+      - lychee.toml
+      - .vale.ini
+      - .vale/**
+      - provider/**
+      - Containerfile.*
       - cog.toml
       - .sqlfluff
       - .sqlfluffignore
@@ -47,8 +49,8 @@ on:
         description: Run every check and test, with no saved task state. The images and the release follow the changed files.
         type: boolean
         default: false
-      provider_version:
-        description: The provider version to release, such as 0.2.0. Leave it empty to follow the commits.
+      docs_tag:
+        description: Publish the docs of this chart release tag again, such as helm-v2.21.0. Leave it empty to follow the commits.
         type: string
         required: false
 concurrency:
@@ -72,49 +74,51 @@ jobs:
           fetch-depth: 0
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
+        with:
+          cachix-auth-token: ${{ github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
       - id: filter
         env:
           BEFORE: ${{ github.event.before || github.event.pull_request.base.sha }}
           FORCE_FULL: ${{ inputs.force_full || false }}
           CI_REPOSITORY: ${{ github.repository }}
         run: devenv --profile chart shell -- ci detect changes
-  repo:
-    defaults:
-      run:
-        shell: devenv --profile repo shell -- bash -e {0}
-    name: Lint and unit tests
+  checks:
+    name: Checks (${{ matrix.profile }})
     if: github.event_name != 'delete' && github.event.action != 'closed'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: chart
+            command: test
+          - profile: docs
+            command: tasks run docs:lint
+          - profile: tools
+            command: test
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
-      - uses: ./.github/actions/cache-packages
-      - uses: ./.github/actions/cache-go
-      - name: Restore the repo virtual environment
-        id: repo-venv-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: sync/.venv
-          key: repo-venv-${{ runner.os }}-${{ hashFiles('sync/uv.lock', 'sync/pyproject.toml', 'devenv.nix', 'devenv.lock', 'devenv.yaml') }}
+          cachix-auth-token: ${{ github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
       - name: Restore the task state
+        id: task-state
         uses: ./.github/actions/task-state-restore
         with:
           force: ${{ inputs.force_full || inputs.force_checks }}
-          group: repo
-      - run: devenv --profile repo tasks run repo:lint repo:test:unit
-      - name: Save the repo virtual environment
-        if: steps.repo-venv-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: sync/.venv
-          key: ${{ steps.repo-venv-cache.outputs.cache-primary-key }}
+          profile: ${{ matrix.profile }}
+      - run: devenv --profile ${{ matrix.profile }} ${{ matrix.command }}
       - name: Save the task state
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/task-state-save
         with:
-          group: repo
+          profile: ${{ matrix.profile }}
+          key: ${{ steps.task-state.outputs.key }}
+          state-dir: ${{ steps.task-state.outputs.state-dir }}
   test-sync:
     name: Sync integration tests
     if: github.event_name != 'delete' && github.event.action != 'closed'
@@ -122,23 +126,20 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: ./.github/actions/prewarm-images
+      - id: prewarm
+        uses: ./.github/actions/prewarm-images
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
-      - run: podman --version
-      - name: Restore the task state
-        uses: ./.github/actions/task-state-restore
         with:
-          force: ${{ inputs.force_full || inputs.force_checks }}
-          group: sync
-          profile: integration
-      - run: devenv --profile integration tasks run sync:test:int
-      - name: Save the task state
-        if: github.ref == 'refs/heads/main'
-        uses: ./.github/actions/task-state-save
+          cachix-auth-token: ${{ github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
+      - uses: ./.github/actions/cache-packages
+      - name: Evaluate the environment while images warm
+        run: devenv --profile sync shell -- podman --version
+      - uses: ./.github/actions/wait-images
         with:
-          group: sync
-          profile: integration
+          postgres-image: ${{ steps.prewarm.outputs.postgres-image }}
+          keycloak-image: ${{ steps.prewarm.outputs.keycloak-image }}
+      - run: devenv --profile sync test
   test-console:
     name: Console integration tests
     if: github.event_name != 'delete' && github.event.action != 'closed'
@@ -152,26 +153,23 @@ jobs:
           keycloak: true
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
+        with:
+          cachix-auth-token: ${{ github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
       - uses: ./.github/actions/cache-packages
-      - run: podman --version
-      - name: Restore the task state
-        uses: ./.github/actions/task-state-restore
+      - name: Evaluate the environment while images warm
+        run: devenv --profile console shell -- podman --version
+      - uses: ./.github/actions/wait-images
         with:
-          force: ${{ inputs.force_full || inputs.force_checks }}
-          group: console
-          profile: integration
-      - run: devenv --profile integration tasks run console:test:int
-      - name: Save the task state
-        if: github.ref == 'refs/heads/main'
-        uses: ./.github/actions/task-state-save
-        with:
-          group: console
-          profile: integration
+          postgres-image: ${{ steps.prewarm.outputs.postgres-image }}
+          keycloak-image: ${{ steps.prewarm.outputs.keycloak-image }}
+      - run: devenv --profile console test
       - name: Save the container images
         if: github.ref == 'refs/heads/main'
         uses: ./.github/actions/save-images
         with:
           keycloak-cache-hit: ${{ steps.prewarm.outputs.keycloak-cache-hit }}
+          keycloak-image: ${{ steps.prewarm.outputs.keycloak-image }}
+          keycloak-cache-key: ${{ steps.prewarm.outputs.keycloak-cache-key }}
   test-proxy:
     name: Proxy integration tests
     if: github.event_name != 'delete' && github.event.action != 'closed'
@@ -181,19 +179,9 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
-      - name: Restore the task state
-        uses: ./.github/actions/task-state-restore
         with:
-          force: ${{ inputs.force_full || inputs.force_checks }}
-          group: proxy
-          profile: integration
-      - run: devenv --profile integration tasks run proxy:test:int
-      - name: Save the task state
-        if: github.ref == 'refs/heads/main'
-        uses: ./.github/actions/task-state-save
-        with:
-          group: proxy
-          profile: integration
+          cachix-auth-token: ${{ github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
+      - run: devenv --profile proxy test
   test-terraform:
     name: Terraform provider tests
     if: github.event_name != 'delete' && github.event.action != 'closed'
@@ -201,78 +189,23 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: ./.github/actions/prewarm-images
+      - id: prewarm
+        uses: ./.github/actions/prewarm-images
         with:
           keycloak: true
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
+        with:
+          cachix-auth-token: ${{ github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
       - uses: ./.github/actions/cache-packages
       - uses: ./.github/actions/cache-go
-      - run: podman --version
-      - name: Restore the task state
-        uses: ./.github/actions/task-state-restore
+      - name: Evaluate the environment while images warm
+        run: devenv --profile provider shell -- podman --version
+      - uses: ./.github/actions/wait-images
         with:
-          force: ${{ inputs.force_full || inputs.force_checks }}
-          group: terraform
-          profile: terraform
-      - run: devenv --profile terraform tasks run tf:test:int
-      - name: Save the task state
-        if: github.ref == 'refs/heads/main'
-        uses: ./.github/actions/task-state-save
-        with:
-          group: terraform
-          profile: terraform
-  terraform:
-    name: Release the provider
-    needs:
-      - repo
-      - test-terraform
-    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.TERRAFORM_REGISTRY_HOST != '' && needs.repo.result == 'success' && needs.test-terraform.result == 'success'
-    concurrency:
-      group: terraform-release
-      cancel-in-progress: false
-    permissions:
-      contents: write
-      id-token: write
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 0
-      - uses: ./.github/actions/terraform-release
-        with:
-          version: ${{ inputs.provider_version }}
-          registry-host: ${{ vars.TERRAFORM_REGISTRY_HOST }}
-          registry-namespace: ${{ vars.TERRAFORM_REGISTRY_NAMESPACE }}
-          registry-bucket: ${{ vars.TERRAFORM_REGISTRY_BUCKET }}
-          gcp-workload-identity-provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          gcp-service-account: ${{ vars.GCP_SERVICE_ACCOUNT }}
-          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
-          gpg-passphrase: ${{ secrets.GPG_PASSPHRASE }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-  profile-sizes:
-    name: Profile sizes
-    if: github.event_name != 'delete' && github.event.action != 'closed'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: ./.github/actions/cache-nix
-      - uses: ./.github/actions/setup-devenv
-      - name: Restore the task state
-        uses: ./.github/actions/task-state-restore
-        with:
-          force: ${{ inputs.force_full || inputs.force_checks }}
-          group: nix
-          profile: nix
-      - run: devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
-      - name: Save the task state
-        if: github.ref == 'refs/heads/main'
-        uses: ./.github/actions/task-state-save
-        with:
-          group: nix
-          profile: nix
+          postgres-image: ${{ steps.prewarm.outputs.postgres-image }}
+          keycloak-image: ${{ steps.prewarm.outputs.keycloak-image }}
+      - run: devenv --profile provider test
   build-images:
     name: Build ${{ matrix.name }} image
     needs: changes
@@ -298,14 +231,14 @@ jobs:
     needs:
       - changes
       - build-images
-      - repo
+      - checks
       - test-sync
       - test-proxy
       - test-console
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.build_matrix || '{"include":[{"name":"none","containerfile":"none"}]}') }}
-    if: always() && github.ref == 'refs/heads/main' && needs.repo.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && needs.build-images.result == 'success' && needs.changes.outputs.build_images == 'true'
+    if: always() && github.ref == 'refs/heads/main' && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && needs.build-images.result == 'success' && needs.changes.outputs.build_images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -357,15 +290,17 @@ jobs:
     name: Release Helm chart
     environment: release
     timeout-minutes: 15
+    outputs:
+      tag: ${{ steps.plan.outputs.skip != 'true' && steps.plan.outputs.tag || '' }}
     needs:
       - changes
-      - repo
+      - checks
       - test-sync
       - test-proxy
       - test-console
       - build-images
       - push-images
-    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_images == 'true') && needs.repo.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped') && (needs.push-images.result == 'success' || needs.push-images.result == 'skipped')
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && (needs.changes.outputs.build_helm == 'true' || needs.changes.outputs.build_images == 'true') && needs.checks.result == 'success' && needs.test-sync.result == 'success' && needs.test-proxy.result == 'success' && needs.test-console.result == 'success' && (needs.build-images.result == 'success' || needs.build-images.result == 'skipped') && (needs.push-images.result == 'success' || needs.push-images.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -374,6 +309,8 @@ jobs:
           ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
       - uses: ./.github/actions/cache-nix
       - uses: ./.github/actions/setup-devenv
+        with:
+          cachix-auth-token: ${{ github.ref == 'refs/heads/main' && secrets.CACHIX_AUTH_TOKEN || '' }}
       - name: Update from main
         run: git pull --rebase origin main
       - name: Resolve the image SHAs, read the next version and decide whether to release
@@ -409,6 +346,68 @@ jobs:
         run: gh release create "${{ steps.plan.outputs.tag }}" --title "Helm chart ${{ steps.plan.outputs.tag }}" --notes-file packaged/notes.md packaged/*.tgz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  docs:
+    name: Publish the docs
+    needs: helm
+    if: always() && !cancelled() && github.ref == 'refs/heads/main' && ((needs.helm.result == 'success' && needs.helm.outputs.tag != '') || (github.event_name == 'workflow_dispatch' && inputs.docs_tag != ''))
+    concurrency:
+      group: docs-publish
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate the release tag
+        id: version
+        env:
+          DOCS_TAG: ${{ inputs.docs_tag || needs.helm.outputs.tag }}
+        run: |
+          [[ "$DOCS_TAG" =~ ^helm-v[0-9]+[.][0-9]+[.][0-9]+$ ]]
+          echo "version=${DOCS_TAG#helm-}" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.docs_tag || needs.helm.outputs.tag }}
+      - uses: ./.github/actions/cache-nix
+      - uses: ./.github/actions/setup-devenv
+        with:
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Build and check the bundle
+        run: devenv --profile docs tasks run docs:lint
+      - name: Publish the version to gh-pages
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: .book/html
+          destination_dir: ${{ steps.version.outputs.version }}
+          keep_files: false
+      - name: Replace latest with this publication
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: .book/html
+          destination_dir: latest
+          keep_files: false
+      - name: Read the complete site from gh-pages
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: gh-pages
+          path: packaged/pages
+          persist-credentials: false
+      - name: Upload the complete Pages site
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: packaged/pages
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4
   cache-branch:
     name: Delete the caches of a deleted branch
     if: github.event_name == 'delete' && github.event.ref_type == 'branch' && github.event.ref != 'main'

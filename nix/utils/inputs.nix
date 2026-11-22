@@ -74,8 +74,8 @@ let
               [ "${path}/${name}" ]
           ) (builtins.readDir path)
         );
-      extensionOf = file: lib.last (lib.splitString "." (baseNameOf file));
-      unknown = lib.filter (file: !(lib.elem (extensionOf file) extensions)) (
+      fileExtension = file: lib.last (lib.splitString "." (baseNameOf file));
+      unknown = lib.filter (file: !(lib.elem (fileExtension file) extensions)) (
         walk "${config.devenv.root}/${dir}"
       );
     in

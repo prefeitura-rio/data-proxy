@@ -16,9 +16,3 @@ Use this page when a request fails or returns no rows. [Request outcomes](permis
 See [Using the API](../using.md), [Database Schema](../database.md) and [Proxy](../proxy/index.md) for related details.
 
 ---
-
-<!-- nav:start -->
----
-
-[Previous: Tokens](./tokens.md) | [Next: Console](../console/index.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

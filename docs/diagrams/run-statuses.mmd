@@ -1,0 +1,19 @@
+%% Run statuses
+stateDiagram-v2
+  [*] --> ENQUEUED: start_sync
+  ENQUEUED --> PENDING: a worker takes it
+  PENDING --> SUCCESS
+  PENDING --> ERROR
+  PENDING --> MAX_RECOVERY_ATTEMPTS_EXCEEDED: the worker is lost too many times
+  ENQUEUED --> CANCELLED: cancel
+  PENDING --> CANCELLED: cancel
+  DELAYED --> CANCELLED: cancel
+  CANCELLED --> ENQUEUED: resume
+  MAX_RECOVERY_ATTEMPTS_EXCEEDED --> ENQUEUED: resume
+  state Ended {
+    SUCCESS
+    ERROR
+    CANCELLED
+    MAX_RECOVERY_ATTEMPTS_EXCEEDED
+  }
+  Ended --> [*]: run again as a new run

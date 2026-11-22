@@ -50,45 +50,7 @@ The release raises `DBOS_APPLICATION_VERSION` (`sync.dbos.applicationVersion`) w
 The diagram shows one sync run, from the start to the cleanup. It covers provisioning, planning, the dump tasks, the views, publication and the reload of PostgREST.
 
 ```mermaid
-%% Sync run sequence
-sequenceDiagram
-  participant t as Trigger
-  participant run as run_sync
-  participant prov as Provision Job
-  participant pg as PostgreSQL
-  participant wk as Workers
-  participant src as Source
-  participant s3 as SeaweedFS
-  participant api as PostgREST
-  participant r as Redis
-  t->>run: start a run
-  run->>prov: run Job, wait
-  run->>pg: read configuration
-  run->>src: plan changed tables
-  run->>wk: enqueue dump tasks
-  par dump tasks
-    wk->>src: extract rows
-  and
-    wk->>s3: write scratch Parquet
-  end
-  wk-->>run: results
-  run->>pg: record scope
-  run->>pg: seed views, functions
-  run->>wk: enqueue publish tasks
-  rect rgba(128, 128, 128, 0.15)
-    Note over t,r: For each schema (in parallel)
-    wk->>s3: read scratch, write data
-    wk->>pg: commit snapshot
-    wk->>pg: commit table state
-    wk->>pg: maintenance
-    pg->>pg: replicate to standbys
-  end
-  opt views changed
-    run->>pg: wait for standbys
-    pg-->>api: NOTIFY: reload
-  end
-  run->>s3: remove scratch objects
-  run->>r: count up the cache generation of each schema
+{{#include ../diagrams/sync-run-sequence.mmd}}
 ```
 
 ## DuckLake write path
@@ -96,37 +58,7 @@ sequenceDiagram
 A publish worker commits one schema at a time. It uses DuckDB with the DuckLake extension.
 
 ```mermaid
-%% DuckLake publication sequence
-sequenceDiagram
-  participant wk as Publish worker
-  participant dd as DuckDB (ducklake)
-  participant s3 as SeaweedFS
-  participant cat as ducklake database
-  participant app as Application database
-  participant sb as Standby
-  rect rgba(128, 128, 128, 0.15)
-    Note over wk,sb: Commit the snapshot
-    wk->>dd: attach the catalog
-    dd->>cat: read the metadata
-    wk->>dd: create tables, set partitions and sort
-    dd->>s3: read scratch Parquet
-    dd->>s3: write DuckLake data files
-    dd->>cat: commit one snapshot
-  end
-  rect rgba(128, 128, 128, 0.15)
-    Note over wk,sb: Record the state
-    wk->>app: write data_proxy.state
-  end
-  rect rgba(128, 128, 128, 0.15)
-    Note over wk,sb: Reach the readers
-    cat->>sb: WAL replication
-    sb->>sb: next query sees the snapshot
-  end
-  opt a snapshot was committed
-    wk->>dd: run maintenance
-    dd->>cat: expire snapshots
-    dd->>s3: merge files, remove old files
-  end
+{{#include ../diagrams/ducklake-publication-sequence.mmd}}
 ```
 
 - **One writer for each schema:** publishing is parallel across schemas and sequential within each schema. One `publish` queue serves all schemas, and the schema name is its partition key. A new schema needs no new queue.
@@ -137,9 +69,3 @@ sequenceDiagram
 - **Retention:** `DUCKLAKE_SNAPSHOT_EXPIRATION` (7 days by default) keeps the files that an older snapshot uses. The CNPG backups cover the catalogs.
 
 See [DuckLake read path](serving.md#ducklake-read-path) for how a catalog reaches the readers.
-
-<!-- nav:start -->
----
-
-[Previous: Serving layer](./serving.md) | [Next: Console layer](./console.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

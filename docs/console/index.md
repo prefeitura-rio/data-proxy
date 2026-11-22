@@ -22,9 +22,3 @@ The code is in `console/`. `ui/` is the SvelteKit app, `notebooks/` builds the n
 - [Query tab](query.md) — The query tab and its scope.
 
 [Console layer](../architecture/console.md) shows how the parts depend on each other.
-
-<!-- nav:start -->
----
-
-[Previous: Troubleshooting](../security/troubleshooting.md) | [Next: Application](./app.md) | [Home](../index.md)
-<!-- nav:end -->

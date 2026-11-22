@@ -23,9 +23,3 @@ A trigger on the three configuration tables queues a `reload_proxy` workflow. A 
 A document that doesn't match the schema, or an unreachable PostgREST, changes nothing. The proxy keeps the last good settings, and `POST /reload` answers 502 with the reason. `POST /reload` answers 409 when `PROXY_CONFIG_URL` isn't set, and 405 for any other method.
 
 The admin port has no authentication, so no ingress may route it.
-
-<!-- nav:start -->
----
-
-[Previous: Retries and limits](./limits.md) | [Next: Database Schema](../database.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

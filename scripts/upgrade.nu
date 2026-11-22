@@ -32,8 +32,7 @@ def e2e-subset [scenarios: string]: nothing -> nothing {
     nu (git-root | path join scripts cluster.nu) k6 e2e --scenarios $scenarios
 }
 
-# Wait until no sync pod is stopping. A pod of the old release that still polls the queues takes a queued run and
-# runs the old code against the new schema, and the next run is a day away. A release must stop its old workers first.
+# Wait until all terminating sync pods stop before checking the upgraded release.
 def wait-for-old-workers [kubecfg: path]: nothing -> nothing {
     log info 'Waiting for the sync pods of the old release to stop...'
 
@@ -92,7 +91,8 @@ def check-upgraded-release [kubecfg: path]: nothing -> nothing {
     | wait-for deployment $kubecfg
 }
 
-# Install a published chart release, upgrade it to the local chart, and check the upgraded release. Run it at release time, after the first release exists.
+# Install a released chart, upgrade it to the local chart and verify the result.
+@example "Verify a chart upgrade locally" { nu --no-config-file scripts/cluster.nu upgrade --from '2.21.0' }
 export def "main upgrade" [
     --from: string # Version of the published chart to start from, such as 1.127.0.
     --chart: string = 'oci://ghcr.io/prefeitura-rio/charts/data-proxy' # OCI address of the published chart.

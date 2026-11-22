@@ -26,13 +26,17 @@ Each rule has an ID, a level and a check: `**PY-07** The rule. [must, ruff]`. Th
 Run the checks inside `devenv` before you finish a change.
 
 ```bash
-devenv --profile repo tasks run repo:lint repo:test:unit
-devenv --profile integration tasks run sync:test:int proxy:test:int console:test:int
-devenv --profile nix tasks run nix:lint:closure nix:lint:cmd
+devenv --profile sync test
+devenv --profile proxy test
+devenv --profile console test
+devenv --profile provider test
+devenv --profile chart test
+devenv --profile docs tasks run docs:lint
+devenv --profile tools test
 ```
 
-- Run the second line for the components that you changed. It starts services.
-- Run the third line after a change to a profile, a task, a package or a `devenv` command in a page.
+- Run the `test` command of each component that you changed. It runs the lint and format checks first, then the unit tests, then the integration tests, and it starts services.
+- Run the `docs` and `tools` commands after a change to a profile, a task, a package or a `devenv` command in a page.
 - Without `devenv`, run the commands of [AGENTS.md](./AGENTS.md#without-devenv) for each component that you changed.
 - Never push to `main`. Commit only as the [workflow](./AGENTS.md#workflow) allows.
 

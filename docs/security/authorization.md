@@ -3,20 +3,7 @@
 Authorization has two independent conditions. The diagram shows the order of the checks.
 
 ```mermaid
-%% Authorization checks
-flowchart TD
-  request["Request"] --> token{"Has a token?"}
-  token -->|"no"| denied["403 RBAC: access denied<br/>from the gateway"]
-  token -->|"yes"| valid{"Valid token?"}
-  valid -->|"no"| refused["401 from the gateway"]
-  valid -->|"yes"| role["Switch to the role<br/>of the role claim"]
-  role --> schema{"Is the schema in the<br/>schemas claim?"}
-  schema -->|"no"| none["200, no rows"]
-  schema -->|"yes"| all{"Does the claim have * or<br/>schema:* ?"}
-  all -->|"yes"| every["Every row of the table"]
-  all -->|"no"| policy{"Does an access policy row<br/>match the subject and the unit?<br/>A grant * and * matches all.<br/>A table with no rules has<br/>no unit to match."}
-  policy -->|"yes"| unit["The rows of those units"]
-  policy -->|"no"| none
+{{#include ../diagrams/authorization-checks.mmd}}
 ```
 
 ## Schema condition
@@ -68,11 +55,11 @@ A subject with the grant `unit_type = '*'` and `unit_id = '*'` in `access.policy
 
 ### A list column
 
-The column of an `rls` rule can hold a list of text, such as `area_responsavel` with the type `ARRAY<STRING>` in BigQuery. A row is visible when at least one value of the list equals a unit of the grant. A row with an empty list or a NULL list is visible only to a reader of every row. A list of another type stops the sync with an error.
+The column of an `rls` rule can contain a list of text, such as `area_responsavel` with the type `ARRAY<STRING>` in BigQuery. A row is visible when at least one value of the list equals a unit of the grant. A row with an empty list or a NULL list is visible only to a reader of every row. A list of another type stops the sync with an error.
 
 ### Groups that need several conditions
 
-A rule holds a list of conditions. A reader sees a row when all conditions of one rule match grants. Rules are alternatives, so any one rule is enough. A rule of two conditions or more is a group:
+A rule has a list of conditions. A reader sees a row when all conditions of one rule match grants. Rules are alternatives, so any one rule is enough. A rule of two conditions or more is a group:
 
 ```json
 "rls": [
@@ -111,9 +98,3 @@ Create one confidential client for the service that manages the access policy, a
 ```
 
 The token reads and writes `access.policy` for the scopes that its claim reaches. `dp_policy` has the four policy permissions `read_policy`, `create_policy`, `edit_policy` and `delete_policy`, and `read_config`. `read_config` shows the token the schemas and tables of its claim, and `sync_config()`, so a service can list its own scopes. The token can't change the configuration. Deleting a row revokes the grant. The database records the change in `access.log`.
-
-<!-- nav:start -->
----
-
-[Previous: Authorization flow](./flow.md) | [Next: Requests](./requests.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

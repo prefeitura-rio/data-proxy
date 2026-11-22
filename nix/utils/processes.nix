@@ -1,6 +1,5 @@
 {
   lib,
-  pkgs,
   utils,
   ...
 }:
@@ -122,14 +121,6 @@ let
           host ? "127.0.0.1",
         }:
         mkProbe { http.get = { inherit port path host; }; };
-
-      /**
-        A `ready` check that passes with any answer. The storage answers 403 to a call without a key, which still shows
-        that it runs. It uses the same timing as `http`.
-      */
-      anyAnswer =
-        url:
-        mkProbe { exec = "${lib.getExe pkgs.curl} --silent --output /dev/null ${lib.escapeShellArg url}"; };
 
       /**
         A `ready` check that passes when the command exits with 0. It uses the same timing as `http`.

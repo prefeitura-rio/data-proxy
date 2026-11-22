@@ -7,7 +7,7 @@ Staging deploys every release. Production runs one chart version that a person a
 - The staging HelmRelease follows the range `2.x`, so Flux deploys each new chart within five minutes.
 - The production HelmRelease follows the chart tag `prod` in `ghcr.io/prefeitura-rio/charts/data-proxy`. The tag points to one version, and production stays on it until the tag moves.
 
-Staging runs 2.11.0, and then CI releases 2.12.0 and 2.13.0. Staging now runs 2.13.0, and production still runs 2.11.0. After an approval, production runs 2.13.0. A chart has every change before it, so 2.13.0 includes 2.12.0.
+Staging runs version 2.11.0. CI then releases versions 2.12.0 and 2.13.0, and staging runs the last one. Production still runs 2.11.0. After an approval, production runs version 2.13.0. Each chart has every change before it. Version 2.13.0 includes version 2.12.0.
 
 ## Approve a deploy
 
@@ -34,9 +34,3 @@ Start `promote.yaml` by hand with the input `version`, such as `2.11.0`. The job
 ## Settings
 
 The reviewers are in the GitHub settings of the repository, under Environments and `production`. The infra repository has the production HelmRelease. It reads the tag with an `OCIRepository` whose `ref.tag` is `prod`. [CI and releases](./ci.md) describes the chart release that comes before a promotion.
-
-<!-- nav:start -->
----
-
-[Previous: CI and releases](./ci.md) | [Next: Operations](../operations/index.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

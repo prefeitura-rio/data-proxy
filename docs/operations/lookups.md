@@ -19,7 +19,7 @@ Never use the `identity` transform on a column with a different value in each ro
 
 ## Sort columns of an integer range table
 
-A sort on the key gives each file tight row groups, so a lookup on one value reads one row group. DuckLake keeps the rows of one insert in memory, to sort them or to split them into partition files. A sorted or partitioned table therefore gets one insert for each batch file, and an insert holds one batch and not the whole table. The same test as above, with the table sorted by the key, gave these results.
+A sort on the key gives each file tight row groups, so a lookup on one value reads one row group. DuckLake keeps the rows of one insert in memory, to sort them or to split them into partition files. A sorted or partitioned table therefore gets one insert for each batch file, and an insert has one batch and not the whole table. The same test as above, with the table sorted by the key, gave these results.
 
 | Commit | Files | Time | Peak memory | Row groups read by a lookup |
 | --- | --- | --- | --- | --- |
@@ -31,9 +31,3 @@ A sort on the key gives each file tight row groups, so a lookup on one value rea
 A sort in the extraction query alone, with no sort on the table, gave 1.9 row groups for a lookup. Set the sort columns of a table in its configuration. Use the console import with `"ducklake": {"sort": ["cnpj_particao"]}`, or the `sort` list of the `ducklake` block of the Terraform resource. A change of the sort or of the partitioning makes the next sync rebuild the table.
 
 The commit of a table runs its delete and its inserts in one DuckLake transaction. A failed insert leaves the table as it was.
-
-<!-- nav:start -->
----
-
-[Previous: DuckDB Memory and Spill](./duckdb.md) | [Next: Metrics](./metrics.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

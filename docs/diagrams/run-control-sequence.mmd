@@ -1,0 +1,20 @@
+%% Run control sequence
+sequenceDiagram
+  participant u as Console user
+  participant app as Console server
+  participant api as PostgREST
+  participant db as PostgreSQL
+  participant w as Sync worker (control queue)
+  u->>app: cancel a sync run
+  app->>api: POST /rpc/cancel_run
+  api->>db: check permission, scope and status
+  alt refused
+    db-->>api: 403, 404 or 409
+  else allowed
+    db->>db: enqueue cancel_run in control
+    db-->>api: done
+  end
+  api-->>app: answer
+  app-->>u: page
+  w->>db: take the workflow
+  w->>db: cancel the run and its tasks

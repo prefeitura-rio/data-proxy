@@ -15,9 +15,3 @@ A cached answer never waits for PostgREST, so a full database doesn't slow it do
 Measure the limit against the database, not the proxy. One PostgreSQL pod with 8 CPU cores answered about 120 selective lookups a second, and more waiting requests only made each of them slower. Set the limit near the number of requests that the database can run immediately (16 to 24). Multiply it by a small factor for the time that a request spends outside the database. Each proxy pod counts its own requests, so the total is the limit times the number of proxy pods.
 
 The proxy waits at most 30 seconds for PostgREST. PostgREST waits at most `postgrest.dbPoolAcquisitionTimeout` seconds (3 by default) for a free database connection before it answers with an error.
-
-<!-- nav:start -->
----
-
-[Previous: Cache](./cache.md) | [Next: Table settings](./reload.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

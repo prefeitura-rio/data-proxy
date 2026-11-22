@@ -48,9 +48,3 @@ The schema code works like this:
 - [Cache](cache.md) — what the proxy stores, the cache key and the lock.
 - [Retries and limits](limits.md) — retries of a read, the load limit and the time limits.
 - [Table settings](reload.md) — how the proxy takes the table settings from the configuration.
-
-<!-- nav:start -->
----
-
-[Previous: Using the API](../using.md) | [Next: Query pushdown](./pushdown.md) | [Home](../index.md)
-<!-- nav:end -->

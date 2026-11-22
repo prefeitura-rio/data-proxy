@@ -1,11 +1,10 @@
-use lib.nu [fail]
+use lib.nu [check-result fail]
 
-# Run nu-lint over every Nushell script of the repository, and fail when it reports a finding.
-# nu-lint exits with 0 even when it finds problems, so the script reads its output.
+# Run nu-lint and fail on process errors or reported findings.
 def main []: nothing -> nothing {
     let findings = nu-lint --format compact --config .nu-lint.toml helm/files scripts k3d/manifests/files console/notebooks
     | complete
-    | get stdout
+    | check-result 'nu-lint'
     | lines
     | where $it =~ '^\S+:\d+:\d+: '
 

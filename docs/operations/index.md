@@ -14,9 +14,3 @@ These pages are for the people who deploy and run Data Proxy. Start with the Hel
 | Make lookups on one value read fewer files | [Lookup Layout](lookups.md) |
 | Watch the system | [Metrics](metrics.md) |
 | Back up and restore the access policy | [Backups](backups.md) |
-
-<!-- nav:start -->
----
-
-[Previous: Production deploys](../dev/promote.md) | [Next: Helm Chart](./helm.md) | [Home](../index.md)
-<!-- nav:end -->

@@ -33,15 +33,15 @@ helm install data-proxy \
   --values my-values.yaml
 ```
 
-See [`helm/values.yaml`](../../helm/values.yaml) for all values.
+See [`helm/values.yaml`](https://github.com/prefeitura-rio/data-proxy/blob/main/helm/values.yaml) for all values.
 
 ## Chart tests
 
 ```bash
-devenv --profile default tasks run chart:test:unit
+devenv --profile chart test
 ```
 
-The task runs Helm lint, Helm unit tests and Kubeconform.
+The command runs Helm lint and the RBAC checks first. Then it runs the Helm unit tests and Kubeconform.
 
 ## Images
 
@@ -55,7 +55,7 @@ The chart passes these values to the proxy Deployment as `PROXY_*` environment v
 
 ## Serving values
 
-These values tune the serving layer. The defaults are in [`helm/values.yaml`](../../helm/values.yaml). The columns of the tables are the value, its default and what it does.
+These values tune the serving layer. The defaults are in [`helm/values.yaml`](https://github.com/prefeitura-rio/data-proxy/blob/main/helm/values.yaml). The columns of the tables are the value, its default and what it does.
 
 ### PostgREST
 
@@ -99,9 +99,3 @@ A chart release pins the newest tag of each image in `helm/values.yaml`. A relea
 The chart version comes from the Conventional Commits since the previous release. A `feat` raises the minor version, a `fix` raises the patch version and a `!` raises the major version. Don't change `helm/Chart.yaml` by hand. See [Chart releases](../dev/ci.md#chart-releases).
 
 ---
-
-<!-- nav:start -->
----
-
-[Previous: Operations](./index.md) | [Next: Initialization](./initialization.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

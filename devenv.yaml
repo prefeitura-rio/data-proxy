@@ -4,13 +4,19 @@ inputs:
     inputs:
       nixpkgs:
         follows: nixpkgs
-  import-tree:
-    url: github:vic/import-tree
+  lpeg-types:
+    url: github:LuaCATS/lpeg
+    flake: false
   nixpkgs:
     url: github:cachix/devenv-nixpkgs/rolling
+  penlight-types:
+    url: github:goldenstein64/pl-definitions
+    flake: false
 
 imports:
   - ./proxy
   - ./sync
   - ./console
   - ./helm
+  - ./docs
+  - ./provider

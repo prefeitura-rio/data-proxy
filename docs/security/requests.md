@@ -30,9 +30,3 @@ The table maps each result of a request to its meaning.
 | `404`           | The schema profile, the table, or the snapshot is unknown or unpublished. |
 
 With `ingress.auth.enabled`, the Istio policy of the proxy needs a valid token for each request. It allows only `GET` and `HEAD` on `/health` without a token, and on `/` when the Swagger UI is on. Any other request without the `Authorization` header gets `403` with the body `RBAC: access denied`, and not `401`. It never reaches the proxy.
-
-<!-- nav:start -->
----
-
-[Previous: Schema and row authorization](./authorization.md) | [Next: Identity provider](./identity.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

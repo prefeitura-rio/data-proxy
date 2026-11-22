@@ -17,9 +17,3 @@ CloudNativePG (CNPG) manages two roles: `ops` (the owner and a superuser) and `d
 [Database](../grants.md#roles) describes each role and why `ops` is a superuser.
 
 Init-db creates the `data_proxy` schema and its internal functions, procedures and grants. `data_proxy` isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as RPC endpoints. `data_proxy.pre_request()` copies JWT claims into transaction-local PostgreSQL settings. `USAGE` on `data_proxy` doesn't grant application table access.
-
-<!-- nav:start -->
----
-
-[Previous: Roles](./roles.md) | [Next: Schema and row authorization](./authorization.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

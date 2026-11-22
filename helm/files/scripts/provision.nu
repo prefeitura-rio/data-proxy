@@ -7,21 +7,18 @@ use ./lib.nu [
     fail
     legacy-name
     orphans
-    parse-json
     query-sql
     quote-identifier
     quote-literal
     rclone-env
-    read-text
     served-schemas
     sync-config
     wait-for-postgres
 ]
 
-# Fill an empty configuration from the values file, once. Editors own it afterward. The job has no token, so it acts as
-# the role that holds import_config, for one transaction.
+# Import the values file once when the console configuration is empty.
 def bootstrap-config []: nothing -> nothing {
-    let bootstrap = try { read-text $env.SYNC_CONFIG_PATH | parse-json } catch { {
+    let bootstrap = try { (open --raw $env.SYNC_CONFIG_PATH | decode utf-8) | from json } catch { {
         schemas: {}
     } }
 
@@ -38,8 +35,7 @@ def bootstrap-config []: nothing -> nothing {
     log info 'The values file filled the empty configuration'
 }
 
-# Create the role that reads the metadata of every given schema, and then the schema of the database. The schema comes last, because the
-# next run finds an unfinished creation through it. The grants of the access policy live in the schema access, which the migrations made.
+# Create catalog reader roles before their corresponding application schemas.
 def create-schemas [...names: string]: nothing -> nothing {
     for schema in $names {
         execute-sql postgres/create_schema_reader.sql --dsn $env.DUCKLAKE_ADMIN_URL {
@@ -59,19 +55,19 @@ def create-schemas [...names: string]: nothing -> nothing {
     }
 }
 
-# The configured schemas that the database still lacks
+# Return configured schemas that the database still lacks.
 def unprovisioned-schemas []: nothing -> list<string> {
     let query = "SELECT name FROM console.schemas WHERE to_regnamespace(quote_ident(name)) IS NULL ORDER BY name"
     query-sql $query | lines
 }
 
-# The schemas that PostgREST serves now, as the serving login records them
+# Return the current PostgREST schema list from the serving role.
 def current-db-schemas []: nothing -> string {
     let query = "SELECT coalesce(max(substring(s FROM '^pgrst\\.db_schemas=(.*)$')), '') FROM pg_db_role_setting AS r INNER JOIN pg_roles AS o ON r.setrole = o.oid CROSS JOIN LATERAL unnest(r.setconfig) AS s WHERE o.rolname = " + (quote-literal $env.AUTH_SERVING_ROLE)
     query-sql $query
 }
 
-# Record the schemas that PostgREST serves, or forget the record when the list is empty
+# Record the schemas that PostgREST serves, or forget the record when the list is empty.
 def record-db-schemas [schemas: string]: nothing -> nothing {
     let serving = quote-identifier $env.AUTH_SERVING_ROLE
 
@@ -85,8 +81,7 @@ def record-db-schemas [schemas: string]: nothing -> nothing {
     }
 }
 
-# Serve every configured schema and tell PostgREST to reload only when the list changed.
-# A failed reload takes the new list back, so that the next run tries again.
+# Update served schemas and reload PostgREST when the schema list changes.
 def publish-schemas [...names: string]: nothing -> nothing {
     let desired = served-schemas ...$names
     let current = current-db-schemas
@@ -109,12 +104,12 @@ def publish-schemas [...names: string]: nothing -> nothing {
     log info $'PostgREST serves: ($desired)'
 }
 
-# The schemas of the database that the console no longer lists, which a removal pass drops.
+# Return database schemas that the console no longer configures.
 def orphan-schemas [...configured: string]: nothing -> list<string> {
     query-sql "SELECT nspname FROM pg_namespace ORDER BY nspname" | lines | orphans ...$configured
 }
 
-# Delete the data files of one schema. A folder that does not exist is already gone.
+# Delete the data files of a schema if they exist.
 def purge-data [schema: string]: nothing -> nothing {
     let prefix = data-prefix $env.S3_BUCKET $env.DUCKLAKE_CATALOG_PATH $schema
 
@@ -127,8 +122,7 @@ def purge-data [schema: string]: nothing -> nothing {
     }
 }
 
-# Remove every schema that the console dropped: the files, the catalog, its reader role, and then the schema of the database.
-# The schema of the database goes last, because the next run finds an unfinished removal through it.
+# Remove obsolete schema files, catalogs and reader roles before their application schemas.
 def remove-schemas [...names: string]: nothing -> nothing {
     let app_schema = app-schema
 
@@ -153,11 +147,7 @@ def remove-schemas [...names: string]: nothing -> nothing {
     }
 }
 
-# Make the database match the console configuration: rename, create, serve and remove schemas.
-# A run first renames the metadata schema and the reader role of each schema to its physical name, when they have the S3 folder name.
-# The migration has already renamed the schema of the database, so the run does this for every configured schema.
-# The migrations made the console, its functions and the rights of the request roles.
-# Each pass reads both lists again and the loop repeats up to three times, so that an edit made during the run is not lost.
+# Reconcile configured schemas with database schemas, reader roles and PostgREST.
 def main []: nothing -> nothing {
     log info 'Schema provisioning started'
 

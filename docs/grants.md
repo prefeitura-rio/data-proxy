@@ -33,9 +33,3 @@ The chart creates an S3 secret from `S3_ACCESS_KEY` and `S3_SECRET_KEY`. pg_duck
 The chart projects production GCP credentials into every CNPG instance through `gcp.existingSecret`, because BigQuery fallback queries can run on read replicas.
 
 ---
-
-<!-- nav:start -->
----
-
-[Previous: Database Schema](./database.md) | [Next: Data model](./model.md) | [Index](./database.md) | [Home](./index.md)
-<!-- nav:end -->

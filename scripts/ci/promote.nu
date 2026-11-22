@@ -27,8 +27,7 @@ def tag-version [tags: list<record<tag: string, digest: string>>, name: string]:
     if $digest == null { null } else { version-of-digest $tags $digest }
 }
 
-# Find the version to promote and say whether production runs another one. It writes the outputs `version`, `current` and `pending`.
-# A run that names a version in the variable VERSION promotes that version. Another run promotes the newest chart.
+# Find the version to promote and say whether production runs another one.
 def find-promotion []: nothing -> nothing {
     crane-login
 
@@ -50,7 +49,7 @@ def find-promotion []: nothing -> nothing {
     write-summary $'Production runs ($current | default none). The chart to promote is ($version).'
 }
 
-# Move the tag prod of the chart to a released version. Prod Flux follows that tag.
+# Move the tag prod of the chart to a released version.
 def move-prod-tag [
     version: string # The chart version, such as 2.13.0.
     --if-latest # Do nothing when a newer version exists, so an old approval does not undo a newer one.
@@ -81,12 +80,14 @@ def move-prod-tag [
     write-summary $'prod: ($current) to ($version)'
 }
 
-# Find the chart to promote and say whether production runs another one. It writes `version`, `current` and `pending`.
+# Find the chart to promote and say whether production runs another one.
+@example "Plan a production promotion" { nu --no-config-file scripts/ci.nu plan promotion }
 export def 'main plan promotion' []: nothing -> nothing {
     find-promotion
 }
 
 # Move the tag prod to a released chart version.
+@example "Promote an approved release" { nu --no-config-file scripts/ci.nu promote chart '2.21.0' --if-latest }
 export def 'main promote chart' [
     version: string # The chart version, such as 2.13.0.
     --if-latest # Do nothing when a newer version exists, so an old approval does not undo a newer one.

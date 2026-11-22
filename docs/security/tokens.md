@@ -23,9 +23,3 @@ curl --request DELETE \
 ```
 
 The database removes the row from `access.policy` and writes its previous state to `access.log` with `action = 'delete'`. To grant access again, insert the row again. You need no resync or token refresh. Every change of an access policy row makes the cached answers outdated, whether it passed the proxy or not. A trigger on the revision counter queues a reload of the proxy ([Cache](../proxy/cache.md)).
-
-<!-- nav:start -->
----
-
-[Previous: Identity provider](./identity.md) | [Next: Troubleshooting](./troubleshooting.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

@@ -12,7 +12,6 @@ let
   ];
 
   components = [
-    "repo"
     "sync"
     "proxy"
     "console"
@@ -23,11 +22,8 @@ let
     "kc"
     "s3"
     "nb"
-    "nu"
-    "ci"
-    "ctr"
     "docs"
-    "nix"
+    "tools"
   ];
 
   isValidTaskName =
@@ -37,7 +33,7 @@ let
       verb = lib.elemAt parts 1;
     in
     lib.hasPrefix "devenv:" name
-    || (lib.length parts == 2 && lib.head parts == "repo" && lib.elem verb verbs)
+    || (lib.length parts == 2 && lib.elem (lib.head parts) components && lib.elem verb verbs)
     || (
       lib.length parts == 3
       && lib.elem (lib.head parts) components
@@ -46,8 +42,8 @@ let
     );
 
   /**
-    The task names that break the naming rules of the style guide: `<component>:<verb>:<target>`, a `repo:<verb>` group, or
-    a task of devenv. The names come from the glossary in `verbs` and `components`.
+    The task names that break the naming rules of the style guide: `<component>:<verb>:<target>`, a group
+    `<component>:<verb>` or a task of devenv. The names come from the glossary in `verbs` and `components`.
 
     # Type
 

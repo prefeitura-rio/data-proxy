@@ -8,7 +8,7 @@ The `console` schema contains the views that the console reads through PostgREST
 
 | View | Content |
 | --- | --- |
-| `runs` | Sync runs: status, queue, schedule, who started it, the times, the number of tasks and failed tasks, and the schemas of the token that the sync run covers. |
+| `runs` | Sync runs, with the status, queue, schedule, starter, times, task counts and token schemas. |
 | `tasks` | The dump and publish workflows of a sync run. |
 | `steps` | The steps of a sync run and its tasks, with the times and a `failed` flag. |
 | `logs` | The log lines of a sync run and its tasks, read from the portable DBOS log stream. |
@@ -16,7 +16,7 @@ The `console` schema contains the views that the console reads through PostgREST
 | `schedules` | The schedules with their cron expression and status. |
 | `errors` | The errors that the sync recorded, newest first. |
 | `catalog` | One row for each schema and each table: its project, its short schema name, its table name, its physical schema and its `ltree` path, such as `sales.orders.items`. A path is empty for a name that `ltree` can't store. The view shows the rows that the token may read in `schemas` and `tables`. |
-| `overview` | One row for each schema: its tables, how many have committed state, its last sync run, and the sync runs, failed sync runs, and errors of the last 24 hours. The dashboard reads it in one request. |
+| `overview` | One row for each schema, with its tables, its last sync run and the counts of the last 24 hours. The dashboard reads it in one request. |
 
 The maintenance job deletes a sync run with its tasks and logs after it finishes and `jobs.maintenance.workflowRetentionDays` days pass (90 by default). The views then no longer show it. A sync run that isn't finished stays. The job also deletes an error after the same number of days.
 
@@ -44,9 +44,3 @@ The console talks to PostgREST only. The `console` scenario in `k6/scenarios/con
 | 401 | No token, or an anonymous one. |
 | 409 | The row clashes with another row: a duplicate key, a table in two schemas, or a schema that doesn't exist. `start_sync` also answers 409 for a schema that isn't provisioned yet. |
 | 403 | The token lacks the permission, or a row policy refuses the row. |
-
-<!-- nav:start -->
----
-
-[Previous: Application](./app.md) | [Next: Control a run and a schedule](./runs.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

@@ -82,9 +82,3 @@ These variables set the log level and the OpenTelemetry Protocol (OTLP) endpoint
 | `OTLP_METRICS_ENDPOINT` | unset | OTLP metrics endpoint. |
 
 See [Proxy variables](proxy.md) for the variables of the roles and of the OpenResty proxy.
-
-<!-- nav:start -->
----
-
-[Previous: Hardening](./hardening.md) | [Next: Proxy variables](./proxy.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

@@ -5,7 +5,6 @@ use ./lib.nu [
     execute-sql
     fail
     rclone-env
-    remove-path
 ]
 
 # Dump one table of the schema access and upload it to the configured object store.
@@ -46,7 +45,7 @@ def main []: nothing -> nothing {
 
     try {
         for file in ($plan.dumps | get file) {
-            remove-path $file
+            rm --recursive --force $file
         }
     } catch {|err| log warning $'Backup dump cleanup skipped: error=($err.msg)' }
 }

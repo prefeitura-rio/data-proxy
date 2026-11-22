@@ -1,5 +1,5 @@
 use std/log
-use ./lib.nu [fail jwks-key-valid write-text]
+use ./lib.nu [fail jwks-key-valid ]
 
 # Download the JWKS of the identity provider, check the keys, and save the file that PostgREST reads.
 def main []: nothing -> nothing {
@@ -17,6 +17,6 @@ def main []: nothing -> nothing {
         fail 'JWKS validation failed'
     }
 
-    $jwks | to json | write-text $jwks_file
+    $jwks | to json | save --force $jwks_file
     log info 'JWKS retrieval completed'
 }

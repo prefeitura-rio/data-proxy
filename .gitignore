@@ -25,14 +25,16 @@ todo.txt
 # Vale synced style packages (installed by vale sync)
 .vale/styles/Microsoft/
 .vale/styles/alex/
+.vale/styles/config/grammars/
 k3d/.tmp/
 
 # Lux project tree
 proxy/.lux/
-sync/.env.test
 packaged/
 site/
-mkdocs.nav.yml
+.book/
+mermaid.min.js
+mermaid-init.js
 
 # luacov output of nu scripts/lux.nu coverage
 luacov.stats.out

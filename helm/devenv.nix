@@ -18,14 +18,32 @@
         ];
       in
       {
-        stdenv = lib.mkDefault pkgs.stdenvNoCC;
 
-        packages = with pkgs; [ cocogitto ];
+        packages = with pkgs; [
+          cocogitto
+          kubeconform
+        ];
 
         languages.helm = {
           enable = true;
           plugins = [ "helm-unittest" ];
+          lsp.enable = lib.mkDefault false;
         };
+
+        git-hooks.hooks = {
+          chart-lint-helm = utils.mkHook {
+            profile = "chart";
+            task = "chart:lint:helm";
+            files = "^helm/.*\\.(yaml|tpl|sql|nu|toml|json|conf)$";
+          };
+          chart-lint-toml = utils.mkHook {
+            profile = "chart";
+            task = "chart:lint:toml";
+            files = "^(helm/files/config/rbac\\.(toml|schema\\.json)|\\.taplo\\.toml)$";
+          };
+        };
+
+        enterTest = "nu scripts/helm.nu";
 
         scripts.ci = {
           description = "Compute the CI change flags and publish the chart and the images.";
@@ -44,11 +62,18 @@
             exec = "helm lint helm/ --strict -f helm/ci/test-values.yaml";
             execIfModified = utils.mkInputs chartFiles;
           };
-          "chart:test:unit" = utils.nuTask {
-            description = "Run the Helm chart tests.";
-            packages = with pkgs; [ kubeconform ];
-            exec = builtins.readFile ../scripts/helm.nu;
-            execIfModified = utils.mkInputs ([ "scripts/helm.nu" ] ++ chartFiles);
+          "chart:lint:toml" = utils.nuTask {
+            description = "Lint the RBAC rules file.";
+            packages = with pkgs; [ taplo ];
+            exec = ''
+              taplo lint helm/files/config/rbac.toml
+              taplo fmt --check helm/files/config/rbac.toml
+            '';
+            execIfModified = utils.mkInputs [
+              "helm/files/config/rbac.toml"
+              "helm/files/config/rbac.schema.json"
+              ".taplo.toml"
+            ];
           };
         };
       };

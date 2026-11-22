@@ -21,25 +21,7 @@ The table view pushes `order` with the limit only when every order column is a w
 A request that selects all columns of a wide table still reads all of them.
 
 ```mermaid
-%% Pushdown decision
-flowchart TD
-  request["GET request"] --> read{"Does the proxy read<br/>every parameter?"}
-  read -->|"no"| postgrest["PostgREST answers<br/>the original request"]
-  read -->|"yes"| agg{"Does the select have<br/>aggregates?"}
-  agg -->|"no"| table
-  agg -->|"yes"| supported{"Group, functions and order<br/>are supported?"}
-  supported -->|"no"| postgrest
-  supported -->|"yes"| agg_call["Call table_agg<br/>DuckDB groups the rows"]
-  agg_call --> empty{"Answer null, error<br/>or a fallback source?"}
-  empty -->|"yes"| postgrest
-  empty -->|"no"| answer["Send the answer<br/>and cache it"]
-  subgraph table["Read the table view"]
-    where["where: filter the rows"]
-    columns["columns: read fewer columns"]
-    limit["limit and order: stop early<br/>only for a plain read and<br/>simple order columns"]
-  end
-  table --> answer
-  postgrest --> answer
+{{#include ../diagrams/pushdown-decision.mmd}}
 ```
 
 ## Aggregates
@@ -77,9 +59,3 @@ A complete answer has no `Content-Range` header. It has the same `X-Source` and 
 ## Counts
 
 A `GET` of a table with `Prefer: count=exact` and a `limit` counts in DuckDB. The proxy calls `<table>_agg` with the filter and `count()`. Then it reads the page with the `limit`, pinned to the snapshot of the count. It builds `Content-Range` and `Preference-Applied`, and sends `206` unless the page has every row. Other counts, `Range`, `HEAD`, an empty page and a table with a fallback source go to PostgREST, which counts every row.
-
-<!-- nav:start -->
----
-
-[Previous: Proxy](./index.md) | [Next: Cache](./cache.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

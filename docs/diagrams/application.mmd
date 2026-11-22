@@ -1,3 +1,4 @@
+%% Application database tables
 erDiagram
 
 "console.schemas" }o--|| "console.projects" : ""
@@ -61,6 +62,8 @@ erDiagram
   text unit_type
   timestamp_with_time_zone updated_at
   text updated_by
+  integer rule_group
+  integer sort_order
 }
 "console.config_history" {
   bigint id

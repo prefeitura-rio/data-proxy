@@ -1,0 +1,44 @@
+version: 2
+project_name: data-proxy
+builds:
+  - dir: provider
+    binary: terraform-provider-data-proxy_v{{ .Version }}
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.address={{ .Env.TERRAFORM_REGISTRY_HOST }}/{{ .Env.TERRAFORM_REGISTRY_NAMESPACE }}/data-proxy
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+archives:
+  - formats:
+      - zip
+    files:
+      - none*
+signs:
+  - artifacts: checksum
+    stdin: "{{ .Env.GPG_PASSPHRASE }}"
+    args:
+      - --batch
+      - --yes
+      - --pinentry-mode
+      - loopback
+      - --passphrase-fd
+      - "0"
+      - --local-user
+      - "{{ .Env.GPG_FINGERPRINT }}"
+      - --output
+      - ${signature}
+      - --detach-sign
+      - ${artifact}
+changelog:
+  disable: true

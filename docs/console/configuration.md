@@ -11,7 +11,7 @@ The sync configuration is data in three tables of the `console` schema. The migr
 | `projects` | One row per project: `name`. A project has schemas. |
 | `schemas` | One row per synced schema: `project`, `short_name`, `name`, `source`, `settings`, `claim`, `encrypted`. |
 | `tables` | One row per source table: `name`, its `schema`, `strategy`, `n`, `fallback`, `cache_ttl`, `partitioning`, `sort`. |
-| `rls` | The rules of a table: each rule holds one condition or more, and all must match. Use `rules()` and `replace_rls()`. |
+| `rls` | The rules of a table: each rule has one condition or more, and all must match. Use `rules()` and `replace_rls()`. |
 
 Every row records `updated_at` and `updated_by`. The database sets both. The name comes from the `preferred_username` claim of the token, then from `sub`.
 
@@ -54,9 +54,3 @@ One limit: the export drops a `null` value inside the `settings` of a source, be
 The proxy reads a smaller document, `console.config()`: the table names and their `cache_ttl`. The chart grants it to the anonymous role, and the proxy refuses the `console` profile from outside, so only the cluster can call it.
 
 A trigger on `schemas`, `tables` and `rls` queues a `reload_proxy` workflow after every statement. A change queues a reload only when none waits. A burst of edits therefore shares one reload. A change during a sync run queues the next one, and an editor never sees an error from it. The sync worker then sends a reload request to every proxy pod ([Table settings](../proxy/reload.md)).
-
-<!-- nav:start -->
----
-
-[Previous: Control a run and a schedule](./runs.md) | [Next: Projects](./projects.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

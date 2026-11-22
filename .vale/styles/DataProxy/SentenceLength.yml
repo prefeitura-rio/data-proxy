@@ -1,0 +1,7 @@
+extends: metric
+message: "A sentence has %s words. DOC-02 allows 25."
+link: https://github.com/prefeitura-rio/data-proxy/blob/main/docs/style.md
+level: error
+scope: sentence
+formula: round(words)
+condition: "> 25"

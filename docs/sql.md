@@ -6,11 +6,11 @@ SQL templates live under `sync/src/sync/templates/<target>/`. Each target is one
 
 SQL has three layers. Each layer has one job.
 
-| Layer | Written in | Runs | Does |
-| ----- | ---------- | ---- | ---- |
-| Template | Jinja | At each sync run | Fills the identifiers and the column lists of the function of one table. |
-| Static function | PL/pgSQL | At each request | Reads the filter and builds the text of the DuckDB query. It doesn't depend on a table. |
-| Dynamic SQL | `format()` | At each request | Runs the text that a static function built, with `%I` and `%L`. |
+| Layer           | Written in | Runs             | Does                                                                                    |
+| --------------- | ---------- | ---------------- | --------------------------------------------------------------------------------------- |
+| Template        | Jinja      | At each sync run | Fills the identifiers and the column lists of the function of one table.                |
+| Static function | PL/pgSQL   | At each request  | Reads the filter and builds the text of the DuckDB query. It doesn't depend on a table. |
+| Dynamic SQL     | `format()` | At each request  | Runs the text that a static function built, with `%I` and `%L`.                         |
 
 [Serving layer](./architecture/serving.md) shows the request flow, and [Sync layer](./architecture/sync.md) shows the sync run that installs the functions.
 
@@ -66,9 +66,3 @@ Keep SQLFluff context values close to the template family that uses them. Each v
 
 Use `macros.*` for Jinja and minijinja macro files. Keep Helm helpers in the `_*.tpl` files. Don't generate metadata at runtime. Don't document ordinary functions with macro metadata. Render a list with `sql_array` for SQL literals and with `name_array` for plain names.
 ''
-
-<!-- nav:start -->
----
-
-[Previous: Notebooks](./notebooks.md) | [Next: Security](security/index.md) | [Home](./index.md)
-<!-- nav:end -->

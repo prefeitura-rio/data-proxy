@@ -10,42 +10,7 @@ This page shows what the chart deploys, how the pods connect and how each worklo
 | Proxy      | Sends every request to PostgREST.                                                                                                |
 
 ```mermaid
-%% Deployment topology
-flowchart TD
-  gateway["Istio gateway"]
-  s3[("Object storage<br/>SeaweedFS")]
-  redis[("Redis cache")]
-  subgraph release["Helm release"]
-    proxy["Proxy<br/>KEDA: 1 to 6"]
-    postgrest["PostgREST<br/>KEDA: 1 to 6"]
-    pgdog["PgDog<br/>2 pods, no scaler"]
-    ro["Service -ro"]
-    rw["Service -rw"]
-    sync["Sync workers<br/>KEDA: 3 to 15"]
-    console["Console and notebooks"]
-    subgraph cnpg["CNPG: KEDA 2 to 6"]
-      primary["Primary"]
-      standbys["Standbys"]
-      secrets[("DuckDB secrets<br/>shared volume")]
-      primary -->|"WAL replication"| standbys
-      primary -->|"writes"| secrets
-      standbys -->|"reads"| secrets
-    end
-    proxy --> postgrest
-    postgrest -->|"queries"| pgdog
-    postgrest -->|"LISTEN connection"| rw
-    pgdog -->|"read-only transactions"| ro
-    pgdog -->|"other transactions"| rw
-    ro --> standbys
-    rw --> primary
-    sync -->|"DBOS state and catalog"| rw
-    console -->|"views and actions"| postgrest
-  end
-  gateway --> proxy
-  gateway --> console
-  proxy -->|"cache"| redis
-  sync -->|"write Parquet"| s3
-  cnpg -->|"pg_duckdb reads Parquet"| s3
+{{#include ../diagrams/deployment-topology.mmd}}
 ```
 
 PostgREST starts a read-only transaction for each `GET`, and a read/write transaction for each write and each function call. PgDog reads that option from the `BEGIN`. A `GET` goes to a standby, and a write goes to the primary. With one instance, or while no standby can serve, PgDog reads from the primary.
@@ -89,13 +54,7 @@ Notes for the cluster:
 - The chart raises the instance floor to 2 (one primary and one standby). Raise it more with `cnpg.autoscaling.minReplicaCount`.
 - Replication is asynchronous, so a changed access policy can reach a standby a moment later. To make `access.policy` writes wait for a standby, set `cnpg.postgresql.synchronous` (for example `{method: any, number: 1, dataDurability: preferred}`) after the cluster has scaled up. CNPG rejects it on one instance, so it can't be a default. A trigger then uses `remote_apply` for access policy writes only.
 - The DuckDB secrets (the S3 secret `s3`, and the catalog secrets `ducklake_catalog_pg` and `ducklake_catalog`) are files in `/duckdb/secrets` on the shared `<release>-duckdb` volume. The chart creates the volume when `ducklake.secrets.storage.storageClass` is set. Set it before you serve data, because the console adds schemas after the install and the chart can't know them. Every instance mounts that folder at `~/.duckdb/stored_secrets`, and only the primary writes it. The catalogs aren't on this volume: they live in the `ducklake` database, and every standby gets its own copy through replication. After the first upgrade that adds a secret, run `helm upgrade` once more so `configure-db` writes it to the volume.
-- Each PostgreSQL backend starts its own DuckDB and attaches the catalog on its first aggregate, which takes about 160 ms. PgDog keeps a server connection for one hour, so a backend then serves many requests at 10 to 15 ms each.
+- Each PostgreSQL backend starts its own DuckDB. It attaches the catalog on its first aggregate, which takes about 160 ms. PgDog keeps a server connection for one hour. A backend then serves many requests at 10 to 15 ms each.
 - DuckDB reads the S3 secret once for each PostgreSQL backend. When the S3 keys change, `helm upgrade` rolls PgDog and the PostgREST pods, so every backend reloads the secret.
 
 Redis has no autoscaler. The proxy needs `redis.host`, and the chart fails to render without it. [Helm Chart](helm.md) lists the Redis values.
-
-<!-- nav:start -->
----
-
-[Previous: Ingress](./ingress.md) | [Next: Hardening](./hardening.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->
