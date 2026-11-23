@@ -1,4 +1,4 @@
-use lib.nu [checked fail   ]
+use lib.nu [checked fail]
 
 const SKIPPED_FOLDERS = [
     '**/node_modules/**'
@@ -8,25 +8,10 @@ const SKIPPED_FOLDERS = [
     '**/__pycache__/**'
 ]
 
-# Historical commit subjects exempt from validation until they leave the last 50 commits.
-const ALLOWED_SUBJECTS = [
-    'chore: Configure Renovate (#5)'
-]
-
 const HEADER = '(?s)\{#\n(\{.*?\})\n#\}'
-const HEADER_WORDS = 40
-const FUNCTION_LINES = 60
-const HEADER_LINES = 40
 const MIGRATIONS = 'migrations'
 const SUMS = 'migrations/SHA256SUMS'
-const LUA = ['proxy/src/**/*.lua']
 const NIX = ['**/*.nix']
-
-const NU = [
-    'scripts/**/*.nu'
-    'helm/files/scripts/**/*.nu'
-    'console/notebooks/*.nu'
-]
 
 const SQL = [
     'sync/src/sync/templates/**/*.sql'
@@ -42,25 +27,6 @@ const PARSER_DISABLED = [
     sync/src/sync/templates/postgres/views/create_function.sql
     sync/tests/templates/duckdb/publish_people_snapshots.sql
 ]
-
-const LONG_FUNCTIONS = [
-    migrations/console/00011_console_config.sql
-    migrations/console/00018_rls_groups.sql
-    sync/src/sync/templates/postgres/views/create_aggregate_function.sql
-    sync/src/sync/templates/postgres/views/create_function.sql
-    sync/src/sync/templates/postgres/views/routing/filter.sql
-]
-
-const HEADED = [
-    'scripts/**/*.nu'
-    'helm/files/scripts/**/*.nu'
-    'console/notebooks/*.nu'
-    'console/ui/*.ts'
-    'k6/**/*.js'
-    'proxy/lux.toml'
-]
-
-const CHART_HELPERS = 'helm/templates/_*.tpl'
 
 const BUILTINS = [
     loop
@@ -81,25 +47,11 @@ const BUILTINS = [
     else
 ]
 
-const NU_LIBS = [
-    scripts/lib.nu
-    helm/files/scripts/lib.nu
-]
-
 export const RULES = [
     [id, globs, pattern, skip, except, message];
-    [LUA-47, $LUA, '\bassert\(', '--', [], "Check the value and raise an error with a message."]
-    [LUA-64, $LUA, '---@diagnostic disable', '', [], "Fix the cause and don't disable a diagnostic."]
-    [LUA-09, $LUA, 'os\.getenv', '--', [proxy/src/proxy/main.lua], "Read a setting only from the config table."]
-    [LUA-12, $LUA, '^local [A-Z][A-Z_0-9]+ =', '', [proxy/src/proxy/constants.lua], "Define the constant in constants.lua."]
-    [NIX-18, $NIX, '\brec \{|= rec ', '#', [], "Bind the shared names in a let block."]
-    [NIX-20, $NIX, '\bimport <[a-z]+>', '#', [], "Don't use a lookup path."]
-    [NU-15, $NU, '\berror make\b', '#', [...$NU_LIBS console/notebooks/build.nu], "Stop with fail from lib.nu."]
-    [SQL-04, $SQL, '^\s+\w+\s+(timestamp(?! with)|(big)?serial)\b', '--', [], "Use timestamptz and bigint GENERATED ALWAYS AS IDENTITY for a column."]
-    [SQL-24, $SQL, r#'"' \|\| replace\('#, '--', [sync/src/sync/templates/postgres/views/routing/quoting.sql], "Quote a DuckDB identifier with quote_column()."]
-    [SQL-29, [...$SQL 'sync/tests/templates/**/*.sql'], '^-- noqa: disable=[A-Z0-9,]*PRS', '', $PARSER_DISABLED, "Make SQLFluff parse the template, or add it to the allowed list with a reason."]
-    [GEN-11, $NU, '^\s{4,}#\s', '', [], "Write no comment inside a function body."]
-    [GEN-11, ['console/ui/src/**/*.ts'], '^\t{2,}(//|/\*)', '', [], "Write no comment inside a function body."]
+    [nix-inputs, $NIX, '\bimport <[a-z]+>', '#', [], "Don't use a lookup path."]
+    [sql-quoting, $SQL, r#'"' \|\| replace\('#, '--', [sync/src/sync/templates/postgres/views/routing/quoting.sql], "Quote a DuckDB identifier with quote_column()."]
+    [sql-parsing, [...$SQL 'sync/tests/templates/**/*.sql'], '^-- noqa: disable=[A-Z0-9,]*PRS', '', $PARSER_DISABLED, "Make SQLFluff parse the template, or add it to the allowed list with a reason."]
 ]
 
 # Return rule violations with file paths, line numbers and messages.
@@ -111,73 +63,6 @@ export def line-findings [rule: record, file: string, text: string]: nothing -> 
     | where ($rule.skip | is-empty) or not ($it.item | str trim | str starts-with $rule.skip)
     | where item =~ $rule.pattern
     | each {|row| $'($file):($row.index + 1): ($rule.id) ($rule.message)' }
-}
-
-# Return the number of words of the description of a header, or 0 for a header without one.
-def description-words [header: record]: nothing -> int {
-    let description = $header | get --optional description
-
-    if $description == null {
-        0
-    } else {
-        $description | split row --regex '\s+' | length
-    }
-}
-
-# Return a problem for each header of a template whose description has more than 40 words.
-@example "Check an unannotated SQL statement" { header-problems 'example.sql' 'SELECT 1;' } --result []
-export def header-problems [file: string, text: string]: nothing -> list<string> {
-    $text
-    | parse --regex $HEADER
-    | get capture0
-    | each {|source|
-        let header = try { $source | from json } catch { fail $'($file): The header is not valid JSON.' }
-
-        {
-            name: ($header | get --optional name | default template)
-            words: (description-words $header)
-        }
-    }
-    | where words > $HEADER_WORDS
-    | each {|header| $'($file): SQL-30 The description of ($header.name) has ($header.words) words.' }
-}
-
-# Report file header comments that exceed 40 lines.
-@example "Check a short file header" { file-header-problems 'example.nu' '# A short header.' } --result []
-export def file-header-problems [file: string, text: string]: nothing -> list<string> {
-    let size = $text
-    | lines
-    | where not ($it =~ '^(#!|use |\s*$)')
-    | take while {|line| $line =~ '^\s*(#|//|/\*|\*|--)' }
-    | length
-
-    if $size > $HEADER_LINES {
-        [
-            $'($file): GEN-12 The header comment has ($size) lines, the limit is ($HEADER_LINES).'
-        ]
-    } else {
-        []
-    }
-}
-
-# Return a problem for each `define` of a Helm helper that has no comment above it.
-@example "Check an empty helper file" { define-problems 'example.tpl' '' } --result []
-export def define-problems [file: string, text: string]: nothing -> list<string> {
-    let lines = $text | lines
-
-    $lines
-    | enumerate
-    | where item =~ '^\{\{-?\s*define "'
-    | each {|row|
-        let before = $lines | first $row.index | where ($it | str trim | is-not-empty) | last 1
-
-        if ($before | is-empty) or (($before | first) !~ '\*/\s*-?\}\}\s*$') {
-            let name = $row.item | parse --regex 'define "(?<name>[^"]+)"' | first | get name
-
-            $'($file):($row.index + 1): GEN-13 The helper ($name) has no comment.'
-        }
-    }
-    | compact
 }
 
 # Return the text of the first group of a pattern, for each match in a text.
@@ -202,7 +87,7 @@ export def input-problems [file: string, text: string]: nothing -> list<string> 
     let header = try {
         $headers | first | get capture0 | from json
     } catch {
-        return []
+        fail $'($file): Invalid template input metadata'
     }
 
     if ($header | get --optional kind) == macro {
@@ -244,62 +129,6 @@ export def input-problems [file: string, text: string]: nothing -> list<string> 
     | uniq
     | where $it not-in $listed and $it not-in $defined and $it not-in $BUILTINS
     | each {|variable| $'($file): SQL-31 The template uses ($variable), and its header has no input of that name.' }
-}
-
-# Return the closing line index of a SQL function.
-def function-end [lines: list<string>, start: int]: nothing -> int {
-    mut index = $start
-    mut tag = ''
-    mut seen = 0
-
-    while $index < ($lines | length) {
-        let line = $lines | skip $index | first
-
-        if $tag == '' {
-            let opened = $line | parse --regex '(?<tag>\$[A-Za-z_]*\$)'
-
-            if ($opened | is-not-empty) {
-                $tag = ($opened | first | get tag)
-            } else if ($line | str ends-with ';') {
-                return $index
-            }
-        }
-
-        if $tag != '' {
-            $seen += ($line | split row $tag | length) - 1
-
-            if $seen > 0 and $seen mod 2 == 0 {
-                return $index
-            }
-        }
-
-        $index += 1
-    }
-
-    $index - 1
-}
-
-# Return a problem for each function over 60 lines in the text of a SQL file, unless the file is allowed.
-@example "Check a short SQL function" { function-problems 'example.sql' 'CREATE FUNCTION example() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;' } --result []
-export def function-problems [file: string, text: string, ...allowed: string]: nothing -> list<string> {
-    if (excluded $file ...$allowed) {
-        return []
-    }
-
-    let lines = $text | lines
-
-    $lines
-    | enumerate
-    | where item =~ '^\s*CREATE (OR REPLACE )?FUNCTION'
-    | each {|row|
-        let size = (function-end $lines $row.index) - $row.index + 1
-        let names = $row.item | parse --regex 'FUNCTION\s+(?<name>.+?)\s*\('
-        let name = if ($names | is-empty) { 'function' } else { $names | first | get name }
-
-        {line: ($row.index + 1), name: $name, size: $size}
-    }
-    | where size > $FUNCTION_LINES
-    | each {|function| $'($file):($function.line): SQL-28 The function ($function.name) has ($function.size) lines.' }
 }
 
 # Return a problem for each migration that disagrees with the list of hashes: a changed, a new and a missing file.
@@ -376,11 +205,10 @@ export def excluded [file: string, ...except: string]: nothing -> bool {
     $except | any {|head| $file | str starts-with $head }
 }
 
-# Return repository-specific commit type and summary violations.
+# Return commit types outside the configured release policy.
 @example "Check commit policy" { commit-policy-problems [fix] 'fix: validate schema names' } --result []
 export def commit-policy-problems [types: list<string>, ...subjects: string]: nothing -> list<string> {
     $subjects
-    | where $it not-in $ALLOWED_SUBJECTS
     | each {|subject|
         let kind = $subject | split row --regex '[(!:]' | first
 
@@ -391,8 +219,6 @@ export def commit-policy-problems [types: list<string>, ...subjects: string]: no
                 _ => $'Use ($types | str join ", ").'
             }
             $'($subject): GIT-02 ($advice)'
-        } else if $subject =~ '^[^(\s!:]+(?:\([^)]*\))?!?: [A-Z]' {
-            $subject + ': GIT-01 Start the summary in lower case.'
         }
     }
     | compact
@@ -419,7 +245,7 @@ def "main commits" []: nothing -> nothing {
 }
 
 # Return the files that match the globs of a rule, outside the folders of tools, as paths from the repository root.
-def files-of [rule: record]: nothing -> list<string> {
+def match-rule-files [rule: record]: nothing -> list<string> {
     $rule.globs
     | each {|pattern| glob $pattern --exclude $SKIPPED_FOLDERS }
     | flatten
@@ -446,20 +272,10 @@ def "main sums" []: nothing -> nothing {
     | save --force $SUMS
 }
 
-# Check source rules, SQL constraints, migration checksums and recent commit subjects.
+# Check reproducibility, SQL inputs, migration integrity and release metadata.
 def main []: nothing -> nothing {
     let files = $RULES
-    | each {|rule| files-of $rule | each {|file| line-findings $rule $file ((open --raw $file | decode utf-8)) } | flatten }
-    | flatten
-
-    let sql = sql-files
-    | each {|file|
-        let text = open --raw $file | decode utf-8
-
-        let sizes = function-problems $file $text ...$LONG_FUNCTIONS
-
-        [...(header-problems $file $text) ...$sizes]
-    }
+    | each {|rule| match-rule-files $rule | each {|file| line-findings $rule $file ((open --raw $file | decode utf-8)) } | flatten }
     | flatten
 
     let test_templates = glob 'sync/tests/templates/**/*.sql' | each {|file| $file | path relative-to (pwd) }
@@ -471,31 +287,17 @@ def main []: nothing -> nothing {
     | each {|file| input-problems $file ((open --raw $file | decode utf-8)) }
     | flatten
 
-    let headers = $HEADED
-    | each {|pattern| glob $pattern --exclude $SKIPPED_FOLDERS }
-    | flatten
-    | uniq
-    | each {|file| file-header-problems ($file | path relative-to (pwd)) ((open --raw $file | decode utf-8)) }
-    | flatten
-
-    let helpers = glob $CHART_HELPERS
-    | each {|file| define-problems ($file | path relative-to (pwd)) ((open --raw $file | decode utf-8)) }
-    | flatten
-
     let migrations = migration-problems ((open --raw $SUMS | decode utf-8)) (migration-files)
     let reserved = reserved-project-problems ((open --raw console/ui/src/lib/projects.ts | decode utf-8)) ((open --raw provider/internal/provider/names.go | decode utf-8)) ((open --raw proxy/src/proxy/constants.lua | decode utf-8))
     main commits
     let found = [
         ...$files
-        ...$sql
         ...$inputs
-        ...$headers
-        ...$helpers
         ...$migrations
         ...$reserved
     ]
 
     if ($found | is-not-empty) {
-        fail $"The code breaks the style rules:\n($found | str join "\n")"
+        fail $"Repository integrity checks failed:\n($found | str join "\n")"
     }
 }

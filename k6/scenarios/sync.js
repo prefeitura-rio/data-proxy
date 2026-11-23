@@ -15,7 +15,7 @@ import {
     killWorkflowOwner,
     PARTITIONED_TABLE,
     isRecord,
-    rowsOf,
+    readRows,
     runSqlJob,
     scenario,
     snapshotValue,
@@ -90,7 +90,7 @@ function blockedTable(k8s) {
         );
     }
 
-    const blockedErrors = rowsOf(consoleCall("GET", "/errors?reason=eq.table_blocked", "console"));
+    const blockedErrors = readRows(consoleCall("GET", "/errors?reason=eq.table_blocked", "console"));
 
     expect(
         "a viewer sees why a table is blocked",

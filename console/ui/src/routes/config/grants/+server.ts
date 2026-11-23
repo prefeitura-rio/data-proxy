@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import * as v from 'valibot';
 import { can } from '#lib/permissions.js';
 import { api, need } from '#lib/server/api.js';
-import { explainPath, scopesOf } from '#lib/policy.js';
+import { explainPath, expandScopes } from '#lib/policy.js';
 import { CatalogEntry, PolicyRow } from '#lib/types.js';
 import type { RequestHandler } from './$types';
 
@@ -37,7 +37,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		error(404, 'No such schema.');
 	}
 
-	const scopes = scopesOf(path)
+	const scopes = expandScopes(path)
 		.map((scope) => `"${scope}"`)
 		.join(',');
 	const rows = need(

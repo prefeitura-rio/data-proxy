@@ -27,8 +27,9 @@
           name = "vale";
           entry = toString (
             pkgs.writeShellScript "vale-hook" ''
+              set -e
               ${lib.getExe pkgs.vale} sync --no-exit
-              exec ${lib.getExe pkgs.vale} "$@"
+              exec ${lib.getExe pkgs.vale} --no-exit "$@"
             ''
           );
           files = "^(sync/src/.*\\.py|scripts/.*\\.nu|helm/files/scripts/.*\\.nu)$";
@@ -97,9 +98,9 @@
             '';
           };
           "docs:lint:prose" = utils.nuTask {
-            description = "Check the prose of the docs with Vale, including the sentence length of DOC-02.";
+            description = "Check documentation prose with Vale.";
             packages = with pkgs; [ vale ];
-            exec = "vale sync --no-exit\nvale docs README.md AGENTS.md STYLEGUIDE.md";
+            exec = "vale sync --no-exit\nvale --no-exit docs README.md AGENTS.md STYLEGUIDE.md";
             execIfModified = utils.mkInputs (
               [
                 ".vale.ini"

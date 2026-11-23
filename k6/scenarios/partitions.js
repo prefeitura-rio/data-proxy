@@ -7,7 +7,7 @@ import {
     PARTITIONED_SOURCE,
     PARTITIONED_TABLE,
     proxyGet,
-    rowsOf,
+    readRows,
     rowsPerPartition,
     runSqlJob,
     scenario,
@@ -107,7 +107,7 @@ function fallbackRows(token, k8s) {
         pinned,
     );
 
-    const localRows = rowsOf(localOldest);
+    const localRows = readRows(localOldest);
 
     requirePrecondition("the local partitioned table answers", localOldest.status === 200, {
         status: localOldest.status,
@@ -126,13 +126,13 @@ function fallbackRows(token, k8s) {
         oldest,
     });
 
-    requirePrecondition("an older partition is absent from DuckLake", rowsOf(local).length === 0, {
+    requirePrecondition("an older partition is absent from DuckLake", readRows(local).length === 0, {
         status: local.status,
         oldest,
     });
 
     const response = proxyGet(`/${PARTITIONED_TABLE}?${filter}`, token);
-    const rows = rowsOf(response);
+    const rows = readRows(response);
     expect("an older partition answers 200", response.status === 200);
     expect("an older partition is served by the configured fallback", sourceHeader(response).startsWith("ducklake+"));
     expect("the fallback returns rows", rows.length > 0);

@@ -64,12 +64,12 @@ func tableConfig(t *testing.T, rules ...provider.RlsModel) provider.TableModel {
 
 // ruleModel returns an rls block in the flat form, for one condition.
 func ruleModel(column, unit string) provider.RlsModel {
-	return provider.BlockOf(rule(column, unit))
+	return provider.EncodeRule(rule(column, unit))
 }
 
 // groupModel returns an rls block with one condition block for each pair of a column and a unit type.
 func groupModel(pairs ...string) provider.RlsModel {
-	return provider.BlockOf(rule(pairs...))
+	return provider.EncodeRule(rule(pairs...))
 }
 
 // rule returns a client rule with one condition for each pair of a column and a unit type.
@@ -233,11 +233,11 @@ func TestTableCreate(t *testing.T) {
 
 			res.Create(
 				context.Background(),
-				resource.CreateRequest{Plan: planOf(t, s, tableConfig(t, testCase.rules...))},
+				resource.CreateRequest{Plan: makePlan(t, s, tableConfig(t, testCase.rules...))},
 				&resp,
 			)
 
-			got := summaries(diagnosticsOf(resp.Diagnostics))
+			got := summaries(collectDiagnostics(resp.Diagnostics))
 
 			switch {
 			case testCase.wantSummary != "" && (len(got) != 1 || got[0] != testCase.wantSummary):
@@ -304,12 +304,12 @@ func TestTableRead(t *testing.T) {
 
 			res := newTestTable(t, testCase.steps)
 			s := resourceSchema(t, res)
-			state := stateOf(t, s, tableConfig(t))
+			state := makeState(t, s, tableConfig(t))
 			resp := resource.ReadResponse{State: state}
 
 			res.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
 
-			got := summaries(diagnosticsOf(resp.Diagnostics))
+			got := summaries(collectDiagnostics(resp.Diagnostics))
 
 			switch {
 			case testCase.wantSummary != "":
@@ -378,13 +378,13 @@ func TestTableUpdate(t *testing.T) {
 
 			res := newTestTable(t, testCase.steps)
 			s := resourceSchema(t, res)
-			state := stateOf(t, s, withName(tableConfig(t, twoRules()...)))
-			plan := planOf(t, s, withName(tableConfig(t, testCase.plan...)))
+			state := makeState(t, s, withName(tableConfig(t, twoRules()...)))
+			plan := makePlan(t, s, withName(tableConfig(t, testCase.plan...)))
 			resp := resource.UpdateResponse{State: state}
 
 			res.Update(context.Background(), resource.UpdateRequest{Plan: plan, State: state}, &resp)
 
-			got := summaries(diagnosticsOf(resp.Diagnostics))
+			got := summaries(collectDiagnostics(resp.Diagnostics))
 
 			switch {
 			case testCase.wantSummary != "" && (len(got) != 1 || got[0] != testCase.wantSummary):
@@ -442,12 +442,12 @@ func TestTableDelete(t *testing.T) {
 
 			res := newTestTable(t, testCase.steps)
 			s := resourceSchema(t, res)
-			state := stateOf(t, s, withName(tableConfig(t)))
+			state := makeState(t, s, withName(tableConfig(t)))
 			resp := resource.DeleteResponse{State: state}
 
 			res.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
 
-			got := summaries(diagnosticsOf(resp.Diagnostics))
+			got := summaries(collectDiagnostics(resp.Diagnostics))
 
 			switch {
 			case testCase.wantSummary != "" && (len(got) != 1 || got[0] != testCase.wantSummary):
@@ -511,7 +511,7 @@ func TestTableValidateConfig(t *testing.T) {
 			s := resourceSchema(t, res)
 			model := tableConfig(t)
 			model.Strategy, model.N, model.Fallback = testCase.strategy, testCase.n, testCase.fallback
-			config := tfsdk.Config{Schema: s, Raw: planOf(t, s, model).Raw}
+			config := tfsdk.Config{Schema: s, Raw: makePlan(t, s, model).Raw}
 			resp := resource.ValidateConfigResponse{}
 
 			as[resource.ResourceWithValidateConfig](t, res).ValidateConfig(
@@ -520,7 +520,7 @@ func TestTableValidateConfig(t *testing.T) {
 				&resp,
 			)
 
-			got := summaries(diagnosticsOf(resp.Diagnostics))
+			got := summaries(collectDiagnostics(resp.Diagnostics))
 			if strings.Join(got, ",") != strings.Join(testCase.want, ",") {
 				t.Errorf("diagnostics = %v, want %v", got, testCase.want)
 			}
@@ -666,14 +666,14 @@ func TestRLSBlockRoundTripsBothForms(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 
-			block := provider.BlockOf(test.rule)
+			block := provider.EncodeRule(test.rule)
 
 			if problem := provider.RlsProblem(block); problem != "" {
-				t.Fatalf("blockOf() gives an invalid block: %s", problem)
+				t.Fatalf("encodeRule() gives an invalid block: %s", problem)
 			}
 
-			if got := provider.RuleOf(block); !reflect.DeepEqual(got, test.rule) {
-				t.Errorf("ruleOf(provider.BlockOf(%+v)) = %+v", test.rule, got)
+			if got := provider.DecodeRule(block); !reflect.DeepEqual(got, test.rule) {
+				t.Errorf("decodeRule(provider.EncodeRule(%+v)) = %+v", test.rule, got)
 			}
 		})
 	}

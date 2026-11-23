@@ -18,7 +18,6 @@ let
       ./command.nix
       ./hooks.nix
       ./inputs.nix
-      ./naming.nix
       ./processes.nix
       ./state.nix
       ./tasks.nix

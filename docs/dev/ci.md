@@ -35,7 +35,7 @@ Test image preparation starts in the background before Nix setup. CI evaluates t
 
 Package caches retain uv downloads, the pnpm store and Nix fetcher files. The provider gives `GOMODCACHE`, `GOCACHE` and `GOLANGCI_LINT_CACHE` stable paths under `.devenv/cache/`. They stay the same in normal shells and tests. The Go cache action reads those paths from the provider environment, and keys include Go version, runner architecture and dependency inputs.
 
-The checks fetch full commit history. `cog check` validates recent Conventional Commit syntax and ignores merge commits. The repository still limits types through `cog.toml` and requires lowercase summary starts. The historical exception remains in `scripts/rules.nu`. Commit verification creates no release commit, tag or push.
+The checks fetch full commit history. `cog check` validates recent Conventional Commit syntax and ignores merge commits. Repository checks retain the commit types in `cog.toml`. Summary casing remains an editorial choice. Commit verification creates no release commit, tag or push.
 
 ## The docs site
 

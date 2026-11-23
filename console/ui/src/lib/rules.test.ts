@@ -3,7 +3,7 @@ import {
 	asEditor,
 	describe as sentence,
 	explain,
-	fieldsOf,
+	listFields,
 	intoAlternatives,
 	intoCard,
 	intoNewCard,
@@ -307,7 +307,7 @@ describe('the state of the editor', () => {
 			any: [rule('c', 'z')],
 			cards: [[rule('a', 'x'), rule('b', 'y')]]
 		});
-		expect(fieldsOf(groups).map(({ entry, group }) => [entry.column, group])).toEqual([
+		expect(listFields(groups).map(({ entry, group }) => [entry.column, group])).toEqual([
 			['c', 0],
 			['a', 1],
 			['b', 1]

@@ -20,7 +20,7 @@ end
 --- Run a task that gives one answer through the limiter, and report what happened.
 ---@param case table
 ---@return table outcome
-local function outcome_of(case)
+local function run_case(case)
 	local dict = nil
 	if not case.no_dict then dict = dict_with(case.start) end
 	local ran = false
@@ -39,7 +39,7 @@ local function outcome_of(case)
 	return { ran = ran, first = first, second = second, count = dict and dict.values.inflight or nil }
 end
 
-check("limiter.run", outcome_of, {
+check("limiter.run", run_case, {
 	{
 		name = "runs the task below the limit and frees the slot",
 		limit = 2,

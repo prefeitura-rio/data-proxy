@@ -22,7 +22,7 @@ The documentation is a book of linked Markdown files in `docs/`. Read the [lates
 
 ### Browse the book
 
-The pages link to each other with relative Markdown links. Run `devenv --profile docs up docs` to read them in a browser, in the dark theme or the light ones. The [documentation rules](docs/style.md#documentation) lists the rules for a page.
+The pages link to each other with relative Markdown links. Run `devenv --profile docs up docs` to read them in a browser, in the dark theme or the light ones. The [documentation guidelines](STYLEGUIDE.md#documentation) explain how to write useful pages.
 
 ## License
 

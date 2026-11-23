@@ -1,6 +1,6 @@
 # Working in this repository
 
-Data-proxy serves BigQuery data through PostgreSQL, DuckLake and an OpenResty proxy. Read the [style page](docs/style.md) for the files that you change.
+Data-proxy serves BigQuery data through PostgreSQL, DuckLake and an OpenResty proxy. Read the [style guide](STYLEGUIDE.md) for the files that you change.
 
 ## Commands
 
@@ -53,31 +53,27 @@ cd provider && test -z "$(golangci-lint fmt --diff ./...)" && go build ./... && 
 
 | Files                                     | Section                                                                |
 | ----------------------------------------- | ---------------------------------------------------------------------- |
-| `proxy/**`                                | [Lua](docs/style.md#lua)                                               |
-| `sync/**/*.py`                            | [Python](docs/style.md#python)                                         |
-| `scripts/*.nu`, `helm/files/scripts/*.nu` | [Nushell](docs/style.md#nushell)                                       |
-| `**/*.nix`, `devenv.*`                    | [Nix](docs/style.md#nix)                                               |
-| `**/*.sql`, `rbac.toml`                   | [SQL](docs/style.md#sql)                                               |
-| `provider/**`                             | [Go](docs/style.md#go)                                                 |
-| `console/ui/**`                           | [TypeScript](docs/style.md#typescript), [Svelte](docs/style.md#svelte) |
-| `console/notebooks/**`                    | [Notebooks](docs/style.md#notebooks)                                   |
-| `docs/**`, `README.md`                    | [Documentation](docs/style.md#documentation)                           |
-| Any test, any log line                    | [Tests](docs/style.md#tests), [Logs](docs/style.md#logs)               |
+| `proxy/**`                                | [Lua](STYLEGUIDE.md#lua)                                               |
+| `sync/**/*.py`                            | [Python](STYLEGUIDE.md#python)                                         |
+| `scripts/*.nu`, `helm/files/scripts/*.nu` | [Nushell](STYLEGUIDE.md#nushell)                                       |
+| `**/*.nix`, `devenv.*`                    | [Nix](STYLEGUIDE.md#nix)                                               |
+| `**/*.sql`, `rbac.toml`                   | [SQL](STYLEGUIDE.md#sql)                                               |
+| `provider/**`                             | [Go](STYLEGUIDE.md#go)                                                 |
+| `console/ui/**`                           | [TypeScript](STYLEGUIDE.md#typescript), [Svelte](STYLEGUIDE.md#svelte) |
+| `console/notebooks/**`                    | [Notebooks](STYLEGUIDE.md#notebooks)                                   |
+| `docs/**`, `README.md`                    | [Documentation](STYLEGUIDE.md#documentation)                           |
+| Any test, any log line                    | [Tests](STYLEGUIDE.md#tests), [Logs](STYLEGUIDE.md#logs)               |
 
-## Rules that matter most
+## Engineering guidance
 
-Read the [style guide](STYLEGUIDE.md) for the list with IDs. These come first:
+Read the [style guide](STYLEGUIDE.md) and apply the [shared principles](STYLEGUIDE.md#principles) before the language-specific guidance. Use judgment about clarity and tradeoffs rather than inventing a prescription for each case.
 
-- Read the code first, and follow an existing pattern (GEN-01, GEN-02).
-- Prefer deletion to a new abstraction. Keep one source of truth (GEN-03, GEN-06).
-- Never put a user value into SQL text, and never log a secret (SQL-02, LOG-03).
-- Put a test at the lowest level that proves the behavior (TEST-01).
-- Name a devenv task `<component>:<verb>:<target>` (NIX-01).
+Preserve security, data integrity and compatibility. Verify the intended behavior through the component checks, and propose configuration corrections when a style diagnostic encourages worse code.
 
 ## Workflow
 
 - Never push to `main`. A change reaches `main` only through a reviewed pull request.
 - In an interactive session, never commit or push without explicit approval. Stage, summarize and wait.
 - An autonomous agent commits and pushes to its own work branch, and opens a pull request. The approval applies to the merge into `main`.
-- Use Conventional Commits. The types are `feat`, `fix`, `refactor`, `test`, `docs` and `chore`. Never use `ci` or `perf`. See [Git](docs/style.md#git).
+- Use Conventional Commits. The types are `feat`, `fix`, `refactor`, `test`, `docs` and `chore`. Never use `ci` or `perf`. See [Git](STYLEGUIDE.md#git).
 - Fix a flaky test at its cause, and add a test that reproduces it. Never add a retry.

@@ -8,8 +8,8 @@ import {
     appSchemaGone,
     postgrestCall,
     removeSchemaFromConsole,
-    rowsOf,
-    runOf,
+    readRows,
+    readRun,
     scenario,
     stateGone,
     startRun,
@@ -56,7 +56,7 @@ export function cleanup(k8s) {
             "provision creates the schema",
             waitUntil(
                 PROVISION_TIMEOUT_SECONDS,
-                () => rowsOf(consoleCall("GET", `/health?name=eq.${SCHEMA}`, "admin"))[0]?.schema_exists === true,
+                () => readRows(consoleCall("GET", `/health?name=eq.${SCHEMA}`, "admin"))[0]?.schema_exists === true,
                 "provision to create the schema",
             ),
         );
@@ -65,7 +65,7 @@ export function cleanup(k8s) {
         requirePrecondition("an operator starts a run", runId !== null, {});
         if (runId === null) return;
         expect("the run ends with success", waitForRun(runId, RUN_TIMEOUT_SECONDS) === "SUCCESS");
-        expect("the run publishes the table", Number(runOf(runId)?.task_count) > 0);
+        expect("the run publishes the table", Number(readRun(runId)?.task_count) > 0);
 
         expect(
             "the table has state before it is deleted",

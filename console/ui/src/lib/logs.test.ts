@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { atBottom, collectLines, filterLogs, lastLoggedAt, levelsOf, lineText, mergeLogs, tablesOf } from './logs';
+import {
+	atBottom,
+	collectLines,
+	filterLogs,
+	lastLoggedAt,
+	listLogLevels,
+	lineText,
+	mergeLogs,
+	listLogTables
+} from './logs';
 import type { LogLine } from './types';
 
 const line = (workflow_id: string, position: number, logged_at: string): LogLine => ({
@@ -122,7 +131,7 @@ describe('filterLogs', () => {
 	});
 
 	it('lists each level once, in order', () => {
-		expect(levelsOf(lines)).toEqual(['ERROR', 'INFO']);
+		expect(listLogLevels(lines)).toEqual(['ERROR', 'INFO']);
 	});
 });
 
@@ -154,7 +163,7 @@ describe('lineText', () => {
 	});
 });
 
-describe('tablesOf', () => {
+describe('listLogTables', () => {
 	it('lists each table once, in order, and skips a line without a table', () => {
 		const lines = [
 			{ ...line('a', 0, '1'), table_name: 'b.t' },
@@ -163,6 +172,6 @@ describe('tablesOf', () => {
 			{ ...line('a', 3, '4'), table_name: 'b.t' }
 		];
 
-		expect(tablesOf(lines)).toEqual(['a.t', 'b.t']);
+		expect(listLogTables(lines)).toEqual(['a.t', 'b.t']);
 	});
 });

@@ -49,7 +49,7 @@
 		}
 	});
 
-	const statusOf = (name: string) => {
+	const schemaStatus = (name: string) => {
 		const row = health.find((item) => item.name === name);
 
 		return row?.schema_exists ? `ready, ${row.view_count} views` : 'provisioning';
@@ -77,14 +77,14 @@
 						<span
 							class={[
 								'badge badge-soft badge-sm',
-								statusOf(schema.name) === 'provisioning' ? 'badge-warning' : 'badge-success'
+								schemaStatus(schema.name) === 'provisioning' ? 'badge-warning' : 'badge-success'
 							]}
 						>
-							{#if statusOf(schema.name) === 'provisioning'}<span
+							{#if schemaStatus(schema.name) === 'provisioning'}<span
 									class="loading loading-xs loading-spinner"
 									aria-hidden="true"
 								></span>{/if}
-							{statusOf(schema.name)}
+							{schemaStatus(schema.name)}
 						</span>
 					</td>
 					<td class="whitespace-nowrap">

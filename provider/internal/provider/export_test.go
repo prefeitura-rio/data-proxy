@@ -32,9 +32,9 @@ func ApplyTableRow(ctx context.Context, model *tableModel, row client.Table, rul
 	return applyTableRow(ctx, model, row, rules)
 }
 
-// BlockOf is blockOf, for the tests.
-func BlockOf(rule client.RLSRule) rlsModel {
-	return blockOf(rule)
+// EncodeRule is encodeRule, for the tests.
+func EncodeRule(rule client.RLSRule) rlsModel {
+	return encodeRule(rule)
 }
 
 // CheckReadConfig is checkReadConfig, for the tests.
@@ -212,9 +212,9 @@ func RlsRules(model tableModel) []client.RLSRule {
 	return rlsRules(model)
 }
 
-// RuleOf is ruleOf, for the tests.
-func RuleOf(block rlsModel) client.RLSRule {
-	return ruleOf(block)
+// DecodeRule is decodeRule, for the tests.
+func DecodeRule(block rlsModel) client.RLSRule {
+	return decodeRule(block)
 }
 
 // SameJSON is sameJSON, for the tests.

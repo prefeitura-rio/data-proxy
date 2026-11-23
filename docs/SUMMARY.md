@@ -37,7 +37,6 @@
   - [Projects](console/projects.md)
   - [Changes](console/changes.md)
   - [Query tab](console/query.md)
-- [Style](style.md)
 - [Development](dev/index.md)
   - [Tests](dev/tests.md)
   - [CI and releases](dev/ci.md)

@@ -95,7 +95,7 @@ func TestSchemaValidateConfig(t *testing.T) {
 			s := resourceSchema(t, testSchema)
 			model := schemaPlan("")
 			model.Project, model.ShortName = testCase.project, testCase.short
-			config := tfsdk.Config{Schema: s, Raw: planOf(t, s, model).Raw}
+			config := tfsdk.Config{Schema: s, Raw: makePlan(t, s, model).Raw}
 			resp := resource.ValidateConfigResponse{}
 
 			as[resource.ResourceWithValidateConfig](t, testSchema).ValidateConfig(
@@ -104,7 +104,7 @@ func TestSchemaValidateConfig(t *testing.T) {
 				&resp,
 			)
 
-			got := summaries(diagnosticsOf(resp.Diagnostics))
+			got := summaries(collectDiagnostics(resp.Diagnostics))
 			if strings.Join(got, ",") != strings.Join(testCase.want, ",") {
 				t.Errorf("diagnostics = %v, want %v", got, testCase.want)
 			}

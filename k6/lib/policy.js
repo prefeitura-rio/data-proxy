@@ -9,7 +9,7 @@ import {
     POSTGREST_URL,
     SCHEMA,
 } from "./env.js";
-import { proxyGet, rowsOf } from "./http.js";
+import { proxyGet, readRows } from "./http.js";
 import { fetchToken } from "./auth.js";
 import { scenario } from "./check.js";
 import { rememberRequest } from "./log.js";
@@ -86,7 +86,7 @@ export function waitForAccessPolicyReplication(token) {
 
     while (Date.now() < deadline) {
         const response = proxyGet(path, token);
-        const rows = rowsOf(response);
+        const rows = readRows(response);
 
         if (response.status === 200 && rows.length > 0) {
             return;

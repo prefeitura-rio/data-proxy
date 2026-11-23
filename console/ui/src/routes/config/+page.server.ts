@@ -1,7 +1,7 @@
 import * as v from 'valibot';
 import { error, fail } from '@sveltejs/kit';
 import { list, optional, text, whole } from '#lib/forms.js';
-import { containsFilter, pageOf, rangeQuery } from '#lib/list.js';
+import { containsFilter, parsePage, rangeQuery } from '#lib/list.js';
 import { projectProblem, schemaPayload, schemaProblem } from '#lib/projects.js';
 import { parseRules } from '#lib/rules.js';
 import { can } from '#lib/permissions.js';
@@ -34,8 +34,8 @@ export const load: PageServerLoad = async ({ locals, parent, url, depends }) => 
 	}
 
 	const client = api(locals.session);
-	const tablesPage = pageOf(url.searchParams, TABLES_PAGE, 'tables_page');
-	const historyPage = pageOf(url.searchParams, HISTORY_PAGE, 'history_page');
+	const tablesPage = parsePage(url.searchParams, TABLES_PAGE, 'tables_page');
+	const historyPage = parsePage(url.searchParams, HISTORY_PAGE, 'history_page');
 	const [projects, schemas, tableNames, rls, health] = await Promise.all([
 		client.get('/projects?order=name', v.array(ProjectRow)),
 		client.get('/schemas?order=name', v.array(SchemaRow)),

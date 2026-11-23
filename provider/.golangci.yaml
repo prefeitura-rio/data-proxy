@@ -2,66 +2,18 @@ version: "2"
 formatters:
   enable:
     - gofumpt
-    - golines
-  settings:
-    golines:
-      max-len: 120
-      tab-len: 1
-      shorten-comments: true
 linters:
-  default: all
-  disable:
-    # A struct literal does not need every field. The Terraform framework models and the request types set only what they use.
-    - exhaustruct
-    - exhaustruct_v5
-    # The PostgREST API names its columns in snake_case, so the JSON tags cannot be camelCase.
-    - tagliatelle
-    # The module has no import allowlist, so the rule reports every import.
-    - depguard
-    # Replaced by wsl_v5, which stays on.
-    - wsl
-    # Replaced by gomodguard_v2, which stays on.
-    - gomodguard
-  exclusions:
-    rules:
-      - linters:
-          - godoclint
-        text: 'godoc \("Test'
-      # A table test repeats a name or a method on purpose. A constant for each hides the data of the case.
-      - linters:
-          - goconst
-        path: _test\.go
-      # A table test is long because its cases are data. The style guide asks for tables.
-      - linters:
-          - cyclop
-          - dupl
-          - funlen
-          - gocognit
-          - maintidx
-        path: _test\.go
-  settings:
-    godoclint:
-      default: all
-      options:
-        max-len:
-          length: 120
-        require-doc:
-          ignore-exported: false
-          ignore-unexported: false
-        start-with-name:
-          include-unexported: true
-    ireturn:
-      allow:
-        - anon
-        - error
-        - empty
-        - stdlib
-        - generic
-        # The Terraform framework requires these interfaces from a constructor and from a validator.
-        - github.com/hashicorp/terraform-plugin-framework/resource.Resource
-        - github.com/hashicorp/terraform-plugin-framework/datasource.DataSource
-        - github.com/hashicorp/terraform-plugin-framework/schema/validator.String
-    revive:
-      rules:
-        - name: exported
-        - name: package-comments
+  default: standard
+  enable:
+    - bodyclose
+    - contextcheck
+    - durationcheck
+    - errorlint
+    - exhaustive
+    - gosec
+    - nilerr
+    - nilnesserr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - wastedassign

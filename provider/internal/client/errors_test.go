@@ -7,8 +7,9 @@ import (
 	"testing"
 )
 
-// TestKindOf checks that a SQLSTATE decides the kind before the HTTP status does, and that an unknown status has none.
-func TestKindOf(t *testing.T) {
+// TestClassifyError checks that a SQLSTATE decides the kind before the HTTP status does, and that an unknown status has
+// none.
+func TestClassifyError(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -35,10 +36,10 @@ func TestKindOf(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := client.KindOf(testCase.status, testCase.code)
+			got := client.ClassifyError(testCase.status, testCase.code)
 
 			if (testCase.want == nil && got != nil) || (testCase.want != nil && !errors.Is(got, testCase.want)) {
-				t.Errorf("kindOf(%d, %q) = %v, want %v", testCase.status, testCase.code, got, testCase.want)
+				t.Errorf("classifyError(%d, %q) = %v, want %v", testCase.status, testCase.code, got, testCase.want)
 			}
 		})
 	}

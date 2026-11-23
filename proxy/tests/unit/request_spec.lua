@@ -424,9 +424,9 @@ local cfg = {
 --- Make the context of one request with the config and the fixed clock of the cases.
 ---@param input table
 ---@return RequestContext
-local function context_of(input) return request.make_context(input, { config = cfg, now = 1234.5 }) end
+local function make_context(input) return request.make_context(input, { config = cfg, now = 1234.5 }) end
 
-check("request.make_context", function(case) return context_of(case.input)[case.field] end, {
+check("request.make_context", function(case) return make_context(case.input)[case.field] end, {
 	{
 		name = "sets the aggregate path for an aggregate query",
 		input = { method = "GET", uri = "/people", args = "select=a,n:b.sum()", headers_in = {} },

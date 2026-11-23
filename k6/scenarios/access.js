@@ -13,7 +13,7 @@ import {
     postgrestCall,
     postgrestRows,
     proxyGet,
-    rowsOf,
+    readRows,
     safeJson,
     scenario,
     SCHEMA,
@@ -59,7 +59,7 @@ function noAccess() {
 
     const partitioned = proxyGet(`/${PARTITIONED_TABLE}?limit=1`, token);
     expect("no-access partitioned request answers 200", partitioned.status === 200);
-    expect("no-access partitioned request returns zero rows", rowsOf(partitioned).length === 0);
+    expect("no-access partitioned request returns zero rows", readRows(partitioned).length === 0);
     expect("no-access partitioned request queries no source", sourceHeader(partitioned) === "");
     expect("no-access partitioned response omits the DuckLake snapshot", snapshotHeader(partitioned) === "");
 }
@@ -71,7 +71,7 @@ function dataScope() {
     const read = /** @param {string} client @returns {Array<Record<string, unknown>> | null} */ (client) => {
         const response = proxyGet(`/${FULL_TABLE}?select=unit_id&limit=100`, fetchToken(client));
 
-        return response.status === 200 ? rowsOf(response) : null;
+        return response.status === 200 ? readRows(response) : null;
     };
 
     const own = read("admin");
@@ -97,7 +97,7 @@ function dataScope() {
  */
 export function authorizedRows(token) {
     const response = proxyGet(`/${FULL_TABLE}?select=unit_id&limit=100`, token);
-    const rows = rowsOf(response);
+    const rows = readRows(response);
     expect("authorized user gets a 200", response.status === 200);
     expect("authorized user receives rows", rows.length > 0);
 
@@ -107,7 +107,7 @@ export function authorizedRows(token) {
     );
 
     const multi = proxyGet(`/${MULTI_RLS_TABLE}?select=region_id,group_id&limit=100`, token);
-    const multiRows = rowsOf(multi);
+    const multiRows = readRows(multi);
     expect("multi-RLS table gets a 200", multi.status === 200);
     expect("multi-RLS table returns rows", multiRows.length > 0);
 
@@ -160,7 +160,7 @@ function dataAccess() {
     const probe = { scope: SCHEMA.replace("__", "."), subject: "e2e_access_probe", unit_type: "unit", unit_id: "unit_probe" };
 
     const remove = /** @param {string} client */ (client) =>
-        rowsOf(postgrestCall("access", "DELETE", "/policy?subject=eq.e2e_access_probe", client)).length;
+        readRows(postgrestCall("access", "DELETE", "/policy?subject=eq.e2e_access_probe", client)).length;
 
     expectEach(
         ["admin_other", "api", "console"],

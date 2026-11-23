@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buildGrant, createGrant, prefixOf, resolvePath, ttlFrom, TTL_SECONDS, type FileRow } from './grant';
+import { buildGrant, createGrant, policyPrefix, resolvePath, ttlFrom, TTL_SECONDS, type FileRow } from './grant';
 import type { Result } from './postgrest';
 
 const row = (overrides: Partial<FileRow> = {}): FileRow => ({
@@ -110,14 +110,14 @@ describe('buildGrant', () => {
 	});
 });
 
-describe('prefixOf', () => {
+describe('policyPrefix', () => {
 	it('gives the folder of the schema in the bucket, with a trailing slash', () => {
-		expect(prefixOf('s3://data/ducklake/sales', 'data')).toBe('ducklake/sales/');
-		expect(prefixOf('s3://data/ducklake/sales/', 'data')).toBe('ducklake/sales/');
+		expect(policyPrefix('s3://data/ducklake/sales', 'data')).toBe('ducklake/sales/');
+		expect(policyPrefix('s3://data/ducklake/sales/', 'data')).toBe('ducklake/sales/');
 	});
 
 	it('refuses a data path in another bucket', () => {
-		expect(() => prefixOf('s3://other/x/', 'data')).toThrow('bucket');
+		expect(() => policyPrefix('s3://other/x/', 'data')).toThrow('bucket');
 	});
 });
 

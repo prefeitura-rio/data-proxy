@@ -129,13 +129,13 @@ func parseError(status int, raw []byte) *Error {
 		result.Message = strings.TrimSpace(string(raw))
 	}
 
-	result.kind = kindOf(status, result.Code)
+	result.kind = classifyError(status, result.Code)
 
 	return result
 }
 
-// kindOf maps the SQLSTATE first, because PostgREST answers 401 to a denied permission when the JWT has no role.
-func kindOf(status int, code string) error {
+// classifyError maps the SQLSTATE first, because PostgREST answers 401 to a denied permission when the JWT has no role.
+func classifyError(status int, code string) error {
 	switch code {
 	case "23505", "23503":
 		return ErrConflict

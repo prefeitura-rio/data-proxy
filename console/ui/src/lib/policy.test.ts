@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { explainPath, MAX_UNITS, parseUnits, scopesOf } from './policy';
+import { explainPath, MAX_UNITS, parseUnits, expandScopes } from './policy';
 
 const rows = (unitType: string, ...ids: string[]) => ({
 	ok: true,
@@ -52,13 +52,13 @@ describe('parseUnits', () => {
 	});
 });
 
-describe('scopesOf', () => {
+describe('expandScopes', () => {
 	it.each([
 		['a table path', 'default.test.big_table', ['', 'default', 'default.test', 'default.test.big_table']],
 		['a schema path', 'default.test', ['', 'default', 'default.test']],
 		['a project path', 'default', ['', 'default']]
 	])('%s', (_name, path, expected) => {
-		expect(scopesOf(path)).toEqual(expected);
+		expect(expandScopes(path)).toEqual(expected);
 	});
 });
 

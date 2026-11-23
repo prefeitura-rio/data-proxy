@@ -84,7 +84,7 @@ func readPermissions(t *testing.T, status int, body string) ([]string, []diagnos
 	dataSource.Read(ctx, req, &resp)
 
 	if resp.Diagnostics.HasError() {
-		return nil, diagnosticsOf(resp.Diagnostics)
+		return nil, collectDiagnostics(resp.Diagnostics)
 	}
 
 	var state provider.PermissionsModel
@@ -105,7 +105,7 @@ func readPermissions(t *testing.T, status int, body string) ([]string, []diagnos
 
 	slices.Sort(got)
 
-	return got, diagnosticsOf(resp.Diagnostics)
+	return got, collectDiagnostics(resp.Diagnostics)
 }
 
 func TestPermissionsDataSourceRead(t *testing.T) {
@@ -206,7 +206,7 @@ func TestPermissionsDataSourceConfigure(t *testing.T) {
 
 			dataSource.Configure(context.Background(), datasource.ConfigureRequest{ProviderData: testCase.providerData}, &resp)
 
-			if got := diagnosticsOf(resp.Diagnostics); !reflect.DeepEqual(got, testCase.diags) {
+			if got := collectDiagnostics(resp.Diagnostics); !reflect.DeepEqual(got, testCase.diags) {
 				t.Errorf("diagnostics = %+v, want %+v", got, testCase.diags)
 			}
 
@@ -227,7 +227,7 @@ func TestPermissionsDataSourceReadWithoutClient(t *testing.T) {
 	want := []diagnostic{
 		{summary: "Unconfigured provider", detail: "The data source has no client, because the provider isn't configured."},
 	}
-	if got := diagnosticsOf(resp.Diagnostics); !reflect.DeepEqual(got, want) {
+	if got := collectDiagnostics(resp.Diagnostics); !reflect.DeepEqual(got, want) {
 		t.Errorf("diagnostics = %+v, want %+v", got, want)
 	}
 }

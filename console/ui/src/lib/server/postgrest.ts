@@ -12,7 +12,7 @@ const MESSAGES: Record<number, (detail: string) => string> = {
 
 const ErrorBody = v.object({ message: v.string() });
 
-async function detailOf(response: Response): Promise<string> {
+async function readErrorDetail(response: Response): Promise<string> {
 	const body = v.safeParse(ErrorBody, await response.json().catch(() => null));
 
 	return body.success ? body.output.message : '';
@@ -31,7 +31,7 @@ export async function toResult<T>(response: Response, schema: v.GenericSchema<un
 				};
 	}
 
-	const detail = await detailOf(response);
+	const detail = await readErrorDetail(response);
 	const message = (MESSAGES[response.status] ?? ((text: string) => `The database failed: ${text}`))(detail);
 
 	return { ok: false, status: response.status, message };

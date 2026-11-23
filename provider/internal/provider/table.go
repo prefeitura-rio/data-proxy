@@ -56,8 +56,8 @@ type rlsModel struct {
 	Conditions []conditionModel `tfsdk:"condition"`
 }
 
-// blockOf writes a rule as one rls block: flat for one condition, condition blocks for two or more.
-func blockOf(rule client.RLSRule) rlsModel {
+// encodeRule writes a rule as one rls block: flat for one condition, condition blocks for two or more.
+func encodeRule(rule client.RLSRule) rlsModel {
 	if len(rule.Conditions) == 1 {
 		return rlsModel{
 			ColumnName: types.StringValue(rule.Conditions[0].ColumnName),
@@ -76,8 +76,8 @@ func blockOf(rule client.RLSRule) rlsModel {
 	return block
 }
 
-// ruleOf reads one rls block as a rule, in either form.
-func ruleOf(block rlsModel) client.RLSRule {
+// decodeRule reads one rls block as a rule, in either form.
+func decodeRule(block rlsModel) client.RLSRule {
 	if len(block.Conditions) == 0 {
 		return client.RLSRule{Conditions: []client.RLSCondition{{
 			ColumnName: block.ColumnName.ValueString(),
@@ -254,7 +254,7 @@ func applyTableRow(ctx context.Context, model *tableModel, row client.Table, rul
 	model.RLS = nil
 
 	for _, rule := range rules {
-		model.RLS = append(model.RLS, blockOf(rule))
+		model.RLS = append(model.RLS, encodeRule(rule))
 	}
 
 	return diagnostics
@@ -277,7 +277,7 @@ func sortValues(ctx context.Context, model tableModel) ([]string, diag.Diagnosti
 func rlsRules(model tableModel) []client.RLSRule {
 	rules := make([]client.RLSRule, 0, len(model.RLS))
 	for _, block := range model.RLS {
-		rules = append(rules, ruleOf(block))
+		rules = append(rules, decodeRule(block))
 	}
 
 	return rules

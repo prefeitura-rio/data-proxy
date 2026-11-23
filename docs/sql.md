@@ -1,24 +1,22 @@
 # SQL Templates
 
-SQL templates live under `sync/src/sync/templates/<target>/`. Each target is one database backend. Helm maintenance templates live under `helm/files/templates/postgres/`.
+Sync templates live under `sync/src/sync/templates/<target>/`. Deployment templates live under `helm/files/templates/postgres/`. This page describes their rendering and input contracts.
 
 ## How a request becomes SQL
 
-SQL has three layers. Each layer has one job.
+| Layer | Written in | Runs | Responsibility |
+| --- | --- | --- | --- |
+| Template | Jinja | At each sync run | Supplies table identifiers and column lists. |
+| Static function | PL/pgSQL | At each request | Reads request state and prepares the DuckDB query. |
+| Dynamic SQL | `format()` and bound parameters | At each request | Executes the prepared operation with explicit identifier and value semantics. |
 
-| Layer           | Written in | Runs             | Does                                                                                    |
-| --------------- | ---------- | ---------------- | --------------------------------------------------------------------------------------- |
-| Template        | Jinja      | At each sync run | Fills the identifiers and the column lists of the function of one table.                |
-| Static function | PL/pgSQL   | At each request  | Reads the filter and builds the text of the DuckDB query. It doesn't depend on a table. |
-| Dynamic SQL     | `format()` | At each request  | Runs the text that a static function built, with `%I` and `%L`.                         |
+The [serving layer](architecture/serving.md) describes the request path. The [sync layer](architecture/sync.md) describes how synchronization installs generated functions.
 
-[Serving layer](./architecture/serving.md) shows the request flow, and [Sync layer](./architecture/sync.md) shows the sync run that installs the functions.
-
-Put logic in a static function and not in a template. A static function has one name, one test and one place to read.
+Keep logic in the layer that owns its inputs and execution lifetime. A table-specific template supplies schema information. A static function can share runtime behavior without generating another copy for every table.
 
 ## Template headers
 
-Every Jinja or minijinja SQL template starts with one metadata header:
+The current template checker reads metadata from a source comment:
 
 ```jinja
 {#
@@ -34,35 +32,22 @@ Every Jinja or minijinja SQL template starts with one metadata header:
 #}
 ```
 
-Use `kind: template` and `description`. Add `inputs` when the template accepts values. Keep descriptions short. Keep metadata inside the source comment.
+The `inputs` record describes values that the caller supplies. Local assignments, loop variables and imported macros belong to the template rather than its external inputs. The checker compares external variable use with this record.
 
-Document each Jinja or minijinja macro with one metadata header. Document each Helm `define` in the `_*.tpl` files of `helm/templates/` with the same structure and `kind: macro`. Each file has one area: `_helpers.tpl` (names, labels, security), `_s3.tpl`, `_redis.tpl`, `_postgres.tpl`, `_scaling.tpl`, `_proxy.tpl`, `_console.tpl` and `_jobs.tpl`.
+Jinja and minijinja use `{# ... #}` comments. Helm Go templates use `{{/* ... */}}` comments. Metadata remains outside rendered SQL.
 
-Put the detail of a long description in a Jinja comment under the header, and keep the description under 40 words. Put one blank line before a header. Put no blank line between the header and its definition. Put one blank line after the definition. Add `name`, `description` and `returns`. Add `inputs` when needed.
+## Parameters and mappings
 
-Use `{# ... #}` for Jinja and minijinja. Use `{{/* ... */}}` for Go templates. Metadata must not appear in rendered output.
+Keep the caller's context and the template's variables consistent. Distinguish SQL identifiers, literal values, types and paths because their rendering semantics differ.
 
-## Names
+Use dedicated quoting for identifiers and bound parameters for data values. Dynamic PL/pgSQL uses `%I` for identifiers, `%L` for SQL literals and `USING` for bound values. Avoid assembling quoting rules through string replacement.
 
-Use one name for each semantic role:
-
-- PostgreSQL objects: `schema`, `table`, `view`, `function`, `policy` and `index`.
-- Columns: `column` for one column and `columns` for a collection.
-- Paths: `path` for one path. Use `source` and `target` for two endpoints. Use `scratch_path` for temporary storage.
-- SQL roles: `user_role`, `anonymous_role` and `serving_role`.
-- Predicates: `scope` for a schema predicate, `predicate` for a row or partition predicate and `claim_setting` for a session-setting name.
-
-Match the SQL semantic to the name shape: use `table` for a SQL-safe identifier, `table_name` for a SQL literal or a prepared-statement parameter. Never use bare `name` when the object type is known.
-
-Don't merge values with different meanings. Don't use `name` when the object type is known. Don't use shortened aliases such as `cols` or `select_cols`.
-
-## Runtime mappings
-
-Use the same names in Python mappings and template variables. Keep identifier, literal, type and prepared-parameter semantics in Python helpers. Use Jinja to fill names and lists, and use a static function for logic.
-
-Keep SQLFluff context values close to the template family that uses them. Each value must be a valid example for that family.
+Python prepares sync context mappings. Deployment scripts render a template with one context record and execute it through `execute-sql` in the deployment library. That boundary preserves SQL error handling and the template context.
 
 ## Macros and helpers
 
-Use `macros.*` for Jinja and minijinja macro files. Keep Helm helpers in the `_*.tpl` files. Don't generate metadata at runtime. Don't document ordinary functions with macro metadata. Render a list with `sql_array` for SQL literals and with `name_array` for plain names.
-''
+Reusable Jinja and minijinja macros live in `macros.*` files. Helm helpers live in `helm/templates/_*.tpl`. Keep their inputs and result semantics understandable to callers.
+
+The existing `sql_array` helper renders SQL literal lists, and `name_array` renders plain names. Use the representation that the receiving SQL operation expects.
+
+SQLFluff configuration supplies parsing context for template families. Keep those examples valid for the family they describe. The configured checks and [development commands](dev/index.md#run-the-checks) define current verification.

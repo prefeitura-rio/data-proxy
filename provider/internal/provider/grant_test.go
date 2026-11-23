@@ -67,12 +67,12 @@ func TestGrantCreate(t *testing.T) {
 
 			testGrant := newTestGrant(t, testCase.steps)
 			s := resourceSchema(t, testGrant)
-			plan := planOf(t, s, grantConfig(types.StringUnknown()))
+			plan := makePlan(t, s, grantConfig(types.StringUnknown()))
 			resp := resource.CreateResponse{State: nullState(s)}
 
 			testGrant.Create(context.Background(), resource.CreateRequest{Plan: plan}, &resp)
 
-			got := diagnosticsOf(resp.Diagnostics)
+			got := collectDiagnostics(resp.Diagnostics)
 
 			if testCase.wantSummary != "" {
 				if len(got) != 1 || got[0].summary != testCase.wantSummary ||
@@ -125,12 +125,12 @@ func TestGrantRead(t *testing.T) {
 
 			testGrant := newTestGrant(t, testCase.steps)
 			s := resourceSchema(t, testGrant)
-			state := stateOf(t, s, grantConfig(types.StringValue("sales.orders/reader@example.org/unit/42")))
+			state := makeState(t, s, grantConfig(types.StringValue("sales.orders/reader@example.org/unit/42")))
 			resp := resource.ReadResponse{State: state}
 
 			testGrant.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
 
-			got := diagnosticsOf(resp.Diagnostics)
+			got := collectDiagnostics(resp.Diagnostics)
 
 			switch {
 			case testCase.wantSummary != "":
@@ -170,12 +170,12 @@ func TestGrantDelete(t *testing.T) {
 
 			testGrant := newTestGrant(t, testCase.steps)
 			s := resourceSchema(t, testGrant)
-			state := stateOf(t, s, grantConfig(types.StringValue("x")))
+			state := makeState(t, s, grantConfig(types.StringValue("x")))
 			resp := resource.DeleteResponse{State: state}
 
 			testGrant.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
 
-			got := summaries(diagnosticsOf(resp.Diagnostics))
+			got := summaries(collectDiagnostics(resp.Diagnostics))
 
 			switch {
 			case testCase.wantSummary != "" && (len(got) != 1 || got[0] != testCase.wantSummary):
@@ -296,7 +296,7 @@ func TestGrantImport(t *testing.T) {
 
 		importer.ImportState(context.Background(), resource.ImportStateRequest{ID: "nope"}, &resp)
 
-		if got := summaries(diagnosticsOf(resp.Diagnostics)); len(got) != 1 || got[0] != "Invalid import ID" {
+		if got := summaries(collectDiagnostics(resp.Diagnostics)); len(got) != 1 || got[0] != "Invalid import ID" {
 			t.Errorf("diagnostics = %v, want the error of the ID", got)
 		}
 	})
@@ -310,7 +310,7 @@ func TestGrantUpdateNeverRuns(t *testing.T) {
 
 	testGrant.Update(context.Background(), resource.UpdateRequest{}, &resp)
 
-	if got := summaries(diagnosticsOf(resp.Diagnostics)); len(got) != 1 || got[0] != "A grant can't change" {
+	if got := summaries(collectDiagnostics(resp.Diagnostics)); len(got) != 1 || got[0] != "A grant can't change" {
 		t.Errorf("diagnostics = %v, want the error of an update", got)
 	}
 }

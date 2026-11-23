@@ -110,7 +110,7 @@ func TestLookupReadWithoutAClient(t *testing.T) {
 
 			source.Read(context.Background(), datasource.ReadRequest{Config: tfsdk.Config{Schema: s, Raw: raw}}, &resp)
 
-			if got := summaries(diagnosticsOf(resp.Diagnostics)); len(got) != 1 || got[0] != "Unconfigured provider" {
+			if got := summaries(collectDiagnostics(resp.Diagnostics)); len(got) != 1 || got[0] != "Unconfigured provider" {
 				t.Errorf("diagnostics = %v, want the error of a missing client", got)
 			}
 		})

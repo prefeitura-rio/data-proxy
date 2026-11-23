@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as v from 'valibot';
-import { urlOf } from './fetch-url';
+import { requestUrl } from './fetch-url';
 import { postgrest, requestHeaders, toResult } from './postgrest';
 
 const json = (body: unknown, status: number) => new Response(JSON.stringify(body), { status });
@@ -75,7 +75,7 @@ describe('postgrest client', () => {
 	it('calls the path with the headers and parses the answer', async () => {
 		const seen: { url: string; init?: RequestInit }[] = [];
 		const client = postgrest('http://api', 'tok', (url, init) => {
-			seen.push({ url: urlOf(url), init });
+			seen.push({ url: requestUrl(url), init });
 
 			return Promise.resolve(json([{ name: 'a' }], 200));
 		});
@@ -105,7 +105,7 @@ describe('postgrest client', () => {
 		let init: RequestInit | undefined;
 		let url = '';
 		const client = postgrest('http://api', 'tok', (target, options) => {
-			url = urlOf(target);
+			url = requestUrl(target);
 			init = options;
 
 			return Promise.resolve(json([{ unit_id: 'north' }], 201));
@@ -126,7 +126,7 @@ describe('postgrest client', () => {
 		let init: RequestInit | undefined;
 		let url = '';
 		const client = postgrest('http://api', 'tok', (target, options) => {
-			url = urlOf(target);
+			url = requestUrl(target);
 			init = options;
 
 			return Promise.resolve(json([], 201));
@@ -141,7 +141,7 @@ describe('postgrest client', () => {
 	it('calls a function with the POST method and the body', async () => {
 		let seen = '';
 		const client = postgrest('http://api', 'tok', (url) => {
-			seen = urlOf(url);
+			seen = requestUrl(url);
 
 			return Promise.resolve(json('run-1', 200));
 		});

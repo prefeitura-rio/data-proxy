@@ -73,7 +73,7 @@ export function clientToken(clientId) {
  * @param {string} token
  * @returns {Record<string, unknown>}
  */
-export function claimsOf(token) {
+export function decodeClaims(token) {
     const claims = JSON.parse(encoding.b64decode(token.split(".")[1], "rawurl", "s"));
 
     return isRecord(claims) ? claims : {};
@@ -85,7 +85,7 @@ export function claimsOf(token) {
  * @returns {Record<string, unknown>}
  */
 export function tokenClaims(clientId) {
-    return claimsOf(clientToken(clientId));
+    return decodeClaims(clientToken(clientId));
 }
 
 /**

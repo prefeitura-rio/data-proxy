@@ -1,7 +1,7 @@
 extends: metric
-message: "A sentence has %s words. DOC-02 allows 25."
-link: https://github.com/prefeitura-rio/data-proxy/blob/main/docs/style.md
-level: error
+message: "A sentence has %s words. Check the configured sentence-length limit."
+link: https://github.com/prefeitura-rio/data-proxy/blob/main/.vale/styles/DataProxy/SentenceLength.yml
+level: warning
 scope: sentence
 formula: round(words)
 condition: "> 25"

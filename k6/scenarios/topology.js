@@ -12,7 +12,7 @@ import {
     pgdogAvailable,
     postgresPodsMountSecret,
     POSTGREST_URL,
-    rowsOf,
+    readRows,
     runCommandJob,
     scenario,
     SCHEMA,
@@ -168,7 +168,7 @@ export function topology(k8s) {
 
     expect(
         "every read through the proxy returns rows",
-        read.every((response) => rowsOf(response).length > 0),
+        read.every((response) => readRows(response).length > 0),
     );
 
     expect(

@@ -153,8 +153,8 @@ export def token-problems [
 }
 
 # Return the claims of a JSON Web Token, without a check of the signature.
-@example "Decode a token payload" { let payload = ('{"sub":"reader"}' | encode base64 --url --nopad); claims-of $"header.($payload).signature" | get sub } --result 'reader'
-export def claims-of [token: string]: nothing -> record {
+@example "Decode a token payload" { let payload = ('{"sub":"reader"}' | encode base64 --url --nopad); decode-claims $"header.($payload).signature" | get sub } --result 'reader'
+export def decode-claims [token: string]: nothing -> record {
     let parts = $token | parse '{header}.{payload}.{signature}'
 
     if ($parts | is-empty) {
@@ -196,7 +196,7 @@ def "main check" [
         fail '--issuer is required'
     }
 
-    let found = token-problems (claims-of $token) {
+    let found = token-problems (decode-claims $token) {
         issuer: $issuer
         audience: $audience
         roles: (role-names (open $RULES))

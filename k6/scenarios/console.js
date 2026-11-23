@@ -4,13 +4,13 @@ import {
     consoleCall,
     consoleRows,
     documentBecomes,
-    documentOf,
+    readSchemaConfig,
     FAILING_TABLE,
     FULL_SOURCE,
     OIDC_USER_CLIENT_ID,
     PARTITIONED_TABLE,
     POSTGREST_URL,
-    rowsOf,
+    readRows,
     safeJson,
     scenario,
     SCHEMA,
@@ -29,7 +29,7 @@ const { expect, expectEach } = scenario("console");
  * The clients are in the k3d Keycloak realm.
  */
 export function console() {
-    const overview = rowsOf(consoleCall("GET", "/overview", "console"));
+    const overview = readRows(consoleCall("GET", "/overview", "console"));
     expect("a viewer reads one overview row", overview.length === 1);
     expect("the overview row is the one of its schema", overview[0]?.name === SCHEMA);
     expect("the overview counts every fixture table", Number(overview[0]?.tables) >= TABLES.length);
@@ -44,7 +44,7 @@ export function console() {
 
     const claim = tokenClaims("console").schemas;
 
-    const seen = rowsOf(consoleCall("GET", "/schemas?select=name", "console")).map((row) => String(row.name));
+    const seen = readRows(consoleCall("GET", "/schemas?select=name", "console")).map((row) => String(row.name));
 
     expect("the console client sees its own schema", seen.includes(SCHEMA));
 
@@ -55,7 +55,7 @@ export function console() {
 
     expect(
         "the admin reaches the schemas that its claim doesn't name, through grant_all",
-        rowsOf(consoleCall("GET", "/schemas?select=name", "admin")).length >= seen.length,
+        readRows(consoleCall("GET", "/schemas?select=name", "admin")).length >= seen.length,
     );
 
     expectEach(
@@ -74,27 +74,27 @@ export function console() {
 
     expect(
         "a role without edit_config can't change the cache lifetime of a table",
-        rowsOf(consoleCall("PATCH", table, "api", { cache_ttl: 7 })).length === 0,
+        readRows(consoleCall("PATCH", table, "api", { cache_ttl: 7 })).length === 0,
     );
 
     expect(
         "a console client of another schema can't change the cache lifetime of a table",
-        rowsOf(consoleCall("PATCH", table, "admin_other", { cache_ttl: 7 })).length === 0,
+        readRows(consoleCall("PATCH", table, "admin_other", { cache_ttl: 7 })).length === 0,
     );
 
     expect(
         "an admin changes the cache lifetime of its table",
-        rowsOf(consoleCall("PATCH", table, "admin", { cache_ttl: 7 })).length === 1,
+        readRows(consoleCall("PATCH", table, "admin", { cache_ttl: 7 })).length === 1,
     );
 
     expect(
         "the admin puts the cache lifetime back",
-        rowsOf(consoleCall("PATCH", table, "admin", { cache_ttl: null })).length === 1,
+        readRows(consoleCall("PATCH", table, "admin", { cache_ttl: null })).length === 1,
     );
 
     const filesPath = `/rpc/table_files?schema_name=${SCHEMA}&table_name=${FULL_SOURCE}`;
     const files = consoleCall("GET", filesPath, "admin");
-    const listed = rowsOf(files);
+    const listed = readRows(files);
     expect("an admin lists the files of a table of its schema", files.status === 200 && listed.length > 0);
 
     expect(
@@ -133,12 +133,12 @@ function surface() {
         safeJson(consoleCall("GET", "/rpc/username", "console")) === "test_console",
     );
 
-    const health = rowsOf(consoleCall("GET", `/health?name=eq.${SCHEMA}`, "console"));
+    const health = readRows(consoleCall("GET", `/health?name=eq.${SCHEMA}`, "console"));
     expect("health has one row for the provisioned schema", health.length === 1);
     expect("health shows that the schema exists", health[0]?.schema_exists === true);
     expect("health shows that the access policy exists", health[0]?.schema_exists === true);
     expect("health counts the views of the schema", Number(health[0]?.view_count) > 0);
-    const synced = rowsOf(consoleCall("GET", `/synced?schema=eq.${SCHEMA}`, "console"));
+    const synced = readRows(consoleCall("GET", `/synced?schema=eq.${SCHEMA}`, "console"));
     const row = /** @param {string} name */ (name) => synced.find((item) => String(item.name).endsWith(`.${name}`));
 
     expectEach(
@@ -156,7 +156,7 @@ function surface() {
     expect("a viewer reads the logs of its runs", consoleRows(`/logs?schema_name=eq.${SCHEMA}&limit=1`, "console") > 0);
     expect("a viewer reads the steps of its runs", consoleRows("/steps?limit=1", "console") > 0);
     expect("the admin reads the queue of the sync", consoleRows("/queues?name=eq.sync", "admin") === 1);
-    const schedule = rowsOf(consoleCall("GET", "/schedules?limit=1", "admin"))[0];
+    const schedule = readRows(consoleCall("GET", "/schedules?limit=1", "admin"))[0];
 
     if (schedule !== undefined) {
         expectEach(
@@ -188,14 +188,14 @@ function surface() {
     expectEach(
         ["console", "admin_other"],
         (client) => `the ${client} client deletes no schema outside its claim`,
-        (client) => rowsOf(consoleCall("DELETE", "/schemas?name=eq.default__console_probe", client)).length === 0,
+        (client) => readRows(consoleCall("DELETE", "/schemas?name=eq.default__console_probe", client)).length === 0,
     );
 
     expect("the schema is still there after the refused deletes", probeCount() === 1);
 
     expect(
         "the admin deletes the schema",
-        rowsOf(consoleCall("DELETE", "/schemas?name=eq.default__console_probe", "admin")).length === 1,
+        readRows(consoleCall("DELETE", "/schemas?name=eq.default__console_probe", "admin")).length === 1,
     );
 
     expect(
@@ -211,7 +211,7 @@ function surface() {
     expectEach(
         ["api", "admin_other"],
         (client) => `the ${client} client deletes no table`,
-        (client) => rowsOf(consoleCall("DELETE", `/tables?name=eq.${FULL_SOURCE}`, client)).length === 0,
+        (client) => readRows(consoleCall("DELETE", `/tables?name=eq.${FULL_SOURCE}`, client)).length === 0,
     );
 
     const anonymous = http.get(`${POSTGREST_URL}/overview`, {
@@ -267,7 +267,7 @@ function behaviour() {
         }),
     );
 
-    const row = rowsOf(consoleCall("GET", `/schemas?name=eq.${alpha}`, "admin"))[0];
+    const row = readRows(consoleCall("GET", `/schemas?name=eq.${alpha}`, "admin"))[0];
     expect("every row records who made it, from the token", row?.updated_by === "test_admin");
 
     const statuses = [
@@ -312,7 +312,7 @@ function behaviour() {
         consoleCall("GET", `/rpc/table_files?schema_name=${SCHEMA}&table_name=none_such`, "admin").status === 403,
     );
 
-    const errors = rowsOf(consoleCall("GET", "/errors?select=recorded_at&limit=50", "admin"));
+    const errors = readRows(consoleCall("GET", "/errors?select=recorded_at&limit=50", "admin"));
 
     expect(
         "the errors come newest first",
@@ -373,7 +373,7 @@ function behaviour() {
         }) === 400,
     );
 
-    expect("a bad document changes nothing", documentOf("default__console_bad") === undefined);
+    expect("a bad document changes nothing", readSchemaConfig("default__console_bad") === undefined);
     ["p.d.full", "p.d.part", "p.d.beta"].forEach((name) => consoleCall("DELETE", `/tables?name=eq.${name}`, "admin"));
 
     expect(
@@ -388,7 +388,7 @@ function behaviour() {
         "the admin removes the schemas that the checks added",
         waitUntil(
             10,
-            () => [alpha, beta, importName].every((name) => documentOf(name) === undefined),
+            () => [alpha, beta, importName].every((name) => readSchemaConfig(name) === undefined),
             "the schemas to leave sync.json",
         ),
     );

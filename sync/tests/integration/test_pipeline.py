@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from tests.fixtures.pipeline import Pipeline, served, state_of
+from tests.fixtures.pipeline import Pipeline, read_signature, served
 from tests.helpers.core import scalar
 
 pytestmark = pytest.mark.postgres
@@ -16,7 +16,7 @@ async def test_a_run_dumps_publishes_and_serves_the_table_that_works(
     await pipeline.pg.connection.rollback()
 
     assert await served(pipeline, "people") == 20
-    assert await state_of(pipeline, pipeline.good) is not None
+    assert await read_signature(pipeline, pipeline.good) is not None
 
 
 async def test_a_table_that_fails_to_dump_is_recorded_and_left_unpublished(
@@ -26,7 +26,7 @@ async def test_a_table_that_fails_to_dump_is_recorded_and_left_unpublished(
     await pipeline.run()
     await pipeline.pg.connection.rollback()
 
-    assert await state_of(pipeline, pipeline.broken) is None
+    assert await read_signature(pipeline, pipeline.broken) is None
     reasons = await (
         await pipeline.pg.connection.execute(
             b"SELECT reason, fields ->> 'error' FROM data_proxy.errors WHERE fields ->> 'table' = %s",

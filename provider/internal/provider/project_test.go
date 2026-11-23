@@ -77,7 +77,7 @@ func TestProjectCreate(t *testing.T) {
 
 			testProject := newTestProject(t, testCase.steps)
 			projectSchema := resourceSchema(t, testProject)
-			plan := planOf(
+			plan := makePlan(
 				t,
 				projectSchema,
 				provider.ProjectModel{
@@ -91,7 +91,7 @@ func TestProjectCreate(t *testing.T) {
 
 			testProject.Create(context.Background(), resource.CreateRequest{Plan: plan}, &resp)
 
-			got := diagnosticsOf(resp.Diagnostics)
+			got := collectDiagnostics(resp.Diagnostics)
 
 			if testCase.wantSummary != "" {
 				if len(got) != 1 || got[0].summary != testCase.wantSummary ||
@@ -147,7 +147,7 @@ func TestProjectRead(t *testing.T) {
 
 			testProject := newTestProject(t, testCase.steps)
 			s := resourceSchema(t, testProject)
-			state := stateOf(
+			state := makeState(
 				t,
 				s,
 				provider.ProjectModel{
@@ -161,7 +161,7 @@ func TestProjectRead(t *testing.T) {
 
 			testProject.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
 
-			got := diagnosticsOf(resp.Diagnostics)
+			got := collectDiagnostics(resp.Diagnostics)
 
 			switch {
 			case testCase.wantSummary != "":
@@ -218,7 +218,7 @@ func TestProjectDelete(t *testing.T) {
 
 			testProject := newTestProject(t, testCase.steps)
 			s := resourceSchema(t, testProject)
-			state := stateOf(
+			state := makeState(
 				t,
 				s,
 				provider.ProjectModel{
@@ -232,7 +232,7 @@ func TestProjectDelete(t *testing.T) {
 
 			testProject.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
 
-			got := diagnosticsOf(resp.Diagnostics)
+			got := collectDiagnostics(resp.Diagnostics)
 
 			if testCase.wantSummary == "" {
 				if len(got) != 0 {
@@ -305,7 +305,7 @@ func TestProjectUpdateNeverRuns(t *testing.T) {
 
 			res.Update(context.Background(), resource.UpdateRequest{}, &resp)
 
-			if got := summaries(diagnosticsOf(resp.Diagnostics)); len(got) != 1 || got[0] != "A project can't change" {
+			if got := summaries(collectDiagnostics(resp.Diagnostics)); len(got) != 1 || got[0] != "A project can't change" {
 				t.Errorf("diagnostics = %v, want the error of an update", got)
 			}
 		})

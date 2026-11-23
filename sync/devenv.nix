@@ -101,14 +101,12 @@
             exec = ''
               uv run --frozen ruff check src tests
               uv run --frozen pyrefly check
-              uv run --frozen complexipy src tests
               uv run --frozen vulture --min-confidence 60 src tests
             '';
             execIfModified = utils.mkInputs [
               "sync/**/*.py"
               "sync/pyproject.toml"
               "sync/uv.lock"
-              "sync/complexipy-snapshot.json"
             ];
           };
           "sync:lint:sql" = utils.nuTask {

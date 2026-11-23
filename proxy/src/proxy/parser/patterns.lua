@@ -19,12 +19,12 @@ local patterns = {}
 --- LPeg commits to the first match, so a shorter word must not come before a longer one.
 ---
 --- ```lua
---- C(match_one_of({ "gt", "gte" })):match("gte") --> "gt"
---- C(match_one_of({ "gte", "gt" })):match("gte") --> "gte"
+--- C(match_words({ "gt", "gte" })):match("gte") --> "gt"
+--- C(match_words({ "gte", "gt" })):match("gte") --> "gte"
 --- ```
 ---@param words string[]
 ---@return lpeg.Pattern
-local function match_one_of(words)
+local function match_words(words)
 	return tablex.reduce(function(acc, word) return acc + P(word) end, words, P(false))
 end
 
@@ -165,7 +165,7 @@ patterns.list = P("(") * Ct(patterns.list_item * (P(",") * patterns.list_item) ^
 --- patterns.is_keyword:match("nope") --> nil
 --- ```
 ---@type lpeg.Pattern
-patterns.is_keyword = C(match_one_of(constants.filter.is_keywords))
+patterns.is_keyword = C(match_words(constants.filter.is_keywords))
 
 --- The operators that take one scalar value, from constants.filter.scalar_operators.
 --- It captures the operator name. The list is longest name first, or gte matches as gt with an extra e.
@@ -174,7 +174,7 @@ patterns.is_keyword = C(match_one_of(constants.filter.is_keywords))
 --- patterns.scalar_operator:match("gte") --> "gte"
 --- ```
 ---@type lpeg.Pattern
-patterns.scalar_operator = C(match_one_of(constants.filter.scalar_operators))
+patterns.scalar_operator = C(match_words(constants.filter.scalar_operators))
 
 --- The scalar of a single comparison, for example name=eq.Rio.
 --- It continues to the end of the text. It can contain commas and parentheses.

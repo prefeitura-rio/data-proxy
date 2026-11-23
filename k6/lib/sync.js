@@ -2,7 +2,7 @@
 import http from "k6/http";
 import { DATA_URL, PARTITION_COLUMN, PARTITIONED_TABLE, SYNCED_PARTITIONS, TABLES } from "./env.js";
 import { waitUntil } from "./wait.js";
-import { authHeaders, proxyGet, rowsOf, safeJson } from "./http.js";
+import { authHeaders, proxyGet, readRows, safeJson } from "./http.js";
 import { userToken } from "./auth.js";
 
 /**
@@ -144,7 +144,7 @@ export function rowsPerPartition(token, extra = {}) {
 
     const counts = new Map();
 
-    rowsOf(response).forEach((row) => {
+    readRows(response).forEach((row) => {
         counts.set(String(row[PARTITION_COLUMN]), Number(row.count));
     });
 

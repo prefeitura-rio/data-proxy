@@ -251,7 +251,7 @@ async def served(pipeline: Pipeline, table: str) -> int:
     return count
 
 
-async def state_of(pipeline: Pipeline, table: str) -> str | None:
+async def read_signature(pipeline: Pipeline, table: str) -> str | None:
     """Return the signature that the sync worker stored for a table, or None."""
     row = await (
         await pipeline.pg.connection.execute(

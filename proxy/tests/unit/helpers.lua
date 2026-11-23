@@ -74,7 +74,7 @@ local shapes = { "reason", "valid", "not_expected" }
 --- The comparison that a case selects.
 ---@param case table
 ---@return function
-local function comparison_of(case)
+local function select_comparison(case)
 	assert.is_true(
 		case.expected ~= nil or case.reason ~= nil or case.valid == true or case.not_expected ~= nil,
 		"case needs expected, valid, not_expected, or reason: " .. case.name
@@ -98,7 +98,7 @@ function helpers.check(describe, it)
 	return function(name, call, cases)
 		describe(name, function()
 			tablex.foreachi(cases, function(case)
-				local comparison = comparison_of(case)
+				local comparison = select_comparison(case)
 				it(case.name, function() comparison(case, call) end)
 			end)
 		end)

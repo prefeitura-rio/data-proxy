@@ -14,7 +14,7 @@ import {
     proxyGet,
     reloadProxy,
     removePolicy,
-    rowsOf,
+    readRows,
     scenario,
     sourceHeader,
     stable,
@@ -38,20 +38,20 @@ function verifyProxyCache(token, otherToken) {
         cache: cacheHeader(first),
     });
 
-    requirePrecondition("the first answer has rows", rowsOf(first).length > 0, { status: first.status });
+    requirePrecondition("the first answer has rows", readRows(first).length > 0, { status: first.status });
     const second = proxyGet(path, token);
     expect("a repeated request is served from the cache", cacheHeader(second) === "HIT");
     const refreshed = fetchToken();
     requirePrecondition("a fresh token differs from the first one", refreshed !== token, {});
     const rotated = proxyGet(path, refreshed);
     expect("a refreshed token is served from the cache", cacheHeader(rotated) === "HIT");
-    expect("a refreshed token receives the same answer", stable(rowsOf(rotated)) === stable(rowsOf(second)));
+    expect("a refreshed token receives the same answer", stable(readRows(rotated)) === stable(readRows(second)));
     const forged = proxyGet(path, "forged.token.value");
     expect("a forged token is refused", forged.status === 401 || forged.status === 403);
-    expect("a forged token is not served the cached answer", rowsOf(forged).length === 0);
-    expect("the cached answer is the same", stable(rowsOf(second)) === stable(rowsOf(first)));
+    expect("a forged token is not served the cached answer", readRows(forged).length === 0);
+    expect("the cached answer is the same", stable(readRows(second)) === stable(readRows(first)));
     const otherSubject = proxyGet(path, otherToken);
-    expect("another subject does not receive the answer", stable(rowsOf(otherSubject)) !== stable(rowsOf(first)));
+    expect("another subject does not receive the answer", stable(readRows(otherSubject)) !== stable(readRows(first)));
 
     expect(
         "a cache hit keeps the source of the stored answer",
@@ -115,12 +115,12 @@ function verifyCoalescing(token) {
     requirePrecondition("the burst path is not cached yet", cacheHeader(proxyGet(path, token)) === "MISS", {});
     proxyGet("/e2e", token);
     const responses = http.batch(burst);
-    const bodies = responses.filter((r) => rowsOf(r).length > 0);
+    const bodies = responses.filter((r) => readRows(r).length > 0);
     expect("a burst is answered with rows", bodies.length === responses.length);
 
     expect(
         "a burst is served the same answer",
-        stable(rowsOf(responses[0])) === stable(rowsOf(responses[BURST_REQUESTS - 1])),
+        stable(readRows(responses[0])) === stable(readRows(responses[BURST_REQUESTS - 1])),
     );
 }
 

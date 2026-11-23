@@ -10,7 +10,7 @@ import {
     podsForComponent,
     proxyGet,
     readyInstances,
-    rowsOf,
+    readRows,
     runCommandJob,
     scenario,
     SCHEMA,
@@ -113,7 +113,7 @@ function changeFeed() {
     for (const feed of feeds) {
         const path = `/rpc/${feed.table}_dl_chg?select=change_snapshot_id,change_type,${feed.columns}&start_snapshot=0`;
         const all = proxyGet(path, token);
-        const rows = rowsOf(all);
+        const rows = readRows(all);
         const bounded = proxyGet(`${path}&end_snapshot=${latest}`, token);
         const refused = proxyGet(path, clientToken("api"));
         const other = proxyGet(path, otherToken);
@@ -135,7 +135,7 @@ function changeFeed() {
 
         expect(
             `${feed.table} change feed ends at the latest snapshot by default`,
-            rowsOf(bounded).length === rows.length,
+            readRows(bounded).length === rows.length,
         );
 
         expect(`${feed.table} change feed is refused without read_ducklake`, refused.status === 403);
@@ -150,7 +150,7 @@ function changeFeed() {
 function readerMount(token) {
     const response = directPostgrest(`/${FULL_TABLE}?limit=1`, token);
     expect("PostgREST answers 200 from the instance-local DuckLake catalog", response.status === 200);
-    expect("PostgREST serves rows from the instance-local DuckLake catalog", rowsOf(response).length > 0);
+    expect("PostgREST serves rows from the instance-local DuckLake catalog", readRows(response).length > 0);
 }
 
 /**

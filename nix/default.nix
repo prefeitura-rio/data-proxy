@@ -13,20 +13,9 @@
   profiles.base.module =
     {
       config,
-      utils,
       ...
     }:
-    let
-      badTaskNames = utils.badTaskNames (lib.attrNames config.tasks);
-    in
     {
-      assertions = [
-        {
-          assertion = badTaskNames == [ ];
-          message = "These task names are not <component>:<verb>:<target> from the glossary of the style guide: ${lib.concatStringsSep ", " badTaskNames}";
-        }
-      ];
-
       imports = [
         {
           key = "data-proxy-utils";

@@ -208,8 +208,8 @@ func as[T any](tb testing.TB, value any) T {
 	return typed
 }
 
-// diagnosticsOf converts the diagnostics of a response into diagnostic values.
-func diagnosticsOf(diagnostics diag.Diagnostics) []diagnostic {
+// collectDiagnostics converts the diagnostics of a response into diagnostic values.
+func collectDiagnostics(diagnostics diag.Diagnostics) []diagnostic {
 	if len(diagnostics) == 0 {
 		return nil
 	}
@@ -434,7 +434,7 @@ func TestReadSettings(t *testing.T) {
 				t.Errorf("settings = %+v, want %+v", got, testCase.want)
 			}
 
-			if gotDiags := diagnosticsOf(diagnostics); !reflect.DeepEqual(gotDiags, testCase.diags) {
+			if gotDiags := collectDiagnostics(diagnostics); !reflect.DeepEqual(gotDiags, testCase.diags) {
 				t.Errorf("diagnostics = %+v, want %+v", gotDiags, testCase.diags)
 			}
 		})
@@ -738,7 +738,7 @@ func TestConfigure(t *testing.T) {
 				want = testCase.diags(api)
 			}
 
-			if got := diagnosticsOf(resp.Diagnostics); !reflect.DeepEqual(got, want) {
+			if got := collectDiagnostics(resp.Diagnostics); !reflect.DeepEqual(got, want) {
 				t.Fatalf("diagnostics = %+v, want %+v", got, want)
 			}
 
@@ -1165,8 +1165,8 @@ func timeoutAttributes() map[string]attr.Type {
 	return map[string]attr.Type{"create": types.StringType, "delete": types.StringType}
 }
 
-// timeoutsOf builds the timeouts attribute of a model. An empty text leaves its timeout null.
-func timeoutsOf(create, deleted string) timeouts.Value {
+// makeTimeouts builds the timeouts attribute of a model. An empty text leaves its timeout null.
+func makeTimeouts(create, deleted string) timeouts.Value {
 	text := func(value string) attr.Value {
 		if value == "" {
 			return types.StringNull()
@@ -1223,8 +1223,8 @@ func nullState(s resourceschema.Schema) tfsdk.State {
 	return tfsdk.State{Schema: s, Raw: tftypes.NewValue(s.Type().TerraformType(context.Background()), nil)}
 }
 
-// stateOf returns a state of the schema that holds the model.
-func stateOf(t *testing.T, s resourceschema.Schema, model any) tfsdk.State {
+// makeState returns a state of the schema that holds the model.
+func makeState(t *testing.T, s resourceschema.Schema, model any) tfsdk.State {
 	t.Helper()
 
 	state := nullState(s)
@@ -1236,8 +1236,8 @@ func stateOf(t *testing.T, s resourceschema.Schema, model any) tfsdk.State {
 	return state
 }
 
-// planOf returns a plan of the schema that holds the model.
-func planOf(t *testing.T, s resourceschema.Schema, model any) tfsdk.Plan {
+// makePlan returns a plan of the schema that holds the model.
+func makePlan(t *testing.T, s resourceschema.Schema, model any) tfsdk.Plan {
 	t.Helper()
 
 	plan := tfsdk.Plan{Schema: s, Raw: tftypes.NewValue(s.Type().TerraformType(context.Background()), nil)}
@@ -1305,5 +1305,5 @@ func readDataSource(
 
 	source.Read(ctx, datasource.ReadRequest{Config: cfg}, &resp)
 
-	return resp, diagnosticsOf(resp.Diagnostics)
+	return resp, collectDiagnostics(resp.Diagnostics)
 }

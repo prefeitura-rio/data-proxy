@@ -102,7 +102,7 @@ func TestAddAPIError(t *testing.T) {
 			provider.AddAPIError(&diagnostics, "Couldn't delete the schema", testCase.permission, testCase.err)
 
 			want := []diagnostic{{summary: "Couldn't delete the schema", detail: testCase.want}}
-			if got := diagnosticsOf(diagnostics); !reflect.DeepEqual(got, want) {
+			if got := collectDiagnostics(diagnostics); !reflect.DeepEqual(got, want) {
 				t.Errorf("diagnostics = %+v, want %+v", got, want)
 			}
 		})
@@ -138,7 +138,7 @@ func TestCheckReadConfig(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := diagnosticsOf(
+			if got := collectDiagnostics(
 				provider.CheckReadConfig("ci", testCase.permissions),
 			); !reflect.DeepEqual(
 				got,

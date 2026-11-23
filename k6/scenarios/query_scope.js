@@ -4,7 +4,7 @@ import {
     consoleCall,
     cronJobPodSpec,
     removeSchemaFromConsole,
-    rowsOf,
+    readRows,
     runCommandJob,
     scenario,
     schemaIdentity,
@@ -64,7 +64,7 @@ export function queryScope(k8s) {
                 `provision creates the schema ${name}`,
                 waitUntil(
                     PROVISION_TIMEOUT_SECONDS,
-                    () => rowsOf(consoleCall("GET", `/health?name=eq.${name}`, "admin"))[0]?.schema_exists === true,
+                    () => readRows(consoleCall("GET", `/health?name=eq.${name}`, "admin"))[0]?.schema_exists === true,
                     "provision to create the schema",
                 ),
             );

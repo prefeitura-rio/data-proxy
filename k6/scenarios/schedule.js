@@ -2,8 +2,8 @@
 import {
     consoleCall,
     consoleRows,
-    rowsOf,
-    runOf,
+    readRows,
+    readRun,
     runSqlJob,
     scenario,
     STATE_DATABASE,
@@ -26,7 +26,7 @@ const EVERY_MINUTE = "* * * * *";
  * @returns {Record<string, unknown>[]}
  */
 function scheduledRuns(name) {
-    return rowsOf(consoleCall("GET", `/runs?schedule_name=eq.${name}&order=created_at.desc&limit=5`, "admin"));
+    return readRows(consoleCall("GET", `/runs?schedule_name=eq.${name}&order=created_at.desc&limit=5`, "admin"));
 }
 
 /**
@@ -35,7 +35,7 @@ function scheduledRuns(name) {
  * @param {Kubernetes} k8s
  */
 function scheduledRun(k8s) {
-    const schedule = rowsOf(consoleCall("GET", "/schedules?order=name&limit=1", "admin"))[0];
+    const schedule = readRows(consoleCall("GET", "/schedules?order=name&limit=1", "admin"))[0];
     requirePrecondition("a schema has a schedule", schedule !== undefined, {});
     requirePrecondition("the schedule is active", schedule.status === "ACTIVE", { status: schedule.status });
 
@@ -77,11 +77,11 @@ function scheduledRun(k8s) {
 
     expect(
         "the cron of the schedule is back",
-        waitUntil(30, () => rowsOf(consoleCall("GET", `/schedules?name=eq.${name}`, "admin"))[0]?.schedule === cron),
+        waitUntil(30, () => readRows(consoleCall("GET", `/schedules?name=eq.${name}`, "admin"))[0]?.schedule === cron),
     );
 
     if (fired === undefined) return;
-    expect("the scheduled run carries the name of the schedule", runOf(String(fired.id))?.schedule_name === name);
+    expect("the scheduled run carries the name of the schedule", readRun(String(fired.id))?.schedule_name === name);
     expect("the scheduled run ends with success", waitForRun(String(fired.id), RUN_TIMEOUT_SECONDS) === "SUCCESS");
     expect("the schedule is still listed for a console reader", consoleRows("/schedules", "console") > 0);
 }

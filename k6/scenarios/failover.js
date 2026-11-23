@@ -35,7 +35,7 @@ const PROBE_ROW = [{ scope: SCHEMA.replace("__", "."), subject: "e2e_failover_pr
  * @param {Kubernetes} k8s
  * @returns {string | undefined}
  */
-function primaryOf(k8s) {
+function currentPrimary(k8s) {
     return clusterObject(k8s).status?.currentPrimary;
 }
 
@@ -45,7 +45,7 @@ function primaryOf(k8s) {
  * @param {Kubernetes} k8s
  */
 export function failover(k8s) {
-    const before = primaryOf(k8s);
+    const before = currentPrimary(k8s);
     requirePrecondition("the cluster has a primary", before !== undefined, {});
     requirePrecondition("the cluster is settled before the failover", clusterSettled(k8s), {});
     if (before === undefined) return;
@@ -55,13 +55,13 @@ export function failover(k8s) {
     let failedReads = 0;
     const deadline = Date.now() + PROMOTION_TIMEOUT_SECONDS * 1000;
 
-    while (Date.now() < deadline && primaryOf(k8s) === before) {
+    while (Date.now() < deadline && currentPrimary(k8s) === before) {
         if (readUncached(userToken()).status !== 200) failedReads += 1;
         sleep(2);
     }
 
     info("reads_during_outage", { down: "primary", failed: failedReads });
-    const after = primaryOf(k8s);
+    const after = currentPrimary(k8s);
     expect("CNPG promotes another instance to primary", after !== undefined && after !== before);
 
     expect(

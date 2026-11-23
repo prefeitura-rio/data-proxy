@@ -36,7 +36,7 @@ import { check, sleep } from "k6";
 import { Kubernetes } from "k6/x/kubernetes";
 import { Counter, Rate, Trend } from "k6/metrics";
 import {
-    allOf,
+    combineChecks,
     API_URL,
     DATA_URL,
     schemaPath,
@@ -50,7 +50,7 @@ import {
     FULL_SOURCE,
     groupedCounts,
     hasStatus,
-    headerOf,
+    readHeader,
     HEAVY_LIMIT_MIN,
     info,
     inStep,
@@ -61,7 +61,7 @@ import {
     POLICY_CLIENT_ID,
     POSTGREST_URL,
     randomItem,
-    recordsOf,
+    filterRecords,
     readableSnapshots,
     safeJson,
     scalingReplicaCounts,
@@ -71,7 +71,7 @@ import {
     setupGet,
     sortedDescending,
     sourceKind,
-    sourceOf,
+    responseSource,
     tokenWithExpiry,
     uniqueLimit,
     visibleIds,
@@ -337,7 +337,7 @@ const ROUTES = [
         heavy: true,
         weight: 5,
         clients: ["api"],
-        checkBody: allOf(authorizedRows("unit_id", ["unit_1"]), sortedDescending("name")),
+        checkBody: combineChecks(authorizedRows("unit_id", ["unit_1"]), sortedDescending("name")),
     },
     {
         profile: "default__test",
@@ -347,7 +347,7 @@ const ROUTES = [
         heavy: true,
         weight: 5,
         clients: ["api"],
-        checkBody: allOf(authorizedRows("unit_id", ["unit_1"]), hasStatus("active"), sortedDescending("id")),
+        checkBody: combineChecks(authorizedRows("unit_id", ["unit_1"]), hasStatus("active"), sortedDescending("id")),
     },
 ];
 
@@ -369,8 +369,8 @@ function verifyNoAccess() {
     check(response, {
         "user without policy gets 200": /** @param {K6Response} item */ (item) => item.status === 200,
         "no-access returns zero rows": () => Array.isArray(body) && body.length === 0,
-        "no-access queries no source": () => headerOf(response, "X-Source") === "",
-        "no-access response omits snapshot": () => headerOf(response, "X-DuckLake-Snapshot") === "",
+        "no-access queries no source": () => readHeader(response, "X-Source") === "",
+        "no-access response omits snapshot": () => readHeader(response, "X-DuckLake-Snapshot") === "",
     });
 }
 
@@ -465,7 +465,7 @@ function pickRoute(clientId) {
  * @param {Trend} [ducklakeTrend]
  */
 function recordSourceDuration(response, ducklakeTrend) {
-    const source = sourceOf(response);
+    const source = responseSource(response);
 
     if (source === "ducklake" && ducklakeTrend) {
         ducklakeTrend.add(response.timings.duration);
@@ -498,7 +498,7 @@ function recordLoadCheckFailure(route, reason, response) {
             route,
             reason,
             status: response.status,
-            source: headerOf(response, "X-Source") || "none",
+            source: readHeader(response, "X-Source") || "none",
             duration_ms: Math.round(response.timings.duration),
             body: String(response.body).slice(0, 160),
         });
@@ -508,7 +508,7 @@ function recordLoadCheckFailure(route, reason, response) {
         route,
         reason,
         status: String(response.status),
-        source: headerOf(response, "X-Source") || "none",
+        source: readHeader(response, "X-Source") || "none",
     });
 }
 
@@ -568,12 +568,12 @@ function requestFallbackPair(clientId, token, dates) {
     recordSourceDuration(second);
     loadRequestFailed.add(second.status !== 200);
     const firstStatusOk = first.status === 200;
-    const firstSourceOk = sourceOf(first) === "fallback" || sourceOf(first) === "cache";
+    const firstSourceOk = responseSource(first) === "fallback" || responseSource(first) === "cache";
     const firstPartitionOk = authorizedRows(PARTITION_COLUMN, [date])(firstBody);
     const expectedUnit = clientId === OIDC_NO_POLICY_CLIENT_ID ? "unit_2" : "unit_1";
     const firstRlsOk = authorizedRows("unit_id", [expectedUnit])(firstBody);
     const secondStatusOk = second.status === 200;
-    const secondCacheOk = sourceOf(second) === "cache";
+    const secondCacheOk = responseSource(second) === "cache";
     const secondBodyOk = second.body === first.body;
     if (!firstStatusOk) recordLoadCheckFailure(`fallback:${clientId}`, "status", first);
     if (!firstSourceOk) recordLoadCheckFailure(`fallback:${clientId}`, "source", first);
@@ -684,9 +684,9 @@ function selectiveLookup(token, ids, expectedUnit) {
     loadRequestFailed.add(response.status !== 200);
     const body = safeJson(response);
     const statusOk = response.status === 200;
-    const rows = recordsOf(body);
+    const rows = filterRecords(body);
     const bodyOk = rows.length === 1 && String(rows[0].id) === id && rows[0].unit_id === expectedUnit;
-    const sourceOk = headerOf(response, "X-Source") === "ducklake";
+    const sourceOk = readHeader(response, "X-Source") === "ducklake";
     if (!statusOk) recordLoadCheckFailure("selective_lookup", "status", response);
     if (!bodyOk) recordLoadCheckFailure("selective_lookup", "body", response);
     if (!sourceOk) recordLoadCheckFailure("selective_lookup", "source", response);
@@ -717,8 +717,8 @@ function pinnedSnapshot(token, snapshots, expectedUnit) {
     const body = safeJson(response);
     const statusOk = response.status === 200;
     const bodyOk = authorizedRows("unit_id", [expectedUnit])(body);
-    const sourceOk = headerOf(response, "X-Source") === "ducklake";
-    const snapshotOk = headerOf(response, "X-DuckLake-Snapshot") === snapshot;
+    const sourceOk = readHeader(response, "X-Source") === "ducklake";
+    const snapshotOk = readHeader(response, "X-DuckLake-Snapshot") === snapshot;
     if (!statusOk) recordLoadCheckFailure("pinned_snapshot", "status", response);
     if (!bodyOk) recordLoadCheckFailure("pinned_snapshot", "body", response);
     if (!sourceOk) recordLoadCheckFailure("pinned_snapshot", "source", response);
@@ -806,7 +806,7 @@ function consoleRead(route, clientId, token) {
     consoleDuration.add(response.timings.duration);
     loadRequestFailed.add(response.status !== 200);
     const body = safeJson(response);
-    const rows = recordsOf(body);
+    const rows = filterRecords(body);
     const statusOk = response.status === 200;
     const shapeOk = Array.isArray(body);
     const rowsOk = (!route.nonEmpty || rows.length > 0) && (route.checkRows?.(rows) ?? true);

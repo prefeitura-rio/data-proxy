@@ -10,7 +10,10 @@ in
     module =
       { utils, ... }:
       {
-        packages = with pkgs; [ cocogitto ];
+        packages = with pkgs; [
+          cocogitto
+          vale
+        ];
 
         git-hooks.hooks = {
           ripsecrets.enable = true;
@@ -23,7 +26,7 @@ in
 
         tasks = {
           "tools:lint:code" = utils.nuTask {
-            description = "Check source rules and recent commits with Cocogitto and repository policies.";
+            description = "Check repository integrity and release metadata.";
             exec = "nu ($env.DEVENV_ROOT | path join scripts rules.nu)";
           };
           "tools:lint" = {
@@ -69,6 +72,8 @@ in
         enterTest = ''
           nu "$DEVENV_ROOT/scripts/tests/setup.nu"
           nu "$DEVENV_ROOT/scripts/tests/provider.nu"
+          nu "$DEVENV_ROOT/scripts/tests/integrity.nu"
+          nu "$DEVENV_ROOT/scripts/tests/checks.nu"
         '';
       };
   };

@@ -1,6 +1,6 @@
 # Tests
 
-`devenv --profile <component> test` runs every hook of the component in parallel. Each hook runs one lint or format-check task. Then `enterTest` runs the unit tests, which need no service, and the integration tests, which use the services of the component. The rules for a test are in [Style](../style.md#tests).
+`devenv --profile <component> test` runs every hook of the component in parallel. Each hook runs one lint or format-check task. Then `enterTest` runs the unit tests, which need no service, and the integration tests, which use the services of the component. The [repository style guide](https://github.com/prefeitura-rio/data-proxy/blob/main/STYLEGUIDE.md#tests) explains test design principles.
 
 | Component | Unit tests (no service) | Integration tests (services) |
 | --- | --- | --- |
@@ -31,15 +31,15 @@ devenv skips a task when none of its input files changed since the last green ru
 | `proxy` | Four OpenResty instances with a mock PostgREST each, and Valkey. The proxies start one after another, because each `lx exec` rewrites `proxy/lux.lock`. |
 | `console` | The `sync` processes, Keycloak (the test image of `Containerfile.kc`), PostgREST, the console with its gateway, and a worker for the `control` queue |
 
-Every process asks devenv for its port with `ports.<name>.allocate`. A port keeps its base number when it's free and moves up when it's busy. The setup passes the real number to the tests in environment variables. The base numbers are in `nix/stack/`. PostgreSQL starts empty on every run. `devenv --profile sync tasks run s3:clean:data` empties the object store.
+Every process asks devenv for its port with `ports.<name>.allocate`. A port keeps its base number when it's free and moves up when it's busy. The setup passes the real number to the tests in environment variables. The base numbers live on the processes in component profiles and `nix/services/`. PostgreSQL starts empty on every run. `devenv --profile sync tasks run s3:clean:data` empties the object store.
 
 `scripts/db.nu` prepares migrations, RBAC and persistent DuckDB secrets before test connections. It clears workflows queued during initialization before tests begin. DuckDB loads persistent secrets once per backend, so setup creates them before test queries.
 
-Install Podman, or install Docker and set `CONTAINER_RUNTIME=docker`. The first PostgreSQL build is slow, and the engine keeps the layers. Test images use content-derived tags, and their tasks check image presence each time. Removing an image therefore triggers a rebuild even when task state remains cached. The image installs the `ducklake` extension while it builds, and an old layer fails the DuckLake tests. Refresh it with `podman build --no-cache`. To add a test container, declare a process with `utils.mkProcess { command = utils.podmanRun { ... }; }`, as `nix/stack/postgres.nix` does.
+Install Podman, or install Docker and set `CONTAINER_RUNTIME=docker`. The first PostgreSQL build is slow, and the engine keeps the layers. Test images use content-derived tags, and their tasks check image presence each time. Removing an image therefore triggers a rebuild even when task state remains cached. The image installs the `ducklake` extension while it builds, and an old layer fails the DuckLake tests. Refresh it with `podman build --no-cache`. To add a test container, declare a process with `utils.mkProcess { command = utils.podmanRun { ... }; }`, as `nix/services/postgres.nix` does.
 
 ## Setup script tests
 
-`devenv --profile tools test` runs the tools checks and the setup regression tests. The tests cover image selection, independent component versions, registry compatibility, publication gates, CI output files and template cleanup. Temporary Git repositories and command stubs isolate release tests from publication services. The tests make no deployment or publication requests.
+`devenv --profile tools test` runs the tools checks and the setup regression tests. The tests cover image selection, independent component versions, registry compatibility, publication gates, CI output files and template cleanup. Temporary Git repositories and command stubs isolate release tests from publication services. The tests make no deployment or publication requests. Integrity fixtures verify that ordinary code passes while migration, template, reserved-name and pinned-input violations fail. Process-contract tests distinguish advisory findings from syntax, configuration and tool failures.
 
 ## Sync tests
 

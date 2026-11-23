@@ -16,6 +16,7 @@ on:
       - migrations/**
       - scripts/**
       - docs/**
+      - "*.md"
       - book.toml
       - repomix.config.json
       - lychee.toml

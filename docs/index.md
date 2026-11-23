@@ -19,5 +19,5 @@ Each docs release includes an [LLM bundle](./llms.txt) with all chapters as Mark
 | Add or change a synced table | [Sync](./sync.md) and the [Console](console/index.md) |
 | Decide who can read what | [Security](security/index.md) |
 | Install, scale or back up the system | [Operations](operations/index.md) |
-| Change the code | [Development](dev/index.md) and [Style](style.md) |
+| Change the code | [Development](dev/index.md) and the [repository style guide](https://github.com/prefeitura-rio/data-proxy/blob/main/STYLEGUIDE.md) |
 | Look up a word or a tool | [Glossary](glossary.md) |

@@ -71,7 +71,7 @@
 	<div bind:this={box} class="flex flex-col gap-3">
 		<input type="hidden" name="table_name" value={table ?? ''} />
 
-		{#each rules.fieldsOf(groups) as { entry, group } (entry.id)}
+		{#each rules.listFields(groups) as { entry, group } (entry.id)}
 			<input type="hidden" name="rule_column" value={entry.column} />
 			<input type="hidden" name="rule_unit_type" value={entry.unit_type} />
 			<input type="hidden" name="rule_group" value={group} />

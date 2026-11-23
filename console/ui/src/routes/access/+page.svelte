@@ -26,9 +26,9 @@
 	let removing = $state<PolicyRow | null>(null);
 	const gone = new SvelteSet<string>();
 
-	const keyOf = (row: PolicyRow) => `${row.scope}|${row.subject}|${row.unit_type}|${row.unit_id}`;
+	const policyRowKey = (row: PolicyRow) => `${row.scope}|${row.subject}|${row.unit_type}|${row.unit_id}`;
 	const scopeLabel = (scope: string) => (scope === '' ? '*' : scope);
-	const rows = $derived(data.policy.filter((row) => !gone.has(keyOf(row))));
+	const rows = $derived(data.policy.filter((row) => !gone.has(policyRowKey(row))));
 	const add = new Submission();
 	const update = new Submission({
 		inline: true,
@@ -39,7 +39,7 @@
 	const remove = new Submission({
 		inline: true,
 		begin: () => {
-			const key = removing ? keyOf(removing) : '';
+			const key = removing ? policyRowKey(removing) : '';
 
 			gone.add(key);
 
@@ -87,7 +87,7 @@
 			count={rows.length}
 			empty="No policy matches this search."
 		>
-			{#each rows as row (keyOf(row))}
+			{#each rows as row (policyRowKey(row))}
 				<tr>
 					<td>{scopeLabel(row.scope)}</td>
 					<td>{row.subject}</td>

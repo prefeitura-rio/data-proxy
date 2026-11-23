@@ -46,7 +46,7 @@ export function parseUnits(unitType: string, unitIdText: string): Parsed {
 }
 
 /** The scopes that cover a path of the catalog: the empty scope and each prefix of the path. */
-export const scopesOf = (path: string) => {
+export const expandScopes = (path: string) => {
 	const labels = path.split('.');
 
 	return ['', ...labels.map((_, index) => labels.slice(0, index + 1).join('.'))];

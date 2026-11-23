@@ -21,7 +21,7 @@ type FollowOptions = {
 
 const FINISHED = ['SUCCESS', 'ERROR', 'CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED'];
 
-const keyOf = (line: LogLine) => `${line.workflow_id}:${line.position}`;
+const logPositionKey = (line: LogLine) => `${line.workflow_id}:${line.position}`;
 
 /**
  * Follow a run: say its status when it changes, and send each new log line once. The status is read before the
@@ -35,7 +35,7 @@ export async function* follow(source: Source, options: FollowOptions): AsyncGene
 
 	while (!options.signal.aborted) {
 		const status = await source.status();
-		const fresh = (await source.lines(cursor)).filter((line) => !seen.has(keyOf(line)));
+		const fresh = (await source.lines(cursor)).filter((line) => !seen.has(logPositionKey(line)));
 
 		if (status !== known) {
 			known = status;
@@ -44,7 +44,7 @@ export async function* follow(source: Source, options: FollowOptions): AsyncGene
 
 		if (fresh.length > 0) {
 			for (const line of fresh) {
-				seen.add(keyOf(line));
+				seen.add(logPositionKey(line));
 			}
 
 			cursor = fresh.map((line) => line.logged_at).reduce((a, b) => (a > b ? a : b), cursor ?? '');

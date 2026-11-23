@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ArrowDownToLine, Copy, Download } from '@lucide/svelte';
-	import { atBottom, filterLogs, levelsOf, levelTone, lineParts, logText, tablesOf } from '#lib/logs.js';
+	import { atBottom, filterLogs, listLogLevels, levelTone, lineParts, logText, listLogTables } from '#lib/logs.js';
 	import { success } from '#lib/toast.svelte.js';
 	import type { LogLine } from '#lib/types.js';
 
@@ -14,8 +14,8 @@
 	let pinned = $state(true);
 
 	const shown = $derived(filterLogs(lines, { level, table, text }));
-	const levels = $derived(levelsOf(lines));
-	const tables = $derived(tablesOf(lines));
+	const levels = $derived(listLogLevels(lines));
+	const tables = $derived(listLogTables(lines));
 
 	/** A log that still grows keeps its end in view, until the reader scrolls up. */
 	$effect(() => {

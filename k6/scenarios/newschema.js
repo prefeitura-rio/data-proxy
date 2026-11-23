@@ -4,7 +4,7 @@ import {
     consoleCall,
     consoleRows,
     documentBecomes,
-    documentOf,
+    readSchemaConfig,
     appSchemaGone,
     catalogSchemaGone,
     filesGone,
@@ -15,8 +15,8 @@ import {
     postgrestCall,
     proxyGet,
     removeSchemaFromConsole,
-    rowsOf,
-    runOf,
+    readRows,
+    readRun,
     scenario,
     sourceHeader,
     stable,
@@ -77,7 +77,7 @@ function newSchema(k8s) {
             waitUntil(
                 PROVISION_TIMEOUT_SECONDS,
                 () => {
-                    const health = rowsOf(consoleCall("GET", `/health?name=eq.${NEW_SCHEMA}`, "admin"))[0];
+                    const health = readRows(consoleCall("GET", `/health?name=eq.${NEW_SCHEMA}`, "admin"))[0];
 
                     return health?.schema_exists === true && health.schema_exists === true;
                 },
@@ -89,7 +89,7 @@ function newSchema(k8s) {
         requirePrecondition("an operator starts a run for the new schema", runId !== null, {});
         if (runId === null) return;
         expect("the run for the new schema ends with success", waitForRun(runId, RUN_TIMEOUT_SECONDS) === "SUCCESS");
-        expect("the run publishes the table", Number(runOf(runId)?.task_count) > 0);
+        expect("the run publishes the table", Number(readRun(runId)?.task_count) > 0);
 
         expect(
             "the admin adds a policy row to the new schema",
@@ -111,7 +111,7 @@ function newSchema(k8s) {
                 () => {
                     served = proxyGet(path, clientToken("admin"), PROFILE);
 
-                    return served.status === 200 && rowsOf(served).length > 0;
+                    return served.status === 200 && readRows(served).length > 0;
                 },
                 "the proxy to serve the new table",
             ),
@@ -121,32 +121,32 @@ function newSchema(k8s) {
 
         expect(
             "the rows of the new table belong to the unit of the policy row",
-            rowsOf(served).every((row) => row.unit_id === "unit_1"),
+            readRows(served).every((row) => row.unit_id === "unit_1"),
         );
 
         const other = proxyGet(path, clientToken("api"), PROFILE);
 
-        const ids = rowsOf(served)
+        const ids = readRows(served)
             .map((row) => Number(row.id))
             .sort((a, b) => a - b);
 
         expect("the served rows are the seeded rows of unit_1", stable(ids) === stable(NEW_SCHEMA_UNIT_1_IDS));
 
-        const count = rowsOf(proxyGet(`/${TABLE}?select=count()`, clientToken("admin"), PROFILE));
+        const count = readRows(proxyGet(`/${TABLE}?select=count()`, clientToken("admin"), PROFILE));
 
         expect(
             "the count of the new table is the count of the seeded rows of unit_1",
             Number(count[0]?.count) === NEW_SCHEMA_UNIT_1_IDS.length,
         );
 
-        expect("a token for another schema reads no row of the new table", rowsOf(other).length === 0);
+        expect("a token for another schema reads no row of the new table", readRows(other).length === 0);
         expect("the console still lists the new schema", consoleRows(`/schemas?name=eq.${NEW_SCHEMA}`, "admin") === 1);
     } finally {
         removeSchemaFromConsole(NEW_SCHEMA, NEW_SCHEMA_SOURCE, SUBJECT);
 
         expect(
             "the new schema is gone from sync.json",
-            waitUntil(30, () => documentOf(NEW_SCHEMA) === undefined),
+            waitUntil(30, () => readSchemaConfig(NEW_SCHEMA) === undefined),
         );
 
         expect(

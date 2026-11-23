@@ -10,7 +10,7 @@ import {
     SETUP_ATTEMPTS,
     SETUP_RETRY_SECONDS,
 } from "./env.js";
-import { headerOf, isRecord, recordsOf, safeJson } from "./http.js";
+import { readHeader, isRecord, filterRecords, safeJson } from "./http.js";
 import { requestToken } from "./auth.js";
 import { waitUntil } from "./wait.js";
 
@@ -49,7 +49,7 @@ export function groupedCounts(field, allowed) {
  */
 export function sortedDescending(field) {
     return /** @param {unknown} body @returns {boolean} */ (body) => {
-        const values = recordsOf(body).map((row) => String(row[field]));
+        const values = filterRecords(body).map((row) => String(row[field]));
 
         return values.every((value, index) => index === 0 || values[index - 1] >= value);
     };
@@ -71,7 +71,7 @@ export function hasStatus(status) {
  * @param {...((body: unknown) => boolean)} checks
  * @returns {(body: unknown) => boolean}
  */
-export function allOf(...checks) {
+export function combineChecks(...checks) {
     return /** @param {unknown} body @returns {boolean} */ (body) => checks.every((item) => item(body));
 }
 
@@ -178,7 +178,7 @@ export function fallbackDates(token) {
     );
 
     const body = safeJson(response);
-    const rows = recordsOf(body);
+    const rows = filterRecords(body);
     const partition = String(rows[0]?.[PARTITION_COLUMN] || "");
 
     if (response.status !== 200 || !/^\d{4}-\d{2}-\d{2}$/.test(partition)) {
@@ -211,7 +211,7 @@ export function visibleIds(token) {
     });
 
     const body = safeJson(response);
-    const ids = recordsOf(body).map((row) => String(row.id));
+    const ids = filterRecords(body).map((row) => String(row.id));
 
     if (response.status !== 200 || ids.length === 0) {
         throw new Error(`Could not read any big_table id: ${response.body}`);
@@ -284,7 +284,7 @@ export function ensureToken(clientId, current) {
  * @returns {"ducklake" | "fallback" | null}
  */
 export function sourceKind(response) {
-    const source = headerOf(response, "X-Source");
+    const source = readHeader(response, "X-Source");
     if (source === "ducklake") return "ducklake";
     if (source.includes("ducklake+")) return "fallback";
 
@@ -296,8 +296,8 @@ export function sourceKind(response) {
  * @param {K6Response} response
  * @returns {"cache" | "ducklake" | "fallback" | null}
  */
-export function sourceOf(response) {
-    if (headerOf(response, "X-Cache") === "HIT") return "cache";
+export function responseSource(response) {
+    if (readHeader(response, "X-Cache") === "HIT") return "cache";
 
     return sourceKind(response);
 }

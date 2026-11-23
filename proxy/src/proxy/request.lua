@@ -305,7 +305,7 @@ end
 ---@param config SyncConfig
 ---@param sub string
 ---@return string|nil
-local function scope_of(config, sub)
+local function find_scope(config, sub)
 	if config.scopes == nil then return nil end
 
 	return config.scopes[sub]
@@ -328,7 +328,7 @@ function request.make_context(input, deps)
 		uri = input.uri,
 		args = input.args or "",
 		sub = identity.sub,
-		scope = scope_of(deps.config, identity.sub),
+		scope = find_scope(deps.config, identity.sub),
 		schemas = identity.schemas,
 		projects = identity.projects,
 		role = identity.role,

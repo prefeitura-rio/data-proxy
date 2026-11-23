@@ -67,7 +67,7 @@ func schemaPlan(createTimeout string) provider.SchemaModel {
 		DeletionProtection: types.BoolValue(true),
 		UpdatedAt:          types.StringUnknown(),
 		UpdatedBy:          types.StringUnknown(),
-		Timeouts:           timeoutsOf(createTimeout, ""),
+		Timeouts:           makeTimeouts(createTimeout, ""),
 	}
 }
 
@@ -81,7 +81,7 @@ func schemaState(protected bool, deleteTimeout string) provider.SchemaModel {
 	})
 	model.Settings = types.StringValue(`{"a": 2, "b": 1}`)
 	model.DeletionProtection = types.BoolValue(protected)
-	model.Timeouts = timeoutsOf("", deleteTimeout)
+	model.Timeouts = makeTimeouts("", deleteTimeout)
 
 	return model
 }
@@ -133,11 +133,11 @@ func TestSchemaCreate(t *testing.T) {
 
 			testSchema.Create(
 				context.Background(),
-				resource.CreateRequest{Plan: planOf(t, s, schemaPlan(testCase.createTimeout))},
+				resource.CreateRequest{Plan: makePlan(t, s, schemaPlan(testCase.createTimeout))},
 				&resp,
 			)
 
-			got := summaries(diagnosticsOf(resp.Diagnostics))
+			got := summaries(collectDiagnostics(resp.Diagnostics))
 
 			if testCase.wantSummary != "" {
 				if len(got) != 1 || got[0] != testCase.wantSummary {
@@ -197,12 +197,12 @@ func TestSchemaRead(t *testing.T) {
 
 			testSchema := newTestSchema(t, testCase.steps)
 			s := resourceSchema(t, testSchema)
-			state := stateOf(t, s, schemaState(true, ""))
+			state := makeState(t, s, schemaState(true, ""))
 			resp := resource.ReadResponse{State: state}
 
 			testSchema.Read(context.Background(), resource.ReadRequest{State: state}, &resp)
 
-			got := summaries(diagnosticsOf(resp.Diagnostics))
+			got := summaries(collectDiagnostics(resp.Diagnostics))
 
 			switch {
 			case testCase.wantSummary != "":
@@ -261,11 +261,11 @@ func TestSchemaUpdate(t *testing.T) {
 			res := newTestSchema(t, []step{testCase.step})
 			s := resourceSchema(t, res)
 			plan := schemaState(true, "")
-			resp := resource.UpdateResponse{State: stateOf(t, s, plan)}
+			resp := resource.UpdateResponse{State: makeState(t, s, plan)}
 
-			res.Update(context.Background(), resource.UpdateRequest{Plan: planOf(t, s, plan), State: stateOf(t, s, plan)}, &resp)
+			res.Update(context.Background(), resource.UpdateRequest{Plan: makePlan(t, s, plan), State: makeState(t, s, plan)}, &resp)
 
-			got := diagnosticsOf(resp.Diagnostics)
+			got := collectDiagnostics(resp.Diagnostics)
 
 			if testCase.wantSummary == "" {
 				if len(got) != 0 {
@@ -314,12 +314,12 @@ func TestSchemaDelete(t *testing.T) {
 
 			testSchema := newTestSchema(t, testCase.steps)
 			s := resourceSchema(t, testSchema)
-			state := stateOf(t, s, schemaState(testCase.protected, testCase.deleteTimeout))
+			state := makeState(t, s, schemaState(testCase.protected, testCase.deleteTimeout))
 			resp := resource.DeleteResponse{State: state}
 
 			testSchema.Delete(context.Background(), resource.DeleteRequest{State: state}, &resp)
 
-			got := summaries(diagnosticsOf(resp.Diagnostics))
+			got := summaries(collectDiagnostics(resp.Diagnostics))
 
 			switch {
 			case testCase.wantSummary == "" && len(got) != 0:
@@ -465,7 +465,7 @@ func TestSchemaUpgradeStateNamesTheSchemaByItsProject(t *testing.T) {
 			old.ShortName = types.StringValue(testCase.short)
 			old.ID = types.StringValue(testCase.short)
 			old.Name = types.StringValue(testCase.short)
-			prior := stateOf(t, *upgrader.PriorSchema, old)
+			prior := makeState(t, *upgrader.PriorSchema, old)
 			resp := resource.UpgradeStateResponse{State: nullState(resourceSchema(t, testSchema))}
 
 			upgrader.StateUpgrader(context.Background(), resource.UpgradeStateRequest{State: &prior}, &resp)

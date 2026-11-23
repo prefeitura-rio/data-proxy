@@ -1,7 +1,7 @@
 import * as v from 'valibot';
 import { error, fail } from '@sveltejs/kit';
 import { text } from '#lib/forms.js';
-import { containsFilter, pageOf, rangeQuery } from '#lib/list.js';
+import { containsFilter, parsePage, rangeQuery } from '#lib/list.js';
 import { parseUnits } from '#lib/policy.js';
 import { can } from '#lib/permissions.js';
 import { writeMessage } from '#lib/messages.js';
@@ -46,16 +46,16 @@ export const load: PageServerLoad = async ({ locals, parent, url }) => {
 			scope: null,
 			policy: [],
 			policyTotal: 0,
-			policyPage: pageOf(url.searchParams, PAGE),
+			policyPage: parsePage(url.searchParams, PAGE),
 			log: [],
 			logTotal: 0,
-			logPage: pageOf(url.searchParams, LOG_PAGE, 'log_page'),
+			logPage: parsePage(url.searchParams, LOG_PAGE, 'log_page'),
 			can: { create: false, edit: false, delete: false }
 		};
 	}
 
-	const policyPage = pageOf(url.searchParams, PAGE);
-	const logPage = pageOf(url.searchParams, LOG_PAGE, 'log_page');
+	const policyPage = parsePage(url.searchParams, PAGE);
+	const logPage = parsePage(url.searchParams, LOG_PAGE, 'log_page');
 	const action = url.searchParams.get('action') ?? '';
 	const actionFilter = ACTIONS.includes(action) ? `&action=eq.${action}` : '';
 	const scopeFilter = `&scope=eq.${encodeURIComponent(toPath(scope))}`;

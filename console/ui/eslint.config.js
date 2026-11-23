@@ -10,7 +10,6 @@ export default defineConfig(
 		languageOptions: { parserOptions: { parser: ts.parser } },
 		rules: {
 			'svelte/button-has-type': 'error',
-			'svelte/max-lines-per-block': ['error', { script: 80, template: 150 }],
 			'svelte/require-each-key': 'error'
 		}
 	}

@@ -3,7 +3,7 @@ import { error, fail } from '@sveltejs/kit';
 import { text } from '#lib/forms.js';
 import { can } from '#lib/permissions.js';
 import { api, need } from '#lib/server/api.js';
-import { containsFilter, pageOf, rangeQuery } from '#lib/list.js';
+import { containsFilter, parsePage, rangeQuery } from '#lib/list.js';
 import { startRunMessage, writeMessage } from '#lib/messages.js';
 import { runFilters } from '#lib/runs.js';
 import { ErrorRow, Overview, Queue, Run, Schedule } from '#lib/types.js';
@@ -21,8 +21,8 @@ export const load: PageServerLoad = async ({ locals, parent, url, depends }) => 
 	}
 
 	const client = api(locals.session);
-	const page = pageOf(url.searchParams, PAGE);
-	const errorsPage = pageOf(url.searchParams, ERRORS_PAGE, 'errors_page');
+	const page = parsePage(url.searchParams, PAGE);
+	const errorsPage = parsePage(url.searchParams, ERRORS_PAGE, 'errors_page');
 	const [overview, runs, queues, schedules, errors] = await Promise.all([
 		client.get('/overview?order=name', v.array(Overview)),
 		client.page(`/runs?order=created_at.desc&${rangeQuery(page)}${runFilters(url.searchParams)}`, v.array(Run)),

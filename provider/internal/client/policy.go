@@ -35,8 +35,8 @@ func scopePath(scope string) string {
 	return scope
 }
 
-// scopeOf turns a stored path into the scope of a grant: the empty path is the scope *.
-func scopeOf(path string) string {
+// decodeScope turns a stored path into the scope of a grant: the empty path is the scope *.
+func decodeScope(path string) string {
 	if path == "" {
 		return everyScope
 	}
@@ -79,7 +79,7 @@ func (c *Client) ListGrants(ctx context.Context, grant Grant) ([]Grant, error) {
 	}
 
 	for i := range rows {
-		rows[i].Scope = scopeOf(rows[i].Scope)
+		rows[i].Scope = decodeScope(rows[i].Scope)
 	}
 
 	return rows, nil

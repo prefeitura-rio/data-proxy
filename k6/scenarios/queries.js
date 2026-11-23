@@ -10,7 +10,7 @@ import {
     fetchToken,
     FULL_TABLE,
     proxyGet,
-    rowsOf,
+    readRows,
     safeJson,
     scenario,
     snapshotHeader,
@@ -57,7 +57,7 @@ function jsonb() {
 function filterPushdown(token, k8s) {
     clearProxyCache(k8s);
     const baseline = directPostgrest(`/${FULL_TABLE}?select=id&order=id.asc&limit=3`, token);
-    const baselineRows = rowsOf(baseline);
+    const baselineRows = readRows(baseline);
     const snapshot = snapshotHeader(baseline);
 
     /** @type {Record<string, string>} */
@@ -127,8 +127,8 @@ function filterPushdown(token, k8s) {
             expect(`${name}: proxy ${header} matches direct`, proxy.headers[header] === direct.headers[header]);
         });
         if (sameHeaders.length > 0) expect(`${name}: proxy status matches direct`, proxy.status === direct.status);
-        const directRows = rowsOf(direct);
-        const proxyRows = rowsOf(proxy);
+        const directRows = readRows(direct);
+        const proxyRows = readRows(proxy);
         const rowsMatch = stable(proxyRows) === stable(directRows);
 
         if (!rowsMatch) {

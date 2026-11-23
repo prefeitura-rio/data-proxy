@@ -12,9 +12,9 @@ import (
 // MaxBody is the longest successful response that the client reads.
 const MaxBody = maxBody
 
-// KindOf is kindOf, for the tests.
-func KindOf(status int, code string) error {
-	return kindOf(status, code)
+// ClassifyError is classifyError, for the tests.
+func ClassifyError(status int, code string) error {
+	return classifyError(status, code)
 }
 
 // ParseError is parseError, for the tests.

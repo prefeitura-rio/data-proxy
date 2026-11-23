@@ -3,11 +3,11 @@ import {
     consoleCall,
     FAILING_TABLE,
     FULL_TABLE,
-    memberOf,
+    readRecord,
     MULTI_RLS_TABLE,
     PARTITIONED_SOURCE,
     PARTITIONED_TABLE,
-    recordsOf,
+    filterRecords,
     safeJson,
     scenario,
     SCHEMA,
@@ -28,13 +28,13 @@ export function contract() {
         body: String(response.body).slice(0, 300),
     });
 
-    const schema = memberOf(memberOf(safeJson(response), "schemas"), SCHEMA);
-    const tables = recordsOf(schema.tables);
+    const schema = readRecord(readRecord(safeJson(response), "schemas"), SCHEMA);
+    const tables = filterRecords(schema.tables);
     const table = /** @param {string} name */ (name) => tables.find((item) => String(item.name).endsWith(`.${name}`));
     const partitioned = tables.find((item) => item.name === PARTITIONED_SOURCE);
 
     requirePrecondition("the sync fixture claims by preferred_username", schema.claim === "preferred_username", {});
-    requirePrecondition("the sync fixture declares a source type", memberOf(schema, "source").type !== undefined, {});
+    requirePrecondition("the sync fixture declares a source type", readRecord(schema, "source").type !== undefined, {});
 
     for (const name of [FULL_TABLE, SNAPSHOT_TABLE, MULTI_RLS_TABLE, PARTITIONED_TABLE, BIG_TABLE, FAILING_TABLE]) {
         requirePrecondition(`the sync fixture defines ${name}`, table(name) !== undefined, {});

@@ -14,7 +14,7 @@ const CODE = /(<marimo-code hidden="">)([^<]*)(<\/marimo-code>)/;
 /** marimo writes a blank pair of lines between two top-level blocks. */
 const SEPARATOR = '\n\n\n';
 
-export const tablesOf = (url: URL): string[] =>
+export const parseTableNames = (url: URL): string[] =>
 	[...new Set(url.searchParams.getAll('tables'))].filter((name) => NAME.test(name));
 
 /**
@@ -66,7 +66,7 @@ export async function servePage(
 		return;
 	}
 
-	const body = withTables(html, tablesOf(url));
+	const body = withTables(html, parseTableNames(url));
 
 	response.writeHead(200, { 'Content-Type': 'text/html', 'Content-Length': Buffer.byteLength(body), ...headers });
 	response.end(request.method === 'HEAD' ? undefined : body);

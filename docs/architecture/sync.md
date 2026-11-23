@@ -2,6 +2,10 @@
 
 The sync layer copies the tables of the source into DuckLake. It also keeps the PostgreSQL views, the cache and the proxy settings in step with the data. The layer is a set of DBOS workflows. [Sync](../sync.md) describes its configuration.
 
+DBOS and PostgreSQL own workflow progress and orchestration state. Redis remains a cache. Workflow decisions stay deterministic during replay, and DBOS steps contain external I/O. Recovery uses DBOS checkpoints rather than a parallel progress tracker.
+
+The source adapter owns access to its backend. Shared workflow code coordinates adapter contracts instead of issuing backend-specific queries. Each concurrent DuckDB task owns its connection and resource limits. See [DuckDB memory and spill](../operations/duckdb.md) for the connection and row-group budgets.
+
 ## Workflows
 
 Each row of the table names one workflow or step, its work and its result.
@@ -21,6 +25,8 @@ A run without a data change still reconciles the views of its scope. Each view s
 Seed and publish run concurrently. When a view is added or removed, the workflow tells PostgREST to reload its schema after every publisher finishes. The database first waits until every standby replayed the change. A new snapshot alone reloads nothing.
 
 ## Run log
+
+The shared `sync.log` module configures worker logging and preserves workflow, schema and table context. The `LOG_LEVEL` setting controls severity.
 
 Each workflow writes its log lines to a DBOS stream, and the console shows the lines of every workflow of a run in one list. A line carries the schema and the table of its workflow, so the console filters by table.
 
