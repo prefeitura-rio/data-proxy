@@ -1,4 +1,4 @@
-FROM docker.io/pgduckdb/pgduckdb:18-main@sha256:2571e91fc307fc2e15b7dec44f25e05dd6c9f62bd78da19825a12dc544c1f84e
+FROM docker.io/pgduckdb/pgduckdb:18-main@sha256:d81c6250eca8fe8d0495d0e7886cbd72741425097a9aa01e3e8fa3de4cb7ec6c
 
 USER root
 

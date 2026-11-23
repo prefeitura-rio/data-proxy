@@ -1,9 +1,9 @@
-FROM mcr.microsoft.com/playwright/python:v1.61.0-noble@sha256:a9731514f24121d1dcd25d58d0a38146646d290a5998fd80d3e533e7b5e21c69 AS notebooks
+FROM mcr.microsoft.com/playwright/python:v1.65.2-noble@sha256:38dd67fc654b56b3cba611e4c8eb71cd33750e1cd29eea2a5dc00b484817a75f AS notebooks
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-COPY --from=docker.io/node:24.22.0-bookworm-slim@sha256:91acba91b842bec0bf7ea6f5e09c644c7ccad72c4996ed9616d861d1c7cd60d4 /usr/local /usr/local
-COPY --from=ghcr.io/astral-sh/uv:0.9.30@sha256:538e0b39736e7feae937a65983e49d2ab75e1559d35041f9878b7b7e51de91e4 /uv /usr/local/bin/uv
+COPY --from=docker.io/node:24.22.3-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 /usr/local /usr/local
+COPY --from=ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d /uv /usr/local/bin/uv
 
 RUN curl -fsSL -o /tmp/nu.tar.gz https://github.com/nushell/nushell/releases/download/0.116.0/nu-0.116.0-x86_64-unknown-linux-gnu.tar.gz \
     && echo "9f73a6913f9515a621bd916dc91d7f3e0494e488161c2d686f6b98ffa0555945  /tmp/nu.tar.gz" | sha256sum --check - \
@@ -20,7 +20,7 @@ COPY console/notebooks/ ./
 
 RUN nu build.nu notebooks/query.py site
 
-FROM docker.io/node:24.22.0-alpine3.23@sha256:e44c87c7dd212720eb00469aeac89504ca2be77b8f0d6dbffb30665d5fcc59e1 AS build
+FROM docker.io/node:24.22.3-alpine3.23@sha256:3946fb783fdce8a2812136ea694bc95c698c4f4096f3fd18568dc27a8ac389dc AS build
 
 RUN npm install --global pnpm@11.25.0
 
@@ -34,7 +34,7 @@ COPY console/ui/ ./
 RUN OIDC_ISSUER=build OIDC_CLIENT_ID=build OIDC_CLIENT_SECRET=build COOKIE_SECRET=build \
     POSTGREST_URL=http://build ORIGIN=http://build pnpm build
 
-FROM docker.io/node:24.22.0-alpine3.23@sha256:e44c87c7dd212720eb00469aeac89504ca2be77b8f0d6dbffb30665d5fcc59e1
+FROM docker.io/node:24.22.3-alpine3.23@sha256:3946fb783fdce8a2812136ea694bc95c698c4f4096f3fd18568dc27a8ac389dc
 
 RUN npm install --global pnpm@11.25.0
 

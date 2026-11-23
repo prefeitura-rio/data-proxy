@@ -23,7 +23,7 @@ releases:
   - name: cnpg
     namespace: cnpg-system
     chart: cnpg/cloudnative-pg
-    version: 0.29.1
+    version: 0.29.2
 
   - name: manifests
     namespace: data-proxy
@@ -44,7 +44,7 @@ releases:
   - name: valkey
     namespace: data-proxy
     chart: oci://registry-1.docker.io/cloudpirates/valkey
-    version: 0.17.0
+    version: 0.26.1
     needs:
       - data-proxy/manifests
     values:
@@ -53,29 +53,29 @@ releases:
   - name: keda
     namespace: keda
     chart: keda/keda
-    version: 2.18.3
+    version: 2.21.1
 
   - name: k6-operator
     namespace: k6-operator-system
     chart: grafana/k6-operator
-    version: 4.6.0
+    version: 4.7.0
 
   - name: istio-base
     namespace: istio-system
     chart: istio/base
-    version: 1.27.1
+    version: 1.30.8
 
   - name: istiod
     namespace: istio-system
     chart: istio/istiod
-    version: 1.27.1
+    version: 1.30.8
     needs:
         - istio-system/istio-base
 
   - name: istio-ingressgateway
     namespace: istio-ingress
     chart: istio/gateway
-    version: 1.27.1
+    version: 1.30.8
     needs:
       - istio-system/istio-base
       - istio-system/istiod
@@ -103,7 +103,7 @@ releases:
   - name: keycloak
     namespace: keycloak
     chart: cloudpirates/keycloak
-    version: 0.21.41
+    version: 0.22.4
     values:
       - values/keycloak.yaml
 

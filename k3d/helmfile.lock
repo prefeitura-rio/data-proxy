@@ -1,25 +1,25 @@
-version: v1.8.0
+version: 1.8.0
 dependencies:
   - name: base
     repository: https://istio-release.storage.googleapis.com/charts
-    version: 1.27.1
+    version: 1.30.8
   - name: cloudnative-pg
     repository: https://cloudnative-pg.io/charts/
-    version: 0.29.1
+    version: 0.29.2
   - name: gateway
     repository: https://istio-release.storage.googleapis.com/charts
-    version: 1.27.1
+    version: 1.30.8
   - name: istiod
     repository: https://istio-release.storage.googleapis.com/charts
-    version: 1.27.1
+    version: 1.30.8
   - name: k6-operator
     repository: https://grafana.github.io/helm-charts
-    version: 4.6.0
+    version: 4.7.0
   - name: keda
     repository: https://kedacore.github.io/charts
-    version: 2.18.3
+    version: 2.21.1
   - name: keycloak
     repository: https://cloudpirates-io.github.io/helm-charts/
-    version: 0.21.41
-digest: sha256:6f51caa585bcb70279cb7cfdf7e2cc3ca4d8d26c7012dc2a3988b245fe874d12
-generated: "2026-11-16T20:04:55.460127148-03:00"
+    version: 0.22.4
+digest: sha256:a4affa9c6ab51987a5e9fc8ddb6b94aa6c95a34c24be9e18b948923b7d1ecb76
+generated: "2026-11-23T06:13:20.298022688Z"
