@@ -32,6 +32,22 @@ const BURST_REQUESTS = 5;
  */
 function verifyProxyCache(token, otherToken) {
     const path = `/${FULL_TABLE}?select=id&limit=4`;
+    const settled = `/${FULL_TABLE}?select=id&limit=1`;
+
+    requirePrecondition(
+        "the revision of the access policy is stable before the cache check",
+        waitUntil(
+            30,
+            () => {
+                proxyGet(settled, token);
+
+                return cacheHeader(proxyGet(settled, token)) === "HIT";
+            },
+            "the proxy to settle on one revision",
+        ),
+        {},
+    );
+
     const first = proxyGet(path, token);
 
     requirePrecondition("the first answer is a cache miss", cacheHeader(first) === "MISS", {
