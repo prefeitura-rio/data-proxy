@@ -134,7 +134,8 @@
 
 --- Values for answering `Prefer: count=exact` with a count in DuckDB and a page of rows.
 ---@class CountConstants
----@field prefer string The only Prefer value that the proxy answers with a count in DuckDB.
+---@field prefers string[] The Prefer values that the proxy answers with an exact count in DuckDB.
+---@field exact string The Prefer value that PostgREST gets for a planned or estimated count that the proxy cannot do.
 ---@field alias string The name of the count in the answer of the aggregate function.
 ---@field item FilterAggregateItem The aggregate that counts the rows.
 

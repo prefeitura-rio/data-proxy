@@ -74,6 +74,20 @@ function request.read_filter(input)
 	return parser.parse(input.args or "", { limit = can_limit(input) })
 end
 
+--- Ask PostgREST for the exact count where the client asked for a planned or an estimated one.
+--- PostgREST reads its guess from the plan, and the plan of a table function always says 1000 rows.
+---
+--- ```lua
+--- request.exact_count("tx=commit, count=estimated") --> "tx=commit, count=exact"
+--- ```
+---@param prefer string|nil The `Prefer` header.
+---@return string|nil prefer The header with every planned or estimated count replaced.
+local function exact_count(prefer)
+	if prefer == nil then return nil end
+	local exact = constants.count.exact
+	return (prefer:gsub("count=planned", exact):gsub("count=estimated", exact))
+end
+
 --- Make the request headers to send to PostgREST: the allowlisted ones, and the filter header for a read.
 --- The function returns a new table and does not change the input.
 ---@param input NgxRequest
@@ -87,6 +101,9 @@ function request.make_headers(input, filter)
 	if filter_json then names:append(constants.headers.filter) end
 	return tablex.pairmap(function(_, name)
 		if name == constants.headers.filter then return filter_json, name end
+		if name == "Prefer" and constants.http.read_methods[input.method] then
+			return exact_count(input.headers_in.Prefer), name
+		end
 		return input.headers_in[name], name
 	end, names)
 end
@@ -128,12 +145,26 @@ function request.aggregate_path(input, filter)
 	return aggregate_function_path(input.uri)
 end
 
+--- Read the count mode of a preference that holds only a count: `count=exact`, `count=planned` or `count=estimated`.
+---
+--- ```lua
+--- request.count_preference(" count=planned ") --> "count=planned"
+--- request.count_preference("count=exact, return=minimal") --> nil
+--- ```
+---@param prefer string|nil The `Prefer` header.
+---@return string|nil mode nil if the header holds anything else than one of the count modes.
+function request.count_preference(prefer)
+	local value = stringx.strip(prefer or "")
+	if List(constants.count.prefers):contains(value) then return value end
+	return nil
+end
+
 --- The conditions of a read that the proxy answers with a count in DuckDB. All of them must hold.
 ---@type (fun(input: NgxRequest): boolean)[]
 local count_rules = {
 	function(input) return input.method == "GET" end,
 	function(input) return input.headers_in.Range == nil end,
-	function(input) return stringx.strip(input.headers_in.Prefer or "") == constants.count.prefer end,
+	function(input) return request.count_preference(input.headers_in.Prefer) ~= nil end,
 	function(input) return not (input.headers_in.Accept or ""):find("vnd.pgrst", 1, true) end,
 	function(input) return request.normalize_accept(input.headers_in.Accept) == constants.http.default_media_type end,
 }
@@ -147,7 +178,7 @@ local function count_page(input)
 	return page
 end
 
---- Plan the answer of a read with `Prefer: count=exact`: a count in DuckDB and a page that the proxy pins to the
+--- Plan the answer of a read with `Prefer: count=exact`, `count=planned` or `count=estimated`: a count in DuckDB and a page that the proxy pins to the
 --- snapshot of the count, so PostgREST does not read every row to count it.
 --- The plan exists only for a plain GET of a table as JSON, with a `limit`, no `Range`, and no other preference.
 ---
@@ -168,7 +199,12 @@ function request.count_plan(input)
 	local count = { where = page.where, aggregate = { items = { constants.count.item } } }
 	local count_headers = tablex.copy(page_headers)
 	count_headers[constants.headers.filter] = cjson.encode(count)
-	return { path = path, count_headers = count_headers, page_headers = page_headers }
+	return {
+		path = path,
+		count_headers = count_headers,
+		page_headers = page_headers,
+		applied = request.count_preference(input.headers_in.Prefer),
+	}
 end
 
 --- Tell whether a request asks for an internal profile, which only the cluster may use.

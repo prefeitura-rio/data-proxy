@@ -147,8 +147,9 @@ end
 --- preference that the proxy applied. The status is 206 unless the page holds every row, as PostgREST does.
 ---@param page Response The answer of PostgREST to the page.
 ---@param total integer The number of rows in DuckDB.
+---@param applied string The count mode that the client asked for.
 ---@return Response|nil answer nil if the page is empty or does not match the total.
-local function add_total(page, total)
+local function add_total(page, total, applied)
 	local range = page.headers["Content-Range"] or ""
 	local first, last = range:match("^(%d+)%-(%d+)/%*$")
 	first, last = tonumber(first), tonumber(last)
@@ -156,7 +157,7 @@ local function add_total(page, total)
 
 	local headers = tablex.copy(page.headers)
 	headers["Content-Range"] = ("%d-%d/%d"):format(first, last, total)
-	headers["Preference-Applied"] = constants.count.prefer
+	headers["Preference-Applied"] = applied
 	local complete = first == 0 and last == total - 1
 	return {
 		status = complete and constants.http.ok_status or constants.http.partial_status,
@@ -200,7 +201,7 @@ local function answer_count(context, sender, sleeper)
 
 	local response, response_error = send_with_retries(page, sender, sleeper)
 	if response == nil or response.status ~= constants.http.ok_status then return response, response_error end
-	return add_total(response, total)
+	return add_total(response, total, context.count.applied)
 end
 
 --- Send the request to PostgREST, and send a read again while the answer is retryable.

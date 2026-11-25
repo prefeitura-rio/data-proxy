@@ -2,6 +2,7 @@
 
 local helpers = require("tests.unit.helpers")
 local postgrest = require("proxy.postgrest")
+local tablex = require("pl.tablex")
 
 local check = helpers.check(describe, it)
 
@@ -155,6 +156,7 @@ describe("postgrest.query with a count", function()
 			path = "/rpc/people_agg",
 			count_headers = { ["X-DuckLake-Filter"] = "count" },
 			page_headers = { ["X-DuckLake-Filter"] = "page" },
+			applied = "count=exact",
 		},
 	}
 
@@ -203,6 +205,19 @@ describe("postgrest.query with a count", function()
 		assert.same("count=exact", response.headers["Preference-Applied"])
 		assert.same("ducklake", response.headers["X-Source"])
 		assert.same("[1]", response.body)
+	end)
+
+	it("reports the count mode that the client asked for in Preference-Applied", function()
+		local planned = tablex.copy(counted)
+		planned.headers = { Prefer = "count=planned" }
+		planned.count = tablex.copy(counted.count)
+		planned.count.applied = "count=planned"
+		local sender = recording({ total, page("40-59/*") })
+
+		local response = assert(postgrest.query(planned, sender, no_sleep))
+
+		assert.same("40-59/1281450", response.headers["Content-Range"])
+		assert.same("count=planned", response.headers["Preference-Applied"])
 	end)
 
 	it("gives 200 for a page that holds every row", function()

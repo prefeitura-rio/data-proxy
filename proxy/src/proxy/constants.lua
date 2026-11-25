@@ -153,7 +153,10 @@ return {
 		empty_body = "null", -- The answer of the function for a request that the table function must serve.
 	},
 	count = {
-		prefer = "count=exact", -- The only Prefer value that the proxy answers with a count in DuckDB.
+		-- The Prefer values that the proxy answers with an exact count in DuckDB. PostgreSQL has no statistics for a
+		-- table behind a function, so planned and estimated give a fixed guess there (1000 rows), and the proxy counts.
+		prefers = { "count=exact", "count=planned", "count=estimated" },
+		exact = "count=exact", -- What a count that the proxy cannot do itself asks of PostgREST.
 		alias = "total",
 		item = { fn = "count", alias = "total" },
 	},

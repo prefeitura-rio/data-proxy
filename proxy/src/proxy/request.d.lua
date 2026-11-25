@@ -37,6 +37,7 @@
 ---@field path string Path of the aggregate function of the table.
 ---@field count_headers HeaderMap The headers of the count: the filter of the page, with the count as the aggregate.
 ---@field page_headers HeaderMap The headers of the page: the filter with the limit, and no `Prefer`.
+---@field applied string The count mode that the client asked for, to report it in `Preference-Applied`.
 
 --- The claims of a JWT that the proxy reads. Other claims are ignored.
 ---@class JwtClaims

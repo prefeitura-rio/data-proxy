@@ -82,7 +82,7 @@ check("request.make_headers", function(case) return request.make_headers(case.in
 	{
 		name = "does not push the limit when the Prefer header lists a count among other preferences",
 		input = { method = "GET", args = "limit=5", headers_in = { Prefer = "tx=commit, count=estimated" } },
-		expected = { Prefer = "tx=commit, count=estimated" },
+		expected = { Prefer = "tx=commit, count=exact" },
 	},
 	{
 		name = "does not push the limit for a range request",
@@ -99,6 +99,27 @@ check("request.make_headers", function(case) return request.make_headers(case.in
 		expected = { Accept = "application/vnd.pgrst.object+json" },
 	},
 	{ name = "accepts a missing query string", input = { method = "GET", headers_in = {} }, expected = {} },
+	{
+		name = "asks PostgREST for the exact count when the client asked for a planned one",
+		input = { method = "GET", args = "id=gt.1", headers_in = { Prefer = "count=planned" } },
+		expected = {
+			Prefer = "count=exact",
+			["X-DuckLake-Filter"] = cjson.encode(parser.parse("id=gt.1")),
+		},
+	},
+	{
+		name = "keeps the other preferences when it replaces an estimated count",
+		input = { method = "GET", args = "id=gt.1", headers_in = { Prefer = "tx=commit, count=estimated" } },
+		expected = {
+			Prefer = "tx=commit, count=exact",
+			["X-DuckLake-Filter"] = cjson.encode(parser.parse("id=gt.1")),
+		},
+	},
+	{
+		name = "leaves the preference of a write as it is",
+		input = { method = "POST", args = "", headers_in = { Prefer = "count=planned" } },
+		expected = { Prefer = "count=planned" },
+	},
 })
 
 check("request.make_headers with an aggregate", function(case) return request.make_headers(case.input) end, {
@@ -232,8 +253,18 @@ check(
 			expected = false,
 		},
 		{
-			name = "keeps another count mode",
+			name = "plans the planned count, which a function-backed view cannot estimate",
 			input = count_input("limit=20", { Prefer = "count=planned" }),
+			expected = true,
+		},
+		{
+			name = "plans the estimated count, which a function-backed view cannot estimate",
+			input = count_input("limit=20", { Prefer = "count=estimated" }),
+			expected = true,
+		},
+		{
+			name = "keeps a count mode that PostgREST does not know",
+			input = count_input("limit=20", { Prefer = "count=guessed" }),
 			expected = false,
 		},
 		{
@@ -270,6 +301,17 @@ check(
 		},
 	}
 )
+
+describe("request.count_plan modes", function()
+	it("keeps the mode that the client asked for, to report it in Preference-Applied", function()
+		assert.same("count=exact", request.count_plan(count_input("limit=20", { Prefer = "count=exact" })).applied)
+		assert.same("count=planned", request.count_plan(count_input("limit=20", { Prefer = "count=planned" })).applied)
+		assert.same(
+			"count=estimated",
+			request.count_plan(count_input("limit=20", { Prefer = " count=estimated " })).applied
+		)
+	end)
+end)
 
 describe("request.count_plan", function()
 	local plan = assert(request.count_plan(count_input("id=gt.5&order=id.desc&limit=20&offset=40&select=id,name")))
