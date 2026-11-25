@@ -240,8 +240,11 @@ export function readableSnapshots(token) {
         throw new Error(`Could not read the latest DuckLake snapshot: ${latest.body}`);
     }
 
+    // A cluster that is younger than an age has no such snapshot, and the probe of it would be a request that must fail.
     return [0, 1, 5, 20, 50]
-        .map((age) => String(current - age))
+        .map((age) => current - age)
+        .filter((snapshot) => snapshot >= 0)
+        .map(String)
         .filter((snapshot) => {
             const response = setupGet(`${POSTGREST_URL}/big_table?select=id&limit=1`, {
                 headers: { ...headers, "X-DuckLake-Snapshot": snapshot },
