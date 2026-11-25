@@ -18,7 +18,7 @@ from .constants import DEFAULT_SOURCE
 from .sources.partitions import PhysicalPartition, TaskSelection
 from .sources.registry import sources
 from .types import NonEmptyString
-from .utils import changes_function_name, destination_name, sha256_hex
+from .utils import destination_name, sha256_hex
 
 
 class Strategy(StrEnum):
@@ -329,22 +329,6 @@ class SyncConfig(BaseModel):
         )
         if len(duplicates) > 0:
             raise ValueError(f"Duplicate destination table names: {duplicates}")
-        return self
-
-    @model_validator(mode="after")
-    def reject_equal_change_feed_names(self) -> Self:
-        """Require each table of a schema to have its own change-feed function.
-
-        PostgreSQL cuts a function name at 63 bytes, so two long table names can end in one name.
-        """
-        owners: dict[tuple[str, str], str] = {}
-        for table in self.tables:
-            function = changes_function_name(table.table_name)
-            owner = owners.setdefault((table.resolved_schema, function), table.name)
-            if owner != table.name:
-                raise ValueError(
-                    f"The tables {owner} and {table.name} get the change-feed function {function}"
-                )
         return self
 
     @model_validator(mode="after")

@@ -678,3 +678,95 @@ class TestMigrationFiles:
         assert "TO dp_api" not in sql
         assert 'TO "dp_api"' in sql
         assert 'TO "anon"' in sql
+
+
+OLD_FUNCTIONS = (
+    "CREATE FUNCTION default__sales.dl_latest_snapshot() RETURNS bigint LANGUAGE sql AS 'SELECT 1'",
+    "CREATE FUNCTION default__sales.dl_table_files(text) RETURNS int LANGUAGE sql AS 'SELECT 1'",
+    "CREATE FUNCTION default__sales.dl_chg(text, bigint, bigint) RETURNS int LANGUAGE sql AS 'SELECT 1'",
+    "CREATE FUNCTION default__sales.dl_chg(text) RETURNS int LANGUAGE sql AS 'SELECT 1'",
+    "CREATE FUNCTION default__other.dl_chg(text, bigint, bigint) RETURNS int LANGUAGE sql AS 'SELECT 1'",
+)
+WHICH_FUNCTIONS = (
+    "SELECT string_agg(n.nspname || '.' || p.proname || '/' || p.pronargs, ' ' ORDER BY n.nspname, p.proname, p.pronargs) "
+    "FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid "
+    "WHERE n.nspname IN ('default__sales', 'default__other') AND p.proname LIKE 'dl\\_%'"
+)
+WHOLE_GRANTEES = "SELECT has_function_privilege('dp_api', 'rbac.whole(text)', 'EXECUTE'), to_regprocedure('rbac.all_rows(text)') IS NULL"
+
+
+@pytest.mark.postgres
+@pytest.mark.skipif(GOOSE is None, reason="goose is not installed")
+class TestRenameFunctionsMigration:
+    """Migration 25 drops the old names of the data schemas and renames the rbac function, over a database at version 24."""
+
+    @pytest.fixture
+    async def at_24(self, scratch_databases: tuple[str, str]) -> str:
+        """Bring the database to version 24, with the old functions in one console schema, a look-alike in another, and a grant on rbac.all_rows."""
+        app, _ = scratch_databases
+        assert (await goose("console", app, "up-to", "24")).returncode == 0
+        async with await AsyncConnection.connect(scratch_url(app)) as connection:
+            await connection.execute(
+                b"INSERT INTO console.schemas (name) VALUES ('default__sales')"
+            )
+            await connection.execute(b"CREATE SCHEMA IF NOT EXISTS default__sales")
+            await connection.execute(b"CREATE SCHEMA IF NOT EXISTS default__other")
+            await connection.execute(
+                b"GRANT EXECUTE ON FUNCTION rbac.all_rows(text) TO dp_api"
+            )
+            for statement in OLD_FUNCTIONS:
+                await connection.execute(statement.encode())
+            await connection.commit()
+        return app
+
+    async def read(self, app: str, sql: str) -> tuple[object, ...]:
+        """Run one query on the scratch database and return its row."""
+        async with await AsyncConnection.connect(scratch_url(app)) as connection:
+            row = await (await connection.execute(sql.encode())).fetchone()
+        assert row is not None
+        return row
+
+    async def test_up_drops_the_three_old_functions_and_keeps_the_others(
+        self, at_24: str
+    ) -> None:
+        """Only the three names with their arguments in a console schema go. A function with the same name and other arguments, or in another schema, stays."""
+        assert (await goose("console", at_24, "up")).returncode == 0
+
+        assert await self.read(at_24, WHICH_FUNCTIONS) == (
+            "default__other.dl_chg/3 default__sales.dl_chg/1",
+        )
+
+    async def test_up_renames_the_rbac_function_and_keeps_its_grant(
+        self, at_24: str
+    ) -> None:
+        """The request role runs rbac.whole, and rbac.all_rows is gone."""
+        await goose("console", at_24, "up")
+
+        assert await self.read(at_24, WHOLE_GRANTEES) == (True, True)
+
+    async def test_up_points_the_console_function_at_the_new_name(
+        self, at_24: str
+    ) -> None:
+        """console.table_files calls files and no longer dl_table_files."""
+        await goose("console", at_24, "up")
+
+        (definition,) = await self.read(
+            at_24,
+            "SELECT pg_get_functiondef('console.table_files(text, text)'::regprocedure)",
+        )
+
+        assert ".files($1)" in str(definition)
+        assert "dl_table_files" not in str(definition)
+
+    async def test_down_then_up_restores_the_old_name_and_applies_again(
+        self, at_24: str
+    ) -> None:
+        """The Down part brings back rbac.all_rows and the old call, and the Up part works once more."""
+        await goose("console", at_24, "up")
+
+        assert (await goose("console", at_24, "down")).returncode == 0
+        assert await self.read(
+            at_24, "SELECT to_regprocedure('rbac.all_rows(text)') IS NOT NULL"
+        ) == (True,)
+        assert (await goose("console", at_24, "up")).returncode == 0
+        assert await self.read(at_24, WHOLE_GRANTEES) == (True, True)

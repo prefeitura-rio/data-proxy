@@ -127,9 +127,8 @@
 
 --- Values for calling the aggregate function that runs a group by in DuckDB.
 ---@class AggregateConstants
----@field rpc_prefix string Path of the PostgREST functions.
----@field function_suffix string Added to the table name to make the name of the function.
----@field max_function_bytes integer The longest name of a PostgreSQL function.
+---@field path string Path of the function of the schema that runs the aggregate of any table.
+---@field table_argument string Name of the argument of the function that holds the name of the table.
 ---@field empty_body string The body that tells the proxy to send the original request.
 
 --- Values for answering `Prefer: count=exact` with a count in DuckDB and a page of rows.

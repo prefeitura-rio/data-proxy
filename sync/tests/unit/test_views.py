@@ -1,11 +1,12 @@
+import json
 import re
 from collections.abc import Callable
 from typing import Final
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from psycopg.sql import Identifier
-from pydantic import ValidationError
+from psycopg.sql import Composable, Literal
+from pydantic import TypeAdapter, ValidationError
 
 import sync.views.mappings as utils
 import sync.views.reconcile as views_module
@@ -39,6 +40,45 @@ def render_macro(name: str, *arguments: object) -> str:
 
 class TestSourceMappings:
     """Source adapter and table function mapping behavior."""
+
+    @pytest.mark.parametrize(
+        ("duckdb_type", "exact", "ordered"),
+        [
+            pytest.param("BIGINT", True, True, id="bigint"),
+            pytest.param("INTEGER", True, True, id="integer"),
+            pytest.param(
+                "HUGEINT", False, True, id="hugeint-overflows-where-numeric-does-not"
+            ),
+            pytest.param("DECIMAL(18,2)", True, True, id="decimal"),
+            pytest.param(
+                "DECIMAL(38,0)", False, True, id="wide-decimal-overflows-in-a-sum"
+            ),
+            pytest.param("DOUBLE", False, True, id="double-differs-in-the-last-digits"),
+            pytest.param("FLOAT", False, True, id="float-differs-in-the-last-digits"),
+            pytest.param("DATE", False, True, id="date-has-an-order-and-no-sum"),
+            pytest.param(
+                "TIMESTAMP", False, True, id="timestamp-has-an-order-and-no-sum"
+            ),
+            pytest.param(
+                "TIMESTAMPTZ",
+                False,
+                False,
+                id="timestamptz-offset-is-written-differently",
+            ),
+            pytest.param("TIMESTAMP_NS", False, False, id="nanoseconds-are-text"),
+            pytest.param("VARCHAR", False, False, id="text-sorts-by-collation"),
+            pytest.param("BOOLEAN", False, False, id="boolean-has-no-order-here"),
+            pytest.param("STRUCT(id BIGINT)", False, False, id="json"),
+        ],
+    )
+    def test_marks_the_types_that_sum_average_min_and_max_may_run_in_duckdb(
+        self, duckdb_type: str, exact: bool, ordered: bool
+    ) -> None:
+        """Sum and average run only on a type where DuckDB gives the number that PostgreSQL gives. Min and max also run on a date and a timestamp."""
+        column = utils.function_columns([("c", duckdb_type)], raw_json=True)[0]
+
+        assert column["exact_numeric"] is exact
+        assert column["ordered"] is ordered
 
     def test_marks_nested_columns_as_json(self) -> None:
         """The table function returns nested columns as text, and the boundary view converts them to jsonb."""
@@ -151,23 +191,6 @@ class TestSourceMappings:
 
         assert columns[0]["sortable"] is sortable
 
-    @pytest.mark.parametrize(
-        ("table_name", "expected"),
-        [
-            pytest.param("people", "people_dl_chg", id="short-name"),
-            pytest.param("t" * 56, "t" * 56 + "_dl_chg", id="exactly-63-bytes-is-kept"),
-            pytest.param(
-                "t" * 60, ("t" * 60 + "_dl_chg")[:63], id="longer-name-is-cut"
-            ),
-        ],
-    )
-    def test_cuts_the_change_feed_name_where_postgresql_cuts_it(
-        self, table_name: str, expected: str
-    ) -> None:
-        """PostgreSQL stores an identifier of at most 63 bytes, so the reconcile must look for that name."""
-        assert utils.changes_function_name(table_name) == expected
-        assert len(expected.encode()) <= 63
-
     def test_desires_one_view_per_table(self) -> None:
         """Serve every table through one view, with or without fallback."""
         config = SyncConfig(
@@ -236,8 +259,13 @@ class TestSourceMappings:
             f["name"] for f in fallbacks_value if isinstance(f, dict)
         ] == fallback_names
         rls_value = mapping["rls_mappings"]
-        assert isinstance(rls_value, list)
-        assert [m["column"] for m in rls_value if isinstance(m, dict)] == rls_columns
+        assert isinstance(rls_value, Literal)
+        assert [
+            entry["col"]
+            for entry in TypeAdapter(list[dict[str, str | int | None]]).validate_json(
+                rls_value.as_string(None).strip("'")
+            )
+        ] == rls_columns
         assert "has_rls" not in mapping
         assert mapping["claim_setting"] == "app.claim_sub"
 
@@ -257,32 +285,6 @@ class TestSourceMappings:
 
 class TestAggregateFunction:
     """The aggregate function of a table has a name that PostgreSQL keeps whole."""
-
-    @pytest.mark.parametrize(
-        ("duckdb_type", "numeric"),
-        [
-            pytest.param("BIGINT", True, id="bigint"),
-            pytest.param("INTEGER", True, id="integer"),
-            pytest.param("HUGEINT", True, id="hugeint"),
-            pytest.param("DOUBLE", True, id="double"),
-            pytest.param("FLOAT", True, id="float"),
-            pytest.param("DECIMAL(18,3)", True, id="decimal-with-a-scale"),
-            pytest.param("decimal(10,2)", True, id="decimal-in-lower-case"),
-            pytest.param("VARCHAR", False, id="text"),
-            pytest.param("DATE", False, id="date"),
-            pytest.param("BOOLEAN", False, id="boolean"),
-            pytest.param("TIMESTAMP", False, id="timestamp"),
-            pytest.param("INTERVAL", False, id="interval-is-not-a-number"),
-            pytest.param("STRUCT(id BIGINT)", False, id="json"),
-        ],
-    )
-    def test_marks_the_types_that_duckdb_sums_and_averages(
-        self, duckdb_type: str, numeric: bool
-    ) -> None:
-        """Mark a column numeric by its DuckDB type, because PostgreSQL receives decimals as text."""
-        columns = utils.function_columns([("c", duckdb_type)], raw_json=True)
-
-        assert columns[0]["numeric"] is numeric
 
     @pytest.mark.parametrize(
         ("duckdb_type", "groupable"),
@@ -310,43 +312,55 @@ class TestAggregateFunction:
 
         assert columns[0]["groupable"] is groupable
 
-    @pytest.mark.parametrize(
-        ("table_name", "expected"),
-        [
-            pytest.param("people", "people_agg", id="short-name"),
-            pytest.param("a" * 59, f"{'a' * 59}_agg", id="longest-name-that-fits"),
-            pytest.param("a" * 60, None, id="one-byte-too-long"),
-            pytest.param("é" * 30, None, id="bytes-not-characters"),
-        ],
-    )
-    def test_names_the_function_only_when_the_name_fits(
-        self, table_name: str, expected: str | None
-    ) -> None:
-        """Give no name when PostgreSQL would cut it, because two cut names can match."""
-        assert utils.aggregate_function_name(table_name) == expected
+    def test_maps_the_columns_of_a_table_for_the_generic_functions(self) -> None:
+        """Keep the flags that the generic functions read, so they never read a column type again."""
+        columns = [
+            ("id", "BIGINT"),
+            ("name", "VARCHAR"),
+            ("amount", "DECIMAL(18,2)"),
+            ("ratio", "DOUBLE"),
+            ("stamp", "TIMESTAMP"),
+            ("doc", "JSON"),
+        ]
 
-    @pytest.mark.parametrize(
-        ("table_name", "has_mapping"),
-        [
-            pytest.param("people", True, id="short-name"),
-            pytest.param("a" * 60, False, id="name-too-long"),
-        ],
-    )
-    def test_maps_the_function_of_a_table_with_a_short_name(
-        self, table_name: str, has_mapping: bool
-    ) -> None:
-        """Reuse the mapping of the table function with the name of the aggregate function."""
-        table = FullTable(name=f"p.d.{table_name}", resolved_source="bigquery")
+        meta = {entry["name"]: entry for entry in utils.meta_columns(columns)}
 
-        mapping = utils.aggregate_function_mapping(
-            "app", table, [("qty", "BIGINT")], "sub"
+        assert {
+            name: (
+                entry["groupable"],
+                entry["countable"],
+                entry["exact_numeric"],
+                entry["ordered"],
+                entry["timestamp"],
+            )
+            for name, entry in meta.items()
+        } == {
+            "id": (True, True, True, True, False),
+            "name": (True, True, False, False, False),
+            "amount": (False, True, True, True, False),
+            "ratio": (False, True, False, True, False),
+            "stamp": (False, True, False, True, True),
+            "doc": (False, False, False, False, False),
+        }
+
+    def test_maps_the_row_of_meta(self) -> None:
+        """The row carries the scope, the claim setting, the cap and the rules, as the generic functions read them."""
+        table = FullTable(
+            name="p.d.people",
+            resolved_source="bigquery",
+            rls=[RlsRule(conditions=[UnitMapping(column="unit_id", unit_type="unit")])],
         )
 
-        assert (mapping is not None) is has_mapping
-        if mapping is not None:
-            assert mapping["max_rows"] == str(settings.AGGREGATE_MAX_ROWS)
-            assert mapping["function"].as_string(None) == f'"{table_name}_agg"'  # type: ignore[union-attr]
-            assert mapping["dl_function"].as_string(None) == f'"{table_name}_dl_fn"'  # type: ignore[union-attr]
+        mapping = utils.meta_mapping(
+            "p__d", table, [("unit_id", "VARCHAR"), ("qty", "BIGINT")], "email"
+        )
+
+        assert mapping["claim_setting"].as_string(None) == "'app.claim_email'"  # type: ignore[union-attr]
+        assert mapping["scope_path"].as_string(None) == "'p.d.people'"  # type: ignore[union-attr]
+        assert mapping["max_rows"] == str(settings.AGGREGATE_MAX_ROWS)
+        assert json.loads(mapping["rls_mappings"].as_string(None).strip("'")) == [  # type: ignore[union-attr]
+            {"col": "unit_id", "ut": "unit", "ty": "VARCHAR", "grp": None}
+        ]
 
     @pytest.mark.parametrize(
         ("table", "template", "mapping_function", "as_list"),
@@ -382,36 +396,6 @@ class TestAggregateFunction:
                 False,
                 id="table-with-fallback",
             ),
-            pytest.param(
-                FullTable(
-                    name="p.d.people",
-                    resolved_source="bigquery",
-                    rls=[
-                        RlsRule(
-                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
-                        )
-                    ],
-                ),
-                "postgres/views/create_aggregate_function",
-                utils.aggregate_function_mapping,
-                True,
-                id="aggregate",
-            ),
-            pytest.param(
-                FullTable(
-                    name="p.d.people",
-                    resolved_source="bigquery",
-                    rls=[
-                        RlsRule(
-                            conditions=[UnitMapping(column="unit_id", unit_type="unit")]
-                        )
-                    ],
-                ),
-                "postgres/create_table_changes_function",
-                utils.table_changes_function_mapping,
-                True,
-                id="change-feed",
-            ),
         ],
     )
     def test_passes_the_grants_to_duckdb_as_a_list_when_only_duckdb_reads_them(
@@ -428,96 +412,56 @@ class TestAggregateFunction:
 
         sql = render_template(template, mapping)
 
-        has_list = (
-            re.search(r"CAST\(.+ AS VARCHAR\) IN \(SELECT unnest\(\[%s\]\)\)", sql)
-            is not None
-        )
-        assert has_list is as_list
-        assert (re.search(r"%I IN \(%s\)", sql) is not None) is not as_list
-
-    @pytest.mark.parametrize(
-        ("table_name", "rendered"),
-        [
-            pytest.param("people", True, id="short-name"),
-            pytest.param("a" * 60, False, id="name-too-long"),
-        ],
-    )
-    def test_puts_the_function_in_the_serving_signature(
-        self, monkeypatch: pytest.MonkeyPatch, table_name: str, rendered: bool
-    ) -> None:
-        """Change the signature when the function changes, so the next reconcile creates it."""
-        seen: list[str] = []
-        render = utils.render_template
-
-        def record(name: str, mapping: dict[str, object], **kwargs: object) -> str:
-            seen.append(name)
-            return render(name, mapping, **kwargs)  # type: ignore[arg-type]
-
-        monkeypatch.setattr(utils, "render_template", record)
-
-        utils.serving_definition_signature(
-            "app",
-            FullTable(name=f"p.d.{table_name}", resolved_source="bigquery"),
-            [("qty", "BIGINT")],
-            "sub",
-        )
-
-        assert ("postgres/views/create_aggregate_function" in seen) is rendered
+        call = re.search(r"rls_where\((?P<arguments>.+?)\n\s*\);", sql, re.DOTALL)
+        assert call is not None
+        assert call.group("arguments").rstrip().endswith(str(as_list).lower())
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("table_name", "templates"),
-        [
-            pytest.param(
-                "people", ["postgres/views/create_aggregate_function"], id="short-name"
-            ),
-            pytest.param("a" * 60, [], id="name-too-long"),
-        ],
-    )
-    async def test_creates_the_function_only_for_a_short_name(
-        self, table_name: str, templates: list[str]
+    async def test_drops_the_row_of_meta_with_the_view(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Skip the function for a table whose name PostgreSQL would cut."""
-        executor = AsyncMock()
-
-        await stages.create_aggregate_function(
-            executor,
-            "app",
-            FullTable(name=f"p.d.{table_name}", resolved_source="bigquery"),
-            [("qty", "BIGINT")],
-            "sub",
-        )
-
-        assert [call.args[0] for call in executor.execute.await_args_list] == templates
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("view_name", "expected"),
-        [
-            pytest.param("people", '"people_agg"', id="short-name"),
-            pytest.param("a" * 60, "", id="name-too-long"),
-        ],
-    )
-    async def test_drops_the_function_with_the_view(
-        self, monkeypatch: pytest.MonkeyPatch, view_name: str, expected: str
-    ) -> None:
-        """Drop the aggregate function of a view that leaves the config, and never a cut name."""
+        """Delete the facts of a table with its view, so no generic function reads a table that is gone."""
         executor = AsyncMock()
         executor_class = MagicMock()
         executor_class.__getitem__.return_value.return_value = executor
         monkeypatch.setattr(stages, "Executor", executor_class)
 
-        await stages.drop_view_objects(AsyncMock(), "app", view_name)
+        await stages.drop_view_objects(AsyncMock(), "app", "people")
 
-        mapping: dict[str, Identifier | str] = executor.execute.await_args.kwargs[
-            "mapping"
+        mapping: dict[str, Composable] = executor.execute.await_args.kwargs["mapping"]
+        assert executor.execute.await_args.args[0] == "postgres/drop_view_objects"
+        assert mapping["schema_name"].as_string(None) == "'app'"
+        assert mapping["table_name"].as_string(None) == "'people'"
+
+    @pytest.mark.asyncio
+    async def test_writes_the_row_of_meta_with_the_table(self) -> None:
+        """Write the facts when the view is made, so a generic function finds the table the moment PostgREST sees it."""
+        executor = AsyncMock()
+
+        await stages.write_meta(
+            executor,
+            "app",
+            FullTable(name="p.d.people", resolved_source="bigquery"),
+            [("qty", "BIGINT")],
+            "sub",
+        )
+
+        assert [call.args[0] for call in executor.execute.await_args_list] == [
+            "postgres/write_meta"
         ]
-        aggregate = mapping["aggregate_function"]
-        assert (
-            aggregate.as_string(None)
-            if isinstance(aggregate, Identifier)
-            else aggregate
-        ) == expected
+
+    def test_puts_the_row_of_meta_in_the_serving_signature(self) -> None:
+        """Change the signature when a column or a rule changes, so the next reconcile writes the row again."""
+        table = FullTable(name="p.d.people", resolved_source="bigquery")
+
+        before = utils.serving_definition_signature(
+            "app", table, [("qty", "BIGINT")], "sub"
+        )
+        after = utils.serving_definition_signature(
+            "app", table, [("qty", "DOUBLE")], "sub"
+        )
+
+        assert before != after
 
 
 class TestCreateTableViews:
@@ -561,9 +505,11 @@ class TestCreateTableViews:
 CONFIGURED_VIEWS: Final = frozenset({("app", "people")})
 CONFIGURED_FUNCTIONS: Final = frozenset(
     {
-        ("app", "dl_latest_snapshot"),
-        ("app", "dl_table_files"),
-        ("app", "people_dl_chg"),
+        ("app", "snapshot"),
+        ("app", "files"),
+        ("app", "agg"),
+        ("app", "hll"),
+        ("app", "changes"),
     }
 )
 

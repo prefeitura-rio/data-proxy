@@ -64,7 +64,7 @@ with connect(
             "postgres/create_table_files_function",
             {
                 "schema": Identifier(SCHEMA),
-                "function": Identifier("dl_table_files"),
+                "function": Identifier("files"),
                 "metadata_schema": SCHEMA,
                 "data_path": paths.data,
             },

@@ -80,6 +80,7 @@ return {
 		messages = {
 			request = "Proxy request completed",
 			["postgrest-retried"] = "Proxy PostgREST request retry started",
+			["aggregate-declined"] = "Proxy aggregate function declined the request, sent the original request",
 			["aggregate-failed"] = "Proxy aggregate function failed, sent the original request",
 			["count-failed"] = "Proxy count in DuckDB failed, sent the original request",
 			["lock-unavailable"] = "Proxy lock is not available",
@@ -147,9 +148,8 @@ return {
 		percent_escape_digits = 2,
 	},
 	aggregate = {
-		rpc_prefix = "/rpc/",
-		function_suffix = "_agg",
-		max_function_bytes = 63, -- PostgreSQL cuts a longer identifier without an error.
+		path = "/rpc/agg", -- One function of the schema for every table. The table goes in the query string.
+		table_argument = "table",
 		empty_body = "null", -- The answer of the function for a request that the table function must serve.
 	},
 	count = {

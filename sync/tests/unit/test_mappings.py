@@ -1,9 +1,23 @@
 from collections.abc import Mapping, Sequence
 
 import pytest
+from psycopg.sql import Literal
+from pydantic import TypeAdapter
 
 import sync.views.mappings as utils
 from sync.models import FullTable, RlsRule, UnitMapping
+from sync.types import TemplateValue
+
+
+def decoded_mappings(
+    mapping: Mapping[str, TemplateValue],
+) -> list[dict[str, str | int | None]]:
+    """Read the JSON list of unit mappings that the table function passes to rls_where."""
+    literal = mapping["rls_mappings"]
+    assert isinstance(literal, Literal)
+    return TypeAdapter(list[dict[str, str | int | None]]).validate_json(
+        literal.as_string(None).strip("'").replace("''", "'")
+    )
 
 
 class TestListColumns:
@@ -47,13 +61,8 @@ class TestListColumns:
             "app", table, [("area", duckdb_type)], "sub"
         )
 
-        assert mapping["rls_mappings"] == [
-            {
-                "column": "area",
-                "unit_type": "area",
-                "duckdb_type": duckdb_type,
-                "group": "",
-            }
+        assert decoded_mappings(mapping) == [
+            {"col": "area", "ut": "area", "ty": duckdb_type, "grp": None}
         ]
 
     def test_a_table_without_a_group_keeps_its_config_signature(self) -> None:
@@ -131,13 +140,13 @@ class TestListColumns:
 
         mapping = utils.table_function_mapping("app", table, columns, "sub")
 
-        entries = mapping["rls_mappings"]
-
-        assert isinstance(entries, list)
         assert [
-            (entry["column"], entry["unit_type"], entry["group"])
-            for entry in entries
-            if isinstance(entry, dict)
+            (
+                entry["col"],
+                entry["ut"],
+                "" if entry["grp"] is None else str(entry["grp"]),
+            )
+            for entry in decoded_mappings(mapping)
         ] == expected
 
     def test_the_same_groups_give_the_same_signature_and_another_order_does_not(

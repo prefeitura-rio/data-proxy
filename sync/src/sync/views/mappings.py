@@ -1,14 +1,14 @@
 """Column and mapping helpers for source view generation."""
 
+import json
 import re
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Final
 
 from psycopg.sql import Identifier, Literal
 
 from sync.constants import (
-    AGGREGATE_FUNCTION_SUFFIX,
     DUCKDB_VIEW_PREFIX,
-    MAX_IDENTIFIER_BYTES,
 )
 from sync.ducklake import data_path
 from sync.executor import Executor
@@ -18,10 +18,7 @@ from sync.settings import settings
 from sync.sources.registry import sources
 from sync.templates import render_template
 from sync.types import DescribeRow
-from sync.utils import (
-    changes_function_name,
-    json_digest,
-)
+from sync.utils import json_digest
 
 if TYPE_CHECKING:
     from psycopg.rows import TupleRow
@@ -100,6 +97,24 @@ def rls_mapping_entries(
     return entries
 
 
+def rls_mappings_json(
+    entries: Sequence[Mapping[str, TemplateValue]],
+) -> list[dict[str, str | int | None]]:
+    """Return the unit mappings in the shape that `rls_where` reads: the column, the unit type, the type and the group.
+
+    The table function and the generic functions both pass this list, so the row policy has one input and one function.
+    """
+    return [
+        {
+            "col": str(entry["column"]),
+            "ut": str(entry["unit_type"]),
+            "ty": str(entry["duckdb_type"]),
+            "grp": None if entry["group"] == "" else int(str(entry["group"])),
+        }
+        for entry in entries
+    ]
+
+
 WHOLE_NUMBER_TYPES: Final = frozenset({"INTEGER", "INT", "BIGINT"})
 FLOATING_POINT_TYPES: Final = frozenset({"DOUBLE", "FLOAT", "REAL"})
 TIMESTAMP_TYPES: Final = frozenset({"TIMESTAMP", "TIMESTAMP_MS", "TIMESTAMP_S"})
@@ -133,13 +148,12 @@ def pg_scalar_type(duckdb_type: str) -> str:
             return "text"
 
 
-NUMERIC_TYPES: Final = frozenset(
+EXACT_NUMERIC_TYPES: Final = frozenset(
+    {"TINYINT", "SMALLINT", "INTEGER", "INT", "BIGINT", "DECIMAL"}
+)
+ORDERED_TYPES: Final = frozenset(
     {
-        "TINYINT",
-        "SMALLINT",
-        "INTEGER",
-        "INT",
-        "BIGINT",
+        *EXACT_NUMERIC_TYPES,
         "HUGEINT",
         "UTINYINT",
         "USMALLINT",
@@ -149,18 +163,41 @@ NUMERIC_TYPES: Final = frozenset(
         "FLOAT",
         "REAL",
         "DOUBLE",
-        "DECIMAL",
+        "DATE",
+        "TIMESTAMP",
+        "TIMESTAMP_MS",
+        "TIMESTAMP_S",
     }
 )
 
 
-def is_numeric(duckdb_type: str) -> bool:
-    """Return true when DuckDB can sum and average the type.
+def is_exact_numeric(duckdb_type: str) -> bool:
+    """Return true when DuckDB sums the type to the same digits that PostgreSQL gives.
 
-    PostgreSQL receives a decimal or a floating point value as text, so it cannot sum or average the column.
-    DuckDB can, so the aggregate function runs the sum and the average there.
+    A whole number and a decimal sum exactly in both engines, so DuckDB runs the sum, and the average as a sum
+    divided by a count. A double and a float differ in the last digits, because the sum depends on the order of the
+    rows and on the version of DuckDB. A hugeint and a decimal of 20 digits or more overflow in DuckDB where
+    PostgreSQL keeps going. Those columns use the table, which PostgreSQL sums.
     """
-    return duckdb_type.upper().split("(")[0].strip() in NUMERIC_TYPES
+    base = duckdb_type.upper().split("(")[0].strip()
+    if base not in EXACT_NUMERIC_TYPES:
+        return False
+    match = re.search(r"\((\d+)", duckdb_type)
+    return base != "DECIMAL" or match is None or int(match.group(1)) <= MAX_EXACT_DIGITS
+
+
+MAX_EXACT_DIGITS: Final = 18
+
+
+def is_ordered(duckdb_type: str) -> bool:
+    """Return true when min and max of the type give the value that PostgreSQL gives.
+
+    A number, a date and a timestamp compare the same way in both engines. Text compares by bytes in DuckDB and by the
+    collation in PostgreSQL, and a nanosecond timestamp reaches PostgreSQL as text. A timestamp with a time zone is out,
+    because DuckDB and PostgreSQL write the offset in different forms.
+    """
+    base = duckdb_type.upper().split("(")[0].strip()
+    return base in ORDERED_TYPES
 
 
 GROUPABLE_TYPES: Final = frozenset(
@@ -201,16 +238,6 @@ def scope_path(schema: str, table: str | None = None) -> str:
     return path
 
 
-def aggregate_function_name(table_name: str) -> str | None:
-    """Return the name of the aggregate function of one table, or None if the name is too long.
-
-    PostgreSQL cuts an identifier at 63 bytes without an error, and the cut names of two tables can match.
-    The proxy does not call the function of a table whose name is too long, and the table function answers.
-    """
-    name = f"{table_name}{AGGREGATE_FUNCTION_SUFFIX}"
-    return name if len(name.encode()) <= MAX_IDENTIFIER_BYTES else None
-
-
 def quoted_identifier(identifier: str) -> str:
     """Quote an identifier for PostgreSQL and DuckDB SQL."""
     return Identifier(identifier).as_string(None)
@@ -237,8 +264,11 @@ def function_columns(
             "pg_type": pg_scalar_type(duckdb_type),
             "return_type": return_type_for(duckdb_type),
             "sortable": is_sortable(duckdb_type),
-            "numeric": is_numeric(duckdb_type),
+            "exact_numeric": is_exact_numeric(duckdb_type),
+            "ordered": is_ordered(duckdb_type),
             "groupable": is_groupable(duckdb_type),
+            "countable": not is_nested_or_json(duckdb_type),
+            "timestamp": pg_scalar_type(duckdb_type) == "timestamp",
         }
         for column, duckdb_type in columns
     ]
@@ -329,17 +359,10 @@ def serving_definition_signature(
             ),
         ),
         render_template(
-            "postgres/create_table_changes_function",
-            table_changes_function_mapping(schema, table, columns, claim),
+            "postgres/write_meta",
+            meta_mapping(schema, table, columns, claim),
         ),
     ]
-    aggregate_mapping = aggregate_function_mapping(schema, table, columns, claim)
-    if aggregate_mapping is not None:
-        definitions.append(
-            render_template(
-                "postgres/views/create_aggregate_function", aggregate_mapping
-            )
-        )
     source = sources.configure(table.resolved_source, table.resolved_source_settings)
     if isinstance(table, PartitionedTable) and table.fallback:
         fallback = source.fallback
@@ -360,7 +383,11 @@ def boundary_view_mapping(
     function_name: str,
     columns: list[tuple[str, str]],
 ) -> dict[str, TemplateValue]:
-    """Build mappings for a PostgreSQL boundary view."""
+    """Build mappings for a PostgreSQL boundary view.
+
+    The table function returns JSON and nested columns as text, because pg_duckdb pushes a cast to jsonb into
+    DuckDB, which has no such type. The view converts that text, so a client and a JSON path see jsonb.
+    """
     columns_sql = [
         (
             f"{quoted_identifier(column)}::jsonb AS {quoted_identifier(column)}"
@@ -409,52 +436,62 @@ def table_function_mapping(
         "app_schema": app_schema(),
         "function": Identifier(f"{table_name}_fn"),
         "dl_function": Identifier(f"{table_name}_dl_fn"),
-        "dl_view": f"dl_{schema}_{table_name}",
+        "duckdb_view": f"dl_{schema}_{table_name}",
         "columns": function_columns(columns, raw_json=True),
         "claim_setting": f"app.claim_{claim_name}",
-        "rls_mappings": rls_mapping_entries(rls, columns),
+        "rls_mappings": Literal(
+            json.dumps(rls_mappings_json(rls_mapping_entries(rls, columns)))
+        ),
         "source_table": Literal(table.name),
         "fallbacks": fallback,
         "user_role": Identifier(settings.AUTH_USER_ROLE),
     }
 
 
-def aggregate_function_mapping(
-    schema: str,
-    table: TableConfig,
-    columns: list[tuple[str, str]],
-    claim: str | None,
-) -> dict[str, TemplateValue] | None:
-    """Return mappings for the aggregate function of one table, or None if the table has none."""
-    name = aggregate_function_name(table.table_name)
-    if name is None:
-        return None
-    return table_function_mapping(schema, table, columns, claim) | {
-        "function": Identifier(name),
-        "max_rows": str(settings.AGGREGATE_MAX_ROWS),
-    }
+def meta_columns(columns: list[tuple[str, str]]) -> list[dict[str, str | bool]]:
+    """Return the columns for `meta`: the name as PostgreSQL stores it, the type, and what each column allows."""
+    return [
+        {
+            "name": column,
+            "pg_type": pg_scalar_type(duckdb_type),
+            "groupable": is_groupable(duckdb_type),
+            "countable": not is_nested_or_json(duckdb_type),
+            "exact_numeric": is_exact_numeric(duckdb_type),
+            "ordered": is_ordered(duckdb_type),
+            "timestamp": pg_scalar_type(duckdb_type) == "timestamp",
+        }
+        for column, duckdb_type in columns
+    ]
 
 
-def table_changes_function_mapping(
+def meta_mapping(
     schema: str,
     table: TableConfig,
     columns: list[tuple[str, str]],
     claim: str | None,
 ) -> dict[str, TemplateValue]:
-    """Return mappings for one DuckLake table change-feed function."""
+    """Return the mapping of the row of `meta`, the facts that the generic functions read when they run."""
+    table_name = table.table_name
     claim_name = claim if claim is not None and len(claim) > 0 else "sub"
     rls: list[RlsRule] = [] if table.rls is None else table.rls
+    source = sources.configure(table.resolved_source, table.resolved_source_settings)
+    fallbacks: list[dict[str, str]] = (
+        [{"name": source.name}]
+        if isinstance(table, PartitionedTable) and table.fallback
+        else []
+    )
+    mappings = rls_mappings_json(rls_mapping_entries(rls, columns))
     return {
-        "schema": Identifier(schema),
-        "schema_literal": Literal(schema),
-        "scope_path": Literal(scope_path(schema, table.table_name)),
-        "function": Identifier(changes_function_name(table.table_name)),
-        "table_name": table.table_name,
-        "duckdb_view": f"dl_changes_{schema}_{table.table_name}",
-        "columns": function_columns(columns, raw_json=True),
-        "claim_setting": f"app.claim_{claim_name}",
-        "rls_mappings": rls_mapping_entries(rls, columns),
-        "metadata_schema": schema,
-        "data_path": data_path(schema),
-        "user_role": Identifier(settings.AUTH_USER_ROLE),
+        "app_schema": app_schema(),
+        "schema_name": Literal(schema),
+        "table_name": Literal(table_name),
+        "source_table": Literal(table.name),
+        "scope_path": Literal(scope_path(schema, table_name)),
+        "claim_setting": Literal(f"app.claim_{claim_name}"),
+        "data_path": Literal(data_path(schema)),
+        "duckdb_view": Literal(f"dl_{schema}_{table_name}"),
+        "max_rows": str(settings.AGGREGATE_MAX_ROWS),
+        "columns": Literal(json.dumps(meta_columns(columns))),
+        "rls_mappings": Literal(json.dumps(mappings)),
+        "fallbacks": Literal(json.dumps(fallbacks)),
     }

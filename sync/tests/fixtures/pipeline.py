@@ -60,6 +60,16 @@ class RangeSource:
                 "(SELECT i AS cpf, 'name_' || i AS name FROM range(20) AS t(i) WHERE error('extraction exploded'))"
             )
 
+        if table.endswith(".documents"):
+            return SQL(
+                "(SELECT i AS id, 'g' || (i % 3) AS grp, i % 10 AS qty,"
+                " to_json({'k': 'k' || (i % 3), 'n': i % 5})::JSON AS payload,"
+                " {'a': i % 4, 'b': 's' || (i % 2)} AS doc,"
+                " ['t' || (i % 2), 'common'] AS tags,"
+                " (i % 100 / 4.0)::DECIMAL(18, 2) AS amount,"
+                " TIMESTAMP '2026-01-01 00:00:00' + to_seconds(i) AS stamp FROM range(60) AS t(i))"
+            )
+
         return SQL("(SELECT i AS cpf, 'name_' || i AS name FROM range(20) AS t(i))")
 
     async def modified(self, table: str) -> str:
@@ -69,6 +79,18 @@ class RangeSource:
     async def close(self) -> None:
         """Release no resources."""
 
+
+# The columns of the table of documents: a JSON column, a struct, a list and a decimal.
+DOCUMENT_COLUMNS = [
+    ("id", "BIGINT"),
+    ("grp", "VARCHAR"),
+    ("qty", "BIGINT"),
+    ("payload", "JSON"),
+    ("doc", "STRUCT(a BIGINT, b VARCHAR)"),
+    ("tags", "VARCHAR[]"),
+    ("amount", "DECIMAL(18,2)"),
+    ("stamp", "TIMESTAMP"),
+]
 
 # The steps that the run performs for real. The others reach Kubernetes, Redis or PostgREST.
 REAL_STEPS = (
@@ -103,6 +125,26 @@ class Pipeline:
     def broken(self) -> str:
         """The table that fails when DuckDB reads it."""
         return f"p.{self.schema}.broken"
+
+    @property
+    def documents(self) -> str:
+        """The table with a JSON column, a struct, a list and a decimal."""
+        return f"p.{self.schema}.documents"
+
+    def only_the_documents_table(self) -> None:
+        """Serve only the table of documents in the next runs."""
+        schema = self.config.schemas[self.schema]
+        documents = SyncConfig(
+            schemas={
+                self.schema: schema.model_copy(
+                    update={"tables": [FullTable(name=self.documents)]}
+                )
+            }
+        )
+        self.config = documents
+        self.load.return_value = LoadedConfig(
+            revision="3", document=documents.model_dump_json()
+        )
 
     def only_the_good_table(self) -> None:
         """Take the table that fails out of the configuration of the next runs."""
@@ -167,6 +209,9 @@ async def pipeline(
     monkeypatch.setattr(settings, "S3_SECRET_KEY", SecretStr(S3_SECRET_KEY))
 
     async def source_columns(pg_conn: object, table: object) -> list[tuple[str, str]]:
+        if str(getattr(table, "name", "")).endswith(".documents"):
+            return DOCUMENT_COLUMNS
+
         return [("cpf", "BIGINT"), ("name", "VARCHAR")]
 
     monkeypatch.setattr(stages, "column_types_from_duckdb", source_columns)
@@ -218,7 +263,7 @@ async def pipeline(
         cleanup = await psycopg.AsyncConnection.connect(postgres.dsn, autocommit=True)
         try:
             app = Identifier(settings.DBOS_APP_SCHEMA)
-            for table in (pipeline.good, pipeline.broken):
+            for table in (pipeline.good, pipeline.broken, pipeline.documents):
                 await cleanup.execute(
                     SQL("DELETE FROM {}.state WHERE table_name = %s").format(app),
                     (table,),

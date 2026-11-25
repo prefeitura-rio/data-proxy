@@ -40,6 +40,90 @@ BEGIN
 END;
 $$;
 
+-- The ORDER BY of the groups in DuckDB, for example "grp" DESC NULLS LAST.
+-- DuckDB may order and cut the groups itself only when the order names every group
+-- column and each one sorts the same way in both engines: a whole number, a date or a
+-- flag. Text sorts by
+-- bytes in DuckDB and by the collation in PostgreSQL, so a text order stays in
+-- PostgreSQL. NULL says "no". PostgreSQL puts nulls last in an ascending order and
+-- first in a descending one, and DuckDB is asked for the same.
+CREATE OR REPLACE FUNCTION {{ schema }}.plan_aggregate_duckdb_order(
+  p_aggregate jsonb,
+  p_columns jsonb
+) RETURNS text
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  v_names text[] := ARRAY(SELECT jsonb_array_elements_text(p_columns -> 'names'));
+  v_kinds text[] := ARRAY(SELECT jsonb_array_elements_text(p_columns -> 'kinds'));
+  v_parts text[] := ARRAY[]::text[];
+  v_item jsonb;
+  v_type text;
+  v_alias text;
+BEGIN
+  IF jsonb_typeof(p_aggregate -> 'order') <> 'array'
+    OR jsonb_typeof(p_aggregate -> 'group') <> 'array'
+  THEN
+    RETURN NULL;
+  END IF;
+  -- Two groups that tie in the order could be cut differently by the two engines, so the
+  -- order has to name every group column.
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(p_aggregate -> 'group') AS entry
+    WHERE NOT EXISTS (
+      SELECT 1 FROM jsonb_array_elements(p_aggregate -> 'order') AS o
+      WHERE o ->> 'column' = entry ->> 'column'
+    )
+  ) THEN
+    RETURN NULL;
+  END IF;
+  FOR v_item IN SELECT jsonb_array_elements(p_aggregate -> 'order') LOOP
+    v_type := v_kinds[array_position(v_names, v_item ->> 'column')];
+    v_alias := (
+      SELECT entry ->> 'alias'
+      FROM jsonb_array_elements(coalesce(p_aggregate -> 'group', '[]'::jsonb)) AS entry
+      WHERE entry ->> 'column' = v_item ->> 'column'
+      LIMIT 1
+    );
+    IF v_alias IS NULL OR v_type IS NULL OR v_type NOT IN ('bigint', 'date', 'boolean') THEN
+      RETURN NULL;
+    END IF;
+    v_parts := v_parts || format(
+      '%I %s NULLS %s',
+      v_alias,
+      CASE WHEN (v_item ->> 'descending')::boolean THEN 'DESC' ELSE 'ASC' END,
+      CASE
+        WHEN v_item ->> 'nulls' = 'first' THEN 'FIRST'
+        WHEN v_item ->> 'nulls' = 'last' THEN 'LAST'
+        WHEN (v_item ->> 'descending')::boolean THEN 'FIRST'
+        ELSE 'LAST'
+      END
+    );
+  END LOOP;
+  IF cardinality(v_parts) = 0 THEN
+    RETURN NULL;
+  END IF;
+  RETURN array_to_string(v_parts, ', ');
+END;
+$$;
+
+-- The ORDER BY and the LIMIT that DuckDB applies to the groups, or the empty text when
+-- PostgreSQL alone orders them. DuckDB keeps the first offset + take + 1 groups of the
+-- order, and PostgreSQL orders those again and cuts the page, so the page is the same
+-- and a table with millions of groups sends only a few of them to PostgreSQL.
+CREATE OR REPLACE FUNCTION {{ schema }}.plan_aggregate_tail(
+  p_aggregate jsonb,
+  p_columns jsonb,
+  p_offset bigint,
+  p_take bigint
+) RETURNS text
+LANGUAGE sql STABLE AS $$
+  SELECT coalesce(
+    ' ORDER BY ' || {{ schema }}.plan_aggregate_duckdb_order(p_aggregate, p_columns)
+      || ' LIMIT ' || (p_offset + p_take + 1),
+    ''
+  )
+$$;
+
 -- The ORDER BY expressions over the groups, for example (t.elem ->> 'grp') DESC.
 -- PostgreSQL orders and cuts the rows of the groups, so the text order follows its
 -- collation. The order names a column of the group, and the column has a type that
@@ -116,7 +200,25 @@ BEGIN
     IF v_expression IS NULL OR (v_item ->> 'alias') IS NULL THEN
       RETURN NULL;
     END IF;
-    v_select := v_select || format('%s AS %I', v_expression, v_item ->> 'alias');
+    IF v_function = 'avg' THEN
+      -- DuckDB averages in a double, and PostgreSQL in a numeric. DuckDB gives the sum as
+      -- text, so no digit is lost, and the count. divide_averages divides them as numeric.
+      v_select := v_select || ARRAY[
+        format('CAST(sum(%I) AS VARCHAR) AS %I', v_column, v_item ->> 'alias'),
+        format('count(%I) AS %I', v_column, '__count_' || (v_item ->> 'alias'))
+      ];
+    ELSIF v_function IN ('min', 'max') AND v_column = ANY(
+      ARRAY(SELECT jsonb_array_elements_text(p_columns -> 'timestamps'))
+    ) THEN
+      -- PostgreSQL writes a timestamp in JSON as 2026-01-01T00:00:10, and DuckDB writes it
+      -- with a space, so the answer reads as the table gives it.
+      v_select := v_select || format(
+        $e$replace(CAST(%s AS VARCHAR), ' ', 'T') AS %I$e$,
+        v_expression, v_item ->> 'alias'
+      );
+    ELSE
+      v_select := v_select || format('%s AS %I', v_expression, v_item ->> 'alias');
+    END IF;
   END LOOP;
   RETURN v_select;
 END;
@@ -177,6 +279,37 @@ BEGIN
 END;
 $$;
 
+-- The groups of an answer with each average divided.
+-- DuckDB gave the sum as text under the alias of the average, and the count under
+-- __count_<alias>. The quotient is a numeric, as the avg() of PostgreSQL, and a group
+-- without a value gives null, as avg() does. The helper count leaves the answer.
+CREATE OR REPLACE FUNCTION {{ schema }}.divide_averages(p_groups text) RETURNS text
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT CASE
+    WHEN p_groups NOT LIKE '%"__count\_%' THEN p_groups
+    ELSE (
+      SELECT coalesce(jsonb_agg(
+        (
+          SELECT jsonb_object_agg(
+            e.key,
+            CASE
+              WHEN g.elem ? ('__count_' || e.key) THEN
+                CASE
+                  WHEN (g.elem ->> ('__count_' || e.key))::bigint = 0 THEN 'null'::jsonb
+                  ELSE to_jsonb((e.value #>> '{}')::numeric / (g.elem ->> ('__count_' || e.key))::numeric)
+                END
+              ELSE e.value
+            END
+          )
+          FROM jsonb_each(g.elem) AS e(key, value)
+          WHERE e.key NOT LIKE '\_\_count\_%'
+        )
+      ), '[]'::jsonb)::text
+      FROM jsonb_array_elements(p_groups::jsonb) AS g(elem)
+    )
+  END
+$$;
+
 -- The page of the groups that the request asks for: skip the offset and keep the take.
 -- One row more than the take shows that the cap cut the answer, and then the response
 -- is partial (206) with a Content-Range header, as PostgREST does.
@@ -201,7 +334,7 @@ BEGIN
     p_order_by,
     p_offset,
     p_offset + p_take + 1
-  ) INTO v_page, v_returned USING p_groups;
+  ) INTO v_page, v_returned USING {{ schema }}.divide_averages(p_groups);
 
   IF v_returned > p_take AND (p_limit IS NULL OR p_limit > p_max_rows) THEN
     PERFORM set_config('response.status', '206', true);

@@ -1,5 +1,5 @@
-# An aggregate read goes to the aggregate function of the table, with the aggregate in the filter header
-# and no query string. The answer keeps the source and the snapshot.
+# An aggregate read goes to the aggregate function of the schema, with the table in the query string and the
+# aggregate in the filter header. The answer keeps the source and the snapshot.
 GET http://{{host}}/default/test/agg_ok?select=grp,n:qty.sum()&unit=eq.u1
 
 HTTP 200
@@ -7,7 +7,7 @@ X-Source: ducklake
 X-DuckLake-Snapshot: 7
 [Asserts]
 jsonpath "$[0].via" == "rpc"
-jsonpath "$[0].args" == ""
+jsonpath "$[0].args" == "table=agg_ok"
 jsonpath "$[0].filter.aggregate.group[0].column" == "grp"
 jsonpath "$[0].filter.aggregate.group[0].alias" == "grp"
 jsonpath "$[0].filter.aggregate.items[0].fn" == "sum"
@@ -109,3 +109,38 @@ Content-Type: application/json
 HTTP 200
 [Asserts]
 jsonpath "$.upstream" == "postgrest"
+
+# The planned and the estimated counts read a guess of the planner, which is 1000 rows for a table behind a function.
+# The proxy counts in DuckDB for them as it does for the exact count, and reports the mode that the client asked for.
+GET http://{{host}}/default/test/counted?select=id&limit=5
+Prefer: count=planned
+
+HTTP 206
+Content-Range: 0-4/60
+Preference-Applied: count=planned
+X-DuckLake-Snapshot: 7
+[Asserts]
+jsonpath "$[0].prefer" == "dropped"
+jsonpath "$" count == 5
+
+GET http://{{host}}/default/test/counted?select=id&limit=5&id=gt.0
+Prefer: count=estimated
+
+HTTP 206
+Content-Range: 0-4/60
+Preference-Applied: count=estimated
+
+GET http://{{host}}/default/test/counted?select=id&limit=5&id=gt.1
+Prefer: count=exact
+
+HTTP 206
+Content-Range: 0-4/60
+Preference-Applied: count=exact
+
+# A planned count without a limit has no count plan. PostgREST gets the exact count, not the guess of 1000 rows.
+GET http://{{host}}/default/test/counted?select=id&id=gt.2
+Prefer: count=planned
+
+HTTP 200
+[Asserts]
+jsonpath "$[0].prefer" == "count=exact"

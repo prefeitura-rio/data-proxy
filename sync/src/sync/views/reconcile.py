@@ -32,6 +32,7 @@ ROUTING_TEMPLATES: Final = (
     "response",
     "filter",
     "aggregate",
+    "generic",
 )
 
 

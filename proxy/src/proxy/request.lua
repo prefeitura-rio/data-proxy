@@ -108,41 +108,43 @@ function request.make_headers(input, filter)
 	end, names)
 end
 
---- Make the name of the aggregate function of the table in a path.
+--- Make the name of the table in a path, if the path is a plain table.
 ---@param uri string Request path.
 ---@return string|nil name nil if the path is not a plain table name.
 local function whole_table_name(uri)
 	local table_name = uri:match(regex.table_path)
 	if table_name == nil or uri ~= "/" .. table_name or not table_name:match(regex.column_name) then return nil end
 
-	return table_name .. constants.aggregate.function_suffix
+	return table_name
 end
 
---- Make the path of the aggregate function of the table in a path.
+--- Make the call of the aggregate function: one function of the schema for every table, and the table in the query.
 ---@param uri string Request path.
----@return string|nil path nil if the path is not a plain table name, or the name of the function is too long.
-local function aggregate_function_path(uri)
+---@return string|nil path The path of the function, nil if the path is not a plain table name.
+---@return string|nil args The query string of the call, with the name of the table.
+local function aggregate_function_call(uri)
 	local name = whole_table_name(uri)
-	if name == nil or #name > constants.aggregate.max_function_bytes then return nil end
-	return constants.aggregate.rpc_prefix .. name
+	if name == nil then return nil end
+	return constants.aggregate.path, constants.aggregate.table_argument .. "=" .. name
 end
 
---- Find the path of the function that runs the aggregate of the request in DuckDB.
+--- Find the call of the function that runs the aggregate of the request in DuckDB.
 --- The function exists only for a plain read of a table as JSON. Any other request goes to the table.
 ---
 --- ```lua
---- request.aggregate_path({ uri = "/people", headers_in = {} }, { aggregate = { items = { ... } } })
---- --> "/rpc/people_aggregate"
---- request.aggregate_path({ uri = "/people", headers_in = {} }, { columns = { "id" } }) --> nil
+--- request.aggregate_call({ uri = "/people", headers_in = {} }, { aggregate = { items = { ... } } })
+--- --> "/rpc/agg", "table=people"
+--- request.aggregate_call({ uri = "/people", headers_in = {} }, { columns = { "id" } }) --> nil
 --- ```
 ---@param input NgxRequest
 ---@param filter FilterDocument|nil The document of the filter header.
 ---@return string|nil path nil if the request has no aggregate function.
-function request.aggregate_path(input, filter)
+---@return string|nil args The query string of the call.
+function request.aggregate_call(input, filter)
 	if filter == nil or filter.aggregate == nil or not can_limit(input) then return nil end
 	if request.normalize_accept(input.headers_in.Accept) ~= constants.http.default_media_type then return nil end
 
-	return aggregate_function_path(input.uri)
+	return aggregate_function_call(input.uri)
 end
 
 --- Read the count mode of a preference that holds only a count: `count=exact`, `count=planned` or `count=estimated`.
@@ -184,14 +186,15 @@ end
 ---
 --- ```lua
 --- request.count_plan({ method = "GET", uri = "/people", args = "limit=20", headers_in = { Prefer = "count=exact" } })
---- --> { path = "/rpc/people_aggregate", count_headers = { ... }, page_headers = { ... } }
+--- --> { path = "/rpc/agg", args = "table=people", count_headers = { ... }, page_headers = { ... } }
 --- ```
 ---@param input NgxRequest
 ---@return CountPlan|nil plan nil if the request keeps the path of PostgREST.
 function request.count_plan(input)
 	if tablex.find_if(count_rules, function(rule) return not rule(input) end) ~= nil then return nil end
 
-	local path, page = aggregate_function_path(input.uri), count_page(input)
+	local path, args = aggregate_function_call(input.uri)
+	local page = count_page(input)
 	if path == nil or page == nil then return nil end
 
 	local page_headers = request.make_headers(input, page)
@@ -201,6 +204,7 @@ function request.count_plan(input)
 	count_headers[constants.headers.filter] = cjson.encode(count)
 	return {
 		path = path,
+		args = args,
 		count_headers = count_headers,
 		page_headers = page_headers,
 		applied = request.count_preference(input.headers_in.Prefer),
@@ -355,6 +359,7 @@ end
 function request.make_context(input, deps)
 	local identity = request.jwt_identity(input.headers_in.Authorization)
 	local filter = request.read_filter(input)
+	local aggregate_path, aggregate_args = request.aggregate_call(input, filter)
 
 	local table_settings = sync.table_for(deps.config, input.uri)
 	local ttl_seconds = (table_settings and table_settings.cache_ttl) or input.cache_ttl or ""
@@ -373,7 +378,8 @@ function request.make_context(input, deps)
 		data_generation = input.data_generation,
 		revision = deps.config.revision,
 		headers = request.make_headers(input, filter),
-		aggregate_path = request.aggregate_path(input, filter),
+		aggregate_path = aggregate_path,
+		aggregate_args = aggregate_args,
 		count = request.count_plan(input),
 		postgrest = input.postgrest,
 		cache_ttl = tostring(ttl_seconds),

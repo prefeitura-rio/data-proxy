@@ -12,7 +12,7 @@
 #}
 -- noqa: disable=CP02,LT05
 {% from "postgres/macros.sql" import ducklake_attach %}
-CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}(p_table text)
+CREATE OR REPLACE FUNCTION {{ schema }}.{{ function }}("table" text)
 RETURNS TABLE (path text, size_bytes bigint, delete_file text) AS $$
 BEGIN
 {{ ducklake_attach(metadata_schema, data_path) }}
@@ -20,7 +20,7 @@ BEGIN
   PERFORM duckdb.raw_query(
     format(
       'CREATE OR REPLACE VIEW dl_known_table AS SELECT table_name FROM duckdb_tables() WHERE database_name = ''dl_{{ metadata_schema }}'' AND table_name = %L',
-      p_table
+      "table"
     )
   );
 
@@ -33,7 +33,7 @@ BEGIN
   PERFORM duckdb.raw_query(
     format(
       'CREATE OR REPLACE VIEW dl_table_listing AS SELECT data_file, data_file_size_bytes, delete_file FROM ducklake_list_files(''dl_{{ metadata_schema }}'', %L)',
-      p_table
+      "table"
     )
   );
 

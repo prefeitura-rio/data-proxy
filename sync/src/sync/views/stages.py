@@ -1,28 +1,27 @@
 """Step functions for source view reconciliation."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from psycopg.rows import TupleRow
 from psycopg.sql import Identifier, Literal
 
-from sync.constants import CHANGES_FUNCTION_SUFFIX, PROTECTED_VIEW_NAMES
+from sync.constants import PROTECTED_VIEW_NAMES
 from sync.ducklake import data_path
 from sync.executor import Executor
 from sync.models import PartitionedTable, SyncConfig, TableConfig
+from sync.schema import schema as app_schema
 from sync.settings import settings
 from sync.sources.registry import sources
 from sync.types import PostgresParams
-from sync.utils import changes_function_name, destination_name
+from sync.utils import destination_name
 
 from .mappings import (
-    aggregate_function_mapping,
-    aggregate_function_name,
     boundary_view_mapping,
     column_types_from_duckdb,
     ducklake_function_mapping,
+    meta_mapping,
     serving_definition_signature,
     source_function_mapping,
-    table_changes_function_mapping,
     table_function_mapping,
 )
 
@@ -30,20 +29,23 @@ if TYPE_CHECKING:
     from sync.postgres import Postgres
 
 
+SCHEMA_FUNCTIONS: Final = {
+    "snapshot": "()",
+    "files": "(text)",
+    "agg": "(text)",
+    "hll": "(text, text, text, integer)",
+    "changes": "(text, bigint, bigint)",
+}
+
+
 def desired_functions(
     config: SyncConfig, schema_names: set[str] | None = None
 ) -> set[tuple[str, str]]:
-    """Return managed change-feed and snapshot functions for selected schemas."""
+    """Return the managed functions of the selected schemas, which are the same for each schema."""
     selected = set(config.schemas) if schema_names is None else schema_names
-    functions = {(schema_name, "dl_latest_snapshot") for schema_name in selected}
-    functions.update((schema_name, "dl_table_files") for schema_name in selected)
-    functions.update(
-        (schema_name, changes_function_name(table.table_name))
-        for schema_name, schema_config in config.schemas.items()
-        if schema_name in selected
-        for table in schema_config.tables
-    )
-    return functions
+    return {
+        (schema_name, name) for schema_name in selected for name in SCHEMA_FUNCTIONS
+    }
 
 
 def desired_views(
@@ -62,23 +64,13 @@ def desired_views(
 async def existing_functions(
     pg_conn: Postgres, schema_names: list[str], desired: set[tuple[str, str]]
 ) -> set[tuple[str, str]]:
-    """Return managed PostgreSQL functions in the configured schemas.
-
-    A change-feed name that PostgreSQL cut at 63 bytes lost its suffix, so a function that the configuration wants
-    counts as managed too.
-    """
+    """Return the managed functions that exist in the configured schemas."""
     rows = await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).query(
         "postgres/list_functions",
         mapping={"schemas": Literal(schema_names)},
         expect=tuple[str, str],
     )
-    return {
-        (schema, name)
-        for schema, name in rows
-        if name.endswith(CHANGES_FUNCTION_SUFFIX)
-        or name in {"dl_latest_snapshot", "dl_table_files"}
-        or (schema, name) in desired
-    }
+    return {(schema, name) for schema, name in rows if (schema, name) in desired}
 
 
 async def existing_views(
@@ -108,19 +100,14 @@ async def existing_view_signatures(
 async def drop_removed_functions(
     pg_conn: Postgres, removed: set[tuple[str, str]]
 ) -> None:
-    """Drop managed RPC functions no longer present in the configuration."""
+    """Drop the managed functions of a schema that leaves the configuration."""
     for schema_name, function_name in removed:
-        arguments = (
-            "(bigint, bigint)"
-            if function_name.endswith(CHANGES_FUNCTION_SUFFIX)
-            else "()"
-        )
         await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
             "postgres/drop_function",
             mapping={
                 "schema": Identifier(schema_name),
                 "function": Identifier(function_name),
-                "arguments": arguments,
+                "arguments": SCHEMA_FUNCTIONS[function_name],
             },
         )
 
@@ -135,11 +122,9 @@ async def drop_view_objects(
             "schema": Identifier(schema_name),
             "view": Identifier(view_name),
             "function": Identifier(f"{view_name}_fn"),
-            "aggregate_function": (
-                ""
-                if (aggregate := aggregate_function_name(view_name)) is None
-                else Identifier(aggregate)
-            ),
+            "app_schema": app_schema(),
+            "schema_name": Literal(schema_name),
+            "table_name": Literal(view_name),
             "helpers": [
                 Identifier(f"{view_name}_dl_fn"),
                 *[
@@ -159,27 +144,26 @@ async def drop_removed_views(pg_conn: Postgres, removed: set[tuple[str, str]]) -
             await drop_view_objects(pg_conn, schema_name, view_name)
 
 
-async def create_table_changes_function(
-    pg_conn: Postgres,
-    schema: str,
-    table: TableConfig,
-    columns: list[tuple[str, str]],
-    claim: str | None,
-) -> None:
-    """Create one typed DuckLake change-feed function."""
+async def create_schema_rpc(pg_conn: Postgres, schema: str) -> None:
+    """Create the wrappers that call the generic functions of the routing schema for one data schema."""
     await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
-        "postgres/create_table_changes_function",
-        mapping=table_changes_function_mapping(schema, table, columns, claim),
+        "postgres/create_schema_rpc",
+        mapping={
+            "schema": Identifier(schema),
+            "schema_literal": Literal(schema),
+            "app_schema": app_schema(),
+            "user_role": Identifier(settings.AUTH_USER_ROLE),
+        },
     )
 
 
-async def create_current_snapshot_function(pg_conn: Postgres, schema: str) -> None:
+async def create_snapshot(pg_conn: Postgres, schema: str) -> None:
     """Create the schema-scoped current snapshot function."""
     await Executor[PostgresParams, list[TupleRow]](conn=pg_conn).execute(
-        "postgres/create_current_snapshot_function",
+        "postgres/create_snapshot",
         mapping={
             "schema": Identifier(schema),
-            "function": Identifier("dl_latest_snapshot"),
+            "function": Identifier("snapshot"),
             "metadata_schema": schema,
             "data_path": data_path(schema),
             "user_role": Identifier(settings.AUTH_USER_ROLE),
@@ -193,7 +177,7 @@ async def create_table_files_function(pg_conn: Postgres, schema: str) -> None:
         "postgres/create_table_files_function",
         mapping={
             "schema": Identifier(schema),
-            "function": Identifier("dl_table_files"),
+            "function": Identifier("files"),
             "metadata_schema": schema,
             "data_path": data_path(schema),
         },
@@ -251,19 +235,18 @@ async def create_table_function(
     )
 
 
-async def create_aggregate_function(
+async def write_meta(
     executor: Executor[PostgresParams, list[TupleRow]],
     schema: str,
     table: TableConfig,
     columns: list[tuple[str, str]],
     claim: str | None,
 ) -> None:
-    """Create the function that runs the aggregate of a request in DuckDB, if the table name allows it."""
-    mapping = aggregate_function_mapping(schema, table, columns, claim)
-    if mapping is not None:
-        await executor.execute(
-            "postgres/views/create_aggregate_function", mapping=mapping
-        )
+    """Write the facts that the generic functions read for this table."""
+    await executor.execute(
+        "postgres/write_meta",
+        mapping=meta_mapping(schema, table, columns, claim),
+    )
 
 
 async def create_boundary_view(
@@ -299,12 +282,9 @@ async def create_table_views(
     executor: Executor[PostgresParams, list[TupleRow]] = Executor(conn=pg_conn)
 
     await drop_view_objects(pg_conn, schema, table.table_name)
-    await drop_removed_functions(
-        pg_conn, {(schema, changes_function_name(table.table_name))}
-    )
     await create_source_helpers(executor, schema, table, columns)
     await create_table_function(executor, schema, table, columns, claim)
-    await create_aggregate_function(executor, schema, table, columns, claim)
+    await write_meta(executor, schema, table, columns, claim)
     await create_boundary_view(executor, schema, table, columns)
 
     await executor.execute(
@@ -318,7 +298,6 @@ async def create_table_views(
         },
     )
     await grant_view_select(pg_conn, schema, table.table_name)
-    await create_table_changes_function(pg_conn, schema, table, columns, claim)
 
 
 async def reconcile_schema(
@@ -341,20 +320,17 @@ async def reconcile_schema(
             schema_name, table, columns, schema_config.claim
         )
         key = (schema_name, table.table_name)
-        change_function = (schema_name, changes_function_name(table.table_name))
-        if signatures.get(key) == signature and change_function in functions:
+        if signatures.get(key) == signature:
             continue
         await create_table_views(
             pg_conn, schema_name, table, columns, schema_config.claim
         )
         changed = True
 
-    schema_functions = {
-        (schema_name, "dl_latest_snapshot"),
-        (schema_name, "dl_table_files"),
-    }
-    if changed or not schema_functions <= functions:
-        await create_current_snapshot_function(pg_conn, schema_name)
+    if changed or not {(schema_name, name) for name in SCHEMA_FUNCTIONS} <= functions:
+        await create_snapshot(pg_conn, schema_name)
         await create_table_files_function(pg_conn, schema_name)
+        await create_schema_rpc(pg_conn, schema_name)
+        changed = True
 
     return changed

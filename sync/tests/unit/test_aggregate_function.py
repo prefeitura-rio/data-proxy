@@ -1,9 +1,11 @@
 """Tests for the function that runs the aggregate of a request inside DuckDB."""
 
 import json
+from decimal import Decimal
 
 import psycopg
 import pytest
+from pydantic import TypeAdapter
 
 from sync.models import TableState
 from tests.constants import FULL, ROUTED_TABLE
@@ -13,6 +15,7 @@ from tests.helpers.routing import (
     aggregate,
     by,
     call_aggregate_function,
+    fetch_all_rows,
     grant_everything,
     grant_unit,
     insert_access_policy,
@@ -78,15 +81,8 @@ class TestAggregateResults:
             ),
             pytest.param(aggregate(total()), [{"n": 47}], id="sum-without-a-group"),
             pytest.param(
-                aggregate(
-                    {"fn": "avg", "column": "ratio", "alias": "media"}, group=["grp"]
-                ),
-                [{"grp": "a", "media": 2.0}, {"grp": "b", "media": 4.0}],
-                id="average-of-a-decimal-column-that-postgresql-sees-as-text",
-            ),
-            pytest.param(
-                aggregate({"fn": "sum", "column": "ratio", "alias": "n"}),
-                [{"n": 14.0}],
+                aggregate({"fn": "sum", "column": "amount", "alias": "n"}),
+                [{"n": 17.6}],
                 id="sum-of-a-decimal-column",
             ),
             pytest.param(
@@ -96,13 +92,6 @@ class TestAggregateResults:
                 ),
                 [{"low": 0.5, "high": 6.0}],
                 id="min-and-max-of-a-decimal-column",
-            ),
-            pytest.param(
-                aggregate(
-                    {"fn": "avg", "column": "qty", "alias": "media"}, group=["grp"]
-                ),
-                [{"grp": "a", "media": 11 / 3}, {"grp": "b", "media": 18.0}],
-                id="average-of-a-whole-number-column-ignores-null",
             ),
             pytest.param(
                 aggregate(total("numerador"), {"fn": "count", "alias": "denominador"}),
@@ -603,17 +592,18 @@ class TestAggregateRowRules:
 
         assert answer == [{"n": 47}]
 
-    async def test_gives_an_empty_list_for_a_schema_outside_the_claim(
+    async def test_refuses_a_schema_outside_the_claim(
         self, ruled_aggregate: Postgres
     ) -> None:
-        """A token for another schema gets no row."""
+        """A token for another schema gets the refusal that an unknown table gets, so it learns nothing about the table."""
         await grant_unit(ruled_aggregate, "u")
 
-        answer, _ = await call_aggregate_function(
-            ruled_aggregate, aggregate(total()), schemas="other"
-        )
+        with pytest.raises(psycopg.errors.InsufficientPrivilege) as error:
+            await call_aggregate_function(
+                ruled_aggregate, aggregate(total()), schemas="other"
+            )
 
-        assert answer == []
+        assert "no access to this table" in str(error.value)
 
     @pytest.mark.parametrize("role", ["dp_policy", "dp_ghost", ""])
     async def test_refuses_a_role_without_read_api(
@@ -673,6 +663,22 @@ class TestAggregateFallback:
                 id="min-of-text",
             ),
             pytest.param(
+                aggregate({"fn": "sum", "column": "ratio", "alias": "n"}),
+                id="sum-of-a-double-differs-from-postgresql-in-the-last-digits",
+            ),
+            pytest.param(
+                aggregate({"fn": "avg", "column": "ratio", "alias": "n"}),
+                id="average-of-a-double-differs-from-postgresql-in-the-last-digits",
+            ),
+            pytest.param(
+                aggregate({"fn": "avg", "column": "stamp", "alias": "n"}),
+                id="average-of-a-timestamp",
+            ),
+            pytest.param(
+                aggregate({"fn": "sum", "column": "stamp", "alias": "n"}),
+                id="sum-of-a-timestamp",
+            ),
+            pytest.param(
                 aggregate({"fn": "sum", "column": "nope", "alias": "n"}),
                 id="unknown-column",
             ),
@@ -689,6 +695,22 @@ class TestAggregateFallback:
             ),
             pytest.param(
                 aggregate(total(), group=["tags"]), id="group-by-a-json-column"
+            ),
+            pytest.param(
+                aggregate({"fn": "count", "column": "tags", "alias": "n"}),
+                id="count-of-a-json-column",
+            ),
+            pytest.param(
+                aggregate({"fn": "sum", "column": "tags", "alias": "n"}),
+                id="sum-of-a-json-column",
+            ),
+            pytest.param(
+                aggregate({"fn": "min", "column": "tags", "alias": "n"}),
+                id="min-of-a-json-column",
+            ),
+            pytest.param(
+                aggregate({"fn": "max", "column": "tags", "alias": "n"}),
+                id="max-of-a-json-column",
             ),
             pytest.param(
                 aggregate(total(), group=["ratio"]), id="group-by-a-decimal-column"
@@ -905,3 +927,340 @@ class TestPlanAggregateParts:
             )
             == expected
         )
+
+
+VALUES = (
+    "(VALUES ('a', 1, 1.10), ('a', 2, 2.20), ('b', 4, 3.30), ('a', 8, 4.40),"
+    " ('b', NULL, NULL), ('b', 32, 6.60)) AS v(grp, qty, amount)"
+)
+
+
+@pytest.mark.postgres
+class TestAggregateExactAverage:
+    """The average is the sum divided by the count in PostgreSQL, so every digit equals the average of PostgreSQL."""
+
+    @pytest.mark.parametrize("column", ["qty", "amount"])
+    async def test_gives_the_average_that_postgresql_gives_for_each_group(
+        self, installed: Postgres, column: str
+    ) -> None:
+        """Compare every digit with avg() over the same values, for a whole number and a decimal."""
+        expected = await fetch_all_rows(
+            installed,
+            f"SELECT grp, avg({column}) AS media FROM {VALUES} GROUP BY grp",
+        )
+
+        answer, _ = await call_aggregate_function(
+            installed,
+            aggregate({"fn": "avg", "column": column, "alias": "media"}, group=["grp"]),
+            exact=True,
+        )
+
+        assert ordered(answer) == ordered(expected)
+
+    @pytest.mark.parametrize("column", ["qty", "amount"])
+    async def test_gives_the_average_of_every_row_without_a_group(
+        self, installed: Postgres, column: str
+    ) -> None:
+        """Skip the null, as avg() does."""
+        expected = await fetch_all_rows(
+            installed, f"SELECT avg({column}) AS media FROM {VALUES}"
+        )
+
+        answer, _ = await call_aggregate_function(
+            installed,
+            aggregate({"fn": "avg", "column": column, "alias": "media"}),
+            exact=True,
+        )
+
+        assert answer == expected
+
+    async def test_gives_null_for_a_group_without_a_value(
+        self, installed: Postgres
+    ) -> None:
+        """A group where every value is null has no average, and a row of nulls is not zero."""
+        document = aggregate(
+            {"fn": "avg", "column": "qty", "alias": "media"}, group=["grp"]
+        ) | {
+            "where": {
+                "kind": "comparison",
+                "column": "unit_id",
+                "operator": "eq",
+                "negated": False,
+                "value": "u2",
+            }
+        }
+
+        answer, _ = await call_aggregate_function(installed, document, exact=True)
+
+        assert ordered(answer) == ordered(
+            [{"grp": "a", "media": Decimal(8)}, {"grp": "b", "media": None}]
+        )
+
+    async def test_gives_an_empty_list_for_the_average_of_no_row(
+        self, installed: Postgres
+    ) -> None:
+        """No row gives no group, as the table does."""
+        document = aggregate(
+            {"fn": "avg", "column": "qty", "alias": "media"}, group=["grp"]
+        ) | {
+            "where": {
+                "kind": "comparison",
+                "column": "unit_id",
+                "operator": "eq",
+                "negated": False,
+                "value": "nobody",
+            }
+        }
+
+        answer, _ = await call_aggregate_function(installed, document, exact=True)
+
+        assert answer == []
+
+    async def test_gives_the_average_next_to_other_items_under_the_names_of_the_request(
+        self, installed: Postgres
+    ) -> None:
+        """Keep the aliases, and leave no helper column in the answer."""
+        answer, _ = await call_aggregate_function(
+            installed,
+            aggregate(
+                {"fn": "avg", "column": "qty", "alias": "media"},
+                {"fn": "sum", "column": "qty", "alias": "total"},
+                {"fn": "count", "alias": "linhas"},
+                group=["grp"],
+            ),
+            exact=True,
+        )
+
+        rows = TypeAdapter(list[dict[str, object]]).validate_python(answer)
+        assert {tuple(sorted(row)) for row in rows} == {
+            ("grp", "linhas", "media", "total")
+        }
+
+    async def test_orders_and_cuts_the_groups_that_hold_an_average(
+        self, installed: Postgres
+    ) -> None:
+        """The order and the limit of a group column still apply."""
+        answer, _ = await call_aggregate_function(
+            installed,
+            aggregate(
+                {"fn": "avg", "column": "qty", "alias": "media"},
+                group=["grp"],
+                order=[by("grp", descending=True)],
+                limit=1,
+            ),
+            exact=True,
+        )
+
+        rows = TypeAdapter(list[dict[str, object]]).validate_python(answer)
+        assert [row["grp"] for row in rows] == ["b"]
+
+
+@pytest.mark.postgres
+class TestAggregateTimestamps:
+    """The minimum and the maximum of a timestamp are the values that PostgreSQL gives, to the microsecond."""
+
+    async def test_gives_the_minimum_and_the_maximum_of_a_timestamp(
+        self, installed: Postgres
+    ) -> None:
+        """Compare with min() and max() over a timestamp column, as JSON."""
+        expected = await scalar(
+            installed,
+            """
+            SELECT json_build_object('low', min(t), 'high', max(t))::text
+            FROM (VALUES
+                (TIMESTAMP '2026-01-01 00:00:00.000001'),
+                ('2026-01-01 00:00:10'), ('2026-01-01 00:00:20.123456'),
+                ('2026-01-01 00:00:30'), (NULL), ('2026-01-01 00:00:40')
+            ) AS v(t)
+            """,
+        )
+
+        answer, _ = await call_aggregate_function(
+            installed,
+            aggregate(
+                {"fn": "min", "column": "stamp", "alias": "low"},
+                {"fn": "max", "column": "stamp", "alias": "high"},
+            ),
+        )
+
+        assert answer == [json.loads(str(expected))]
+
+    async def test_keeps_the_microsecond_of_the_minimum(
+        self, installed: Postgres
+    ) -> None:
+        """A timestamp that differs in the last digit is not the same value."""
+        answer, _ = await call_aggregate_function(
+            installed, aggregate({"fn": "min", "column": "stamp", "alias": "low"})
+        )
+
+        assert answer == [{"low": "2026-01-01T00:00:00.000001"}]
+
+    async def test_gives_the_maximum_of_a_timestamp_by_group(
+        self, installed: Postgres
+    ) -> None:
+        """Group by a text column and read the latest time of each group."""
+        answer, _ = await call_aggregate_function(
+            installed,
+            aggregate({"fn": "max", "column": "stamp", "alias": "high"}, group=["grp"]),
+        )
+
+        assert ordered(answer) == ordered(
+            [
+                {"grp": "a", "high": "2026-01-01T00:00:30"},
+                {"grp": "b", "high": "2026-01-01T00:00:40"},
+            ]
+        )
+
+
+@pytest.mark.postgres
+class TestAggregateOrderInDuckDB:
+    """A group column that sorts the same way in both engines is ordered and cut in DuckDB, so a table with millions of groups does not send them all to PostgreSQL."""
+
+    @pytest.mark.parametrize(
+        ("order", "expected"),
+        [
+            pytest.param(
+                [by("qty")],
+                "qty ASC NULLS LAST",
+                id="whole-number-ascending-puts-nulls-last",
+            ),
+            pytest.param(
+                [by("qty", descending=True)],
+                "qty DESC NULLS FIRST",
+                id="whole-number-descending-puts-nulls-first",
+            ),
+            pytest.param(
+                [by("qty", nulls="first")],
+                "qty ASC NULLS FIRST",
+                id="nulls-first-as-asked",
+            ),
+            pytest.param(
+                [by("day", descending=True), by("flag"), by("qty")],
+                "day DESC NULLS FIRST, flag ASC NULLS LAST, qty ASC NULLS LAST",
+                id="date-flag-and-whole-number",
+            ),
+        ],
+    )
+    async def test_orders_in_duckdb_with_the_nulls_that_postgresql_gives(
+        self, installed: Postgres, order: list[dict[str, object]], expected: str
+    ) -> None:
+        """PostgreSQL ends an ascending order with the nulls and starts a descending one with them. DuckDB is asked for the same."""
+        plan = await scalar(
+            installed,
+            "SELECT data_proxy.plan_aggregate_duckdb_order(%s::jsonb, %s::jsonb)",
+            json.dumps(
+                {
+                    "group": [
+                        {"column": name, "alias": name}
+                        for name in ("qty", "day", "flag")
+                        if any(entry["column"] == name for entry in order)
+                    ],
+                    "order": order,
+                }
+            ),
+            json.dumps(
+                {
+                    "names": ["qty", "day", "flag", "label"],
+                    "kinds": ["bigint", "date", "boolean", "text"],
+                }
+            ),
+        )
+
+        assert plan == expected
+
+    @pytest.mark.parametrize(
+        "order",
+        [
+            pytest.param([by("label")], id="text-sorts-by-collation"),
+            pytest.param([by("qty"), by("label")], id="one-text-column-among-numbers"),
+            pytest.param([by("ratio")], id="double-reaches-postgresql-as-a-double"),
+            pytest.param([by("tags")], id="json"),
+            pytest.param([by("nope")], id="unknown-column"),
+            pytest.param([], id="no-order"),
+            pytest.param(
+                [by("qty")], id="the-order-misses-a-group-column-so-groups-can-tie"
+            ),
+        ],
+    )
+    async def test_keeps_the_order_in_postgresql_for_a_column_that_sorts_differently(
+        self, installed: Postgres, order: list[dict[str, object]]
+    ) -> None:
+        """Without a DuckDB order, PostgreSQL orders and cuts, as before."""
+        plan = await scalar(
+            installed,
+            "SELECT data_proxy.plan_aggregate_duckdb_order(%s::jsonb, %s::jsonb)",
+            json.dumps(
+                {
+                    "group": [
+                        {"column": "label", "alias": "label"},
+                        {"column": "qty", "alias": "qty"},
+                    ],
+                    "order": order,
+                }
+            ),
+            json.dumps(
+                {
+                    "names": ["qty", "label", "ratio", "tags"],
+                    "kinds": ["bigint", "text", "double precision", "text"],
+                }
+            ),
+        )
+
+        assert plan is None
+
+
+@pytest.mark.postgres
+class TestAggregatePageFromDuckDB:
+    """The page that DuckDB cuts equals the page that PostgreSQL cuts from every group."""
+
+    @pytest.mark.parametrize("descending", [False, True])
+    @pytest.mark.parametrize("nulls", [None, "first", "last"])
+    @pytest.mark.parametrize(
+        ("limit", "offset"),
+        [
+            pytest.param(None, None, id="every-group"),
+            pytest.param(2, None, id="limit"),
+            pytest.param(2, 2, id="limit-and-offset"),
+            pytest.param(None, 3, id="offset-only"),
+            pytest.param(1, 5, id="the-last-group"),
+            pytest.param(3, 10, id="offset-past-the-end"),
+        ],
+    )
+    async def test_gives_the_page_that_postgresql_gives(
+        self,
+        installed: Postgres,
+        descending: bool,
+        nulls: str | None,
+        limit: int | None,
+        offset: int | None,
+    ) -> None:
+        """Order by qty, which has a null group, and compare with the order of PostgreSQL over the same groups."""
+        document = aggregate(
+            {"fn": "count", "alias": "n"},
+            group=["qty"],
+            order=[by("qty", descending=descending, nulls=nulls)],
+            limit=limit,
+            offset=offset,
+        )
+        direction = "DESC" if descending else "ASC"
+        null_order = (
+            f" NULLS {nulls.upper()}"
+            if nulls is not None
+            else (" NULLS FIRST" if descending else " NULLS LAST")
+        )
+        skip = 0 if offset is None else offset
+        take = "ALL" if limit is None else str(limit)
+        expected = await scalar(
+            installed,
+            f"SELECT coalesce(json_agg(q ORDER BY rn), '[]')::text FROM ("
+            f"SELECT qty, row_number() OVER (ORDER BY qty {direction}{null_order}) AS rn "
+            f"FROM (VALUES (1),(2),(4),(8),(NULL::int),(32)) AS v(qty) "
+            f"ORDER BY qty {direction}{null_order} LIMIT {take} OFFSET {skip}) q",
+        )
+
+        answer, _ = await call_aggregate_function(installed, document)
+
+        assert isinstance(answer, list)
+        assert [row["qty"] for row in answer] == [
+            row["qty"] for row in json.loads(str(expected))
+        ]

@@ -91,11 +91,12 @@ local function ask_aggregate(context, sender)
 	if context.aggregate_path == nil then return nil end
 
 	local aggregate = tablex.copy(context)
-	aggregate.uri, aggregate.args = context.aggregate_path, ""
+	aggregate.uri, aggregate.args = context.aggregate_path, context.aggregate_args
 
 	local response = sender(aggregate, context.postgrest)
 	if response and constants.http.answer_statuses[response.status] then
 		if stringx.strip(response.body) ~= constants.aggregate.empty_body then return response end
+		log.write(ngx.INFO, "aggregate-declined", context)
 		return nil
 	end
 
@@ -133,7 +134,7 @@ local function ask_count(context, sender)
 	if context.count == nil then return nil end
 
 	local count = tablex.copy(context)
-	count.uri, count.args, count.headers = context.count.path, "", context.count.count_headers
+	count.uri, count.args, count.headers = context.count.path, context.count.args, context.count.count_headers
 
 	local response = sender(count, context.postgrest)
 	local total, snapshot = read_total(response)

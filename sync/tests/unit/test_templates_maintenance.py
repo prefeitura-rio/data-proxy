@@ -57,6 +57,9 @@ class TestMaintenanceTemplates:
             psql_script(
                 migration_sql("console", "00013_maintenance.sql", schema=schema),
                 migration_sql("console", "00023_function_names.sql", schema=schema),
+                migration_sql("console", "00024_meta.sql", schema=schema),
+                f"INSERT INTO {schema}.meta (schema_name, table_name, source_table, scope_path, claim_setting, data_path, view, max_rows, columns, rls_mappings, fallbacks) "
+                f"SELECT '{schema}', t, t, t, 'c', 'p', 'v', 1, '[]', '[]', '[]' FROM unnest(ARRAY['stale', 'kept']) AS t",
                 render_template(
                     "postgres/create_view",
                     {"schema": target, "view": Identifier("kept")},
@@ -70,16 +73,6 @@ class TestMaintenanceTemplates:
                 render_template(
                     "postgres/create_stub_function",
                     {"schema": target, "function": Identifier("stale_fn")},
-                    root=TEST_SQL_DIR,
-                ),
-                render_template(
-                    "postgres/create_stub_function",
-                    {"schema": target, "function": Identifier("stale_agg")},
-                    root=TEST_SQL_DIR,
-                ),
-                render_template(
-                    "postgres/create_stub_function",
-                    {"schema": target, "function": Identifier("kept_agg")},
                     root=TEST_SQL_DIR,
                 ),
                 helm_sql(
@@ -98,9 +91,11 @@ class TestMaintenanceTemplates:
             await relation_exists(postgres, schema, "kept"),
             await relation_exists(postgres, schema, "stale"),
             await function_exists(postgres, schema, "stale_fn()"),
-            await function_exists(postgres, schema, "stale_agg()"),
-            await function_exists(postgres, schema, "kept_agg()"),
-        ] == [True, False, False, False, True]
+            await scalar(
+                postgres,
+                f"SELECT array_agg(table_name ORDER BY table_name) FROM {schema}.meta",
+            ),
+        ] == [True, False, False, ["kept"]]
 
     async def test_prune_access_log_keeps_only_recent_rows(
         self, postgres: Postgres, psql: Psql
@@ -518,15 +513,17 @@ class TestInstalledObjects:
             await function_exists(
                 postgres, schema, "people_dl_fn(text, text, boolean, text[], text)"
             ),
-            await function_exists(postgres, schema, "people_dl_chg(bigint, bigint)"),
-            await function_exists(postgres, schema, "dl_latest_snapshot()"),
+            await function_exists(postgres, schema, "changes(text, bigint, bigint)"),
+            await function_exists(postgres, schema, "agg(text)"),
+            await function_exists(postgres, schema, "hll(text, text, text, integer)"),
+            await function_exists(postgres, schema, "snapshot()"),
             await function_exists(
                 postgres,
                 settings.DBOS_APP_SCHEMA,
                 "plan_sources(text, text[], boolean)",
             ),
             await function_exists(postgres, schema, "people_bq_fn(text, text)"),
-        ] == [True, True, True, True, True, True, False]
+        ] == [True, True, True, True, True, True, True, True, False]
 
     async def test_reconcile_creates_the_bigquery_helper_of_a_fallback(
         self, postgres: Postgres, monkeypatch: pytest.MonkeyPatch
@@ -608,7 +605,7 @@ class TestInstalledObjects:
     async def test_reconcile_of_a_table_with_a_long_name_needs_no_reload_the_second_time(
         self, postgres: Postgres, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """PostgreSQL cuts the change-feed name at 63 bytes, and the second reconcile must still find it."""
+        """A long table name needs no function of its own, so the second reconcile finds nothing to change."""
         schema = postgres.namespace.schema
         config = SyncConfig(
             schemas={
@@ -686,5 +683,10 @@ class TestInstalledObjects:
             await function_exists(
                 postgres, schema, "people_dl_fn(text, text, boolean, text[], text)"
             ),
-            await function_exists(postgres, schema, "people_dl_chg(bigint, bigint)"),
-        ] == [False, False, False, False]
+            await function_exists(postgres, schema, "changes(text, bigint, bigint)"),
+            await scalar(
+                postgres,
+                f"SELECT count(*) FROM {settings.DBOS_APP_SCHEMA}.meta WHERE schema_name = %s",
+                schema,
+            ),
+        ] == [False, False, False, True, 0]

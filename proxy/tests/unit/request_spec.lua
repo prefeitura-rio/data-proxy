@@ -140,18 +140,22 @@ check("request.make_headers with an aggregate", function(case) return request.ma
 	},
 })
 
-check("request.aggregate_path", function(case) return request.aggregate_path(case.input, case.filter) end, {
+check("request.aggregate_call", function(case)
+	local path, args = request.aggregate_call(case.input, case.filter)
+	if path == nil then return nil end
+	return path .. "?" .. args
+end, {
 	{
 		name = "gives the function of the table for an aggregate",
 		input = { method = "GET", uri = "/people", headers_in = {} },
 		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
-		expected = "/rpc/people_agg",
+		expected = "/rpc/agg?table=people",
 	},
 	{
 		name = "gives the function for an Accept header of JSON",
 		input = { method = "GET", uri = "/people", headers_in = { Accept = "application/json; charset=utf-8" } },
 		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
-		expected = "/rpc/people_agg",
+		expected = "/rpc/agg?table=people",
 	},
 	{
 		name = "gives nothing without a filter",
@@ -199,19 +203,19 @@ check("request.aggregate_path", function(case) return request.aggregate_path(cas
 		name = "gives nothing for a path that is not a table name",
 		input = { method = "GET", uri = "/rpc", headers_in = {} },
 		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
-		expected = "/rpc/rpc_agg",
+		expected = "/rpc/agg?table=rpc",
 	},
 	{
-		name = "gives nothing when the name of the function is longer than PostgreSQL keeps",
-		input = { method = "GET", uri = "/" .. string.rep("a", 60), headers_in = {} },
+		name = "gives the function for a table whose name is as long as PostgreSQL allows",
+		input = { method = "GET", uri = "/" .. string.rep("a", 63), headers_in = {} },
+		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
+		expected = "/rpc/agg?table=" .. string.rep("a", 63),
+	},
+	{
+		name = "gives nothing for a name that holds a character outside a table name",
+		input = { method = "GET", uri = "/people%3Bdrop", headers_in = {} },
 		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
 		expected = helpers.NULL,
-	},
-	{
-		name = "gives the function for the longest name that fits",
-		input = { method = "GET", uri = "/" .. string.rep("a", 59), headers_in = {} },
-		filter = { aggregate = { items = { { fn = "count", alias = "count" } } } },
-		expected = "/rpc/" .. string.rep("a", 59) .. "_agg",
 	},
 })
 
@@ -318,7 +322,7 @@ describe("request.count_plan", function()
 
 	it(
 		"sends the count to the aggregate function of the table",
-		function() assert.same("/rpc/people_agg", plan.path) end
+		function() assert.same({ "/rpc/agg", "table=people" }, { plan.path, plan.args }) end
 	)
 
 	it("counts with the filter of the page and no limit, order or columns", function()
@@ -472,8 +476,8 @@ check("request.make_context", function(case) return make_context(case.input)[cas
 	{
 		name = "sets the aggregate path for an aggregate query",
 		input = { method = "GET", uri = "/people", args = "select=a,n:b.sum()", headers_in = {} },
-		field = "aggregate_path",
-		expected = "/rpc/people_agg",
+		field = "aggregate_args",
+		expected = "table=people",
 	},
 	{
 		name = "sets no aggregate path for a query without an aggregate",

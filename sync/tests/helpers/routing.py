@@ -1,9 +1,12 @@
 """Install the serving functions and the access policy, and call them."""
 
 import json
+from decimal import Decimal
+from typing import Final
 
 from psycopg.rows import TupleRow
-from psycopg.sql import Identifier, Literal
+from psycopg.sql import SQL, Identifier, Literal
+from psycopg.types.json import Jsonb
 from pydantic import TypeAdapter
 
 from sync.executor import Executor
@@ -84,7 +87,7 @@ async def install_table_function(
     rules: list[dict[str, str]] | None = None,
 ) -> None:
     """Render the per-table function over the stub source helpers. A table without row rules (`has_rls=False`) has no unit mapping."""
-    from sync.views.mappings import function_columns
+    from sync.views.mappings import function_columns, rls_mappings_json
 
     columns = function_columns(
         [("source", "VARCHAR"), ("arg1", "VARCHAR"), ("arg2", "VARCHAR")],
@@ -97,22 +100,28 @@ async def install_table_function(
             "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
             "function": Identifier("t_fn"),
             "dl_function": Identifier("t_dl_fn"),
-            "dl_view": "dl_t",
+            "duckdb_view": "dl_t",
             "columns": columns,
             "claim_setting": "app.claim_sub",
             "has_rls": str(has_rls).lower(),
-            "rls_mappings": rules
-            if rules is not None
-            else [
-                {
-                    "column": "unit_id",
-                    "unit_type": "unit",
-                    "duckdb_type": rls_type,
-                    "group": "",
-                }
-            ]
-            if has_rls
-            else [],
+            "rls_mappings": Literal(
+                json.dumps(
+                    rls_mappings_json(
+                        rules
+                        if rules is not None
+                        else [
+                            {
+                                "column": "unit_id",
+                                "unit_type": "unit",
+                                "duckdb_type": rls_type,
+                                "group": "",
+                            }
+                        ]
+                        if has_rls
+                        else []
+                    )
+                )
+            ),
             "source_table": Literal(ROUTED_TABLE),
             "fallbacks": [
                 {
@@ -131,6 +140,53 @@ async def install_table_function(
     )
 
 
+STUB_COLUMNS: Final = [
+    ("unit_id", "VARCHAR"),
+    ("grp", "VARCHAR"),
+    ("qty", "BIGINT"),
+    ("day", "DATE"),
+    ("flag", "BOOLEAN"),
+    ("tags", "JSON"),
+    ("ratio", "DOUBLE"),
+    ("label", "VARCHAR"),
+    ("amount", "DECIMAL(18,2)"),
+    ("stamp", "TIMESTAMP"),
+]
+
+
+async def install_view_over_stub(pg: Postgres) -> None:
+    """Render the table function and the boundary view that the sync stage creates, over the rows of the stub helper.
+
+    The view is the object that PostgREST reads, so a test that reads it sees the types that a client sees.
+    """
+    from sync.views.mappings import boundary_view_mapping, function_columns
+
+    await Executor[PostgresParams, list[TupleRow]](conn=pg.backend).execute(
+        "postgres/views/create_function",
+        mapping={
+            "schema": pg.namespace.identifier,
+            "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
+            "function": Identifier("t_fn"),
+            "dl_function": Identifier("t_dl_fn"),
+            "duckdb_view": "dl_t",
+            "columns": function_columns(STUB_COLUMNS, raw_json=True),
+            "claim_setting": "app.claim_sub",
+            "rls_mappings": Literal("[]"),
+            "source_table": Literal(ROUTED_TABLE),
+            "fallbacks": [],
+            "user_role": Identifier(settings.AUTH_USER_ROLE),
+            "schema_literal": Literal(pg.namespace.schema),
+            "scope_path": Literal(scope_path(pg.namespace.schema, "t")),
+        },
+    )
+    await Executor[PostgresParams, list[TupleRow]](conn=pg.backend).execute(
+        "postgres/views/create_view",
+        mapping=boundary_view_mapping(
+            pg.namespace.schema, "t_view", "t_fn", STUB_COLUMNS
+        ),
+    )
+
+
 async def install_aggregate_function(
     pg: Postgres,
     *,
@@ -139,53 +195,60 @@ async def install_aggregate_function(
     extra_columns: int = 0,
     max_rows: int = 1000,
 ) -> None:
-    """Render the aggregate function over the stub DuckLake helper.
+    """Write the row of `meta` for the stub table and create the wrappers of the test schema.
 
-    The extra columns exist only in the metadata of the function, to test a table with many columns.
+    The extra columns exist only in the metadata, to test a table with many columns.
     """
-    from sync.views.mappings import function_columns
+    from sync.views.mappings import meta_columns
 
-    columns = function_columns(
-        [
-            ("unit_id", "VARCHAR"),
-            ("grp", "VARCHAR"),
-            ("qty", "BIGINT"),
-            ("day", "DATE"),
-            ("flag", "BOOLEAN"),
-            ("tags", "JSON"),
-            ("ratio", "DOUBLE"),
-            ("label", "VARCHAR"),
-            *[(f"extra_{index}", "BIGINT") for index in range(extra_columns)],
-        ],
-        raw_json=True,
+    columns = [
+        ("unit_id", "VARCHAR"),
+        ("grp", "VARCHAR"),
+        ("qty", "BIGINT"),
+        ("day", "DATE"),
+        ("flag", "BOOLEAN"),
+        ("tags", "JSON"),
+        ("ratio", "DOUBLE"),
+        ("label", "VARCHAR"),
+        ("amount", "DECIMAL(18,2)"),
+        ("stamp", "TIMESTAMP"),
+        *[(f"extra_{index}", "BIGINT") for index in range(extra_columns)],
+    ]
+    mappings: list[dict[str, str | None]] = (
+        [{"col": "unit_id", "ut": "unit", "ty": "VARCHAR", "grp": None}]
+        if has_rls
+        else []
     )
+    await pg.connection.execute(
+        SQL(
+            "INSERT INTO {app}.meta (schema_name, table_name, source_table, scope_path, claim_setting, "
+            "data_path, view, max_rows, columns, rls_mappings, fallbacks) "
+            "VALUES (%s, 't', %s, %s, 'app.claim_sub', 's3://unused', 'dl_t', %s, %s, %s, %s) "
+            "ON CONFLICT (schema_name, table_name) DO UPDATE SET max_rows = excluded.max_rows, "
+            "columns = excluded.columns, rls_mappings = excluded.rls_mappings, fallbacks = excluded.fallbacks"
+        ).format(app=Identifier(settings.DBOS_APP_SCHEMA)),
+        (
+            pg.namespace.schema,
+            ROUTED_TABLE,
+            scope_path(pg.namespace.schema, "t"),
+            max_rows,
+            Jsonb(meta_columns(columns)),
+            Jsonb(mappings),
+            Jsonb([{"name": name} for name in fallbacks]),
+        ),
+    )
+    await install_schema_rpc(pg)
+
+
+async def install_schema_rpc(pg: Postgres) -> None:
+    """Create the wrappers agg, hll and changes in the test schema, as the sync does for a data schema."""
     await Executor[PostgresParams, list[TupleRow]](conn=pg.backend).execute(
-        "postgres/views/create_aggregate_function",
+        "postgres/create_schema_rpc",
         mapping={
             "schema": pg.namespace.identifier,
-            "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
-            "function": Identifier("t_agg"),
-            "dl_function": Identifier("t_dl_fn"),
-            "dl_view": "dl_t",
-            "columns": columns,
-            "claim_setting": "app.claim_sub",
-            "has_rls": str(has_rls).lower(),
-            "rls_mappings": [
-                {
-                    "column": "unit_id",
-                    "unit_type": "unit",
-                    "duckdb_type": "VARCHAR",
-                    "group": "",
-                }
-            ]
-            if has_rls
-            else [],
-            "source_table": Literal(ROUTED_TABLE),
-            "fallbacks": [{"name": name} for name in fallbacks],
-            "user_role": Identifier(settings.AUTH_USER_ROLE),
             "schema_literal": Literal(pg.namespace.schema),
-            "scope_path": Literal(scope_path(pg.namespace.schema, "t")),
-            "max_rows": str(max_rows),
+            "app_schema": Identifier(settings.DBOS_APP_SCHEMA),
+            "user_role": Identifier(settings.AUTH_USER_ROLE),
         },
     )
 
@@ -201,16 +264,23 @@ async def call_aggregate_function(
     document: dict[str, object] | None,
     role: str = "dp_api",
     schemas: str | None = None,
+    *,
+    exact: bool = False,
 ) -> tuple[object, dict[str, str]]:
     """Call the aggregate function as a token, with the filter header of the document.
 
     The first value is the parsed answer. It is None when the function answers null.
+    With `exact` a number with a fraction is a Decimal, so a test can compare every digit.
     """
     await act_as_token(pg, role, pg.namespace.schema if schemas is None else schemas)
     if document is not None:
         await set_request_headers(pg, {"x-ducklake-filter": json.dumps(document)})
-    raw = await scalar(pg, f"SELECT {pg.namespace.schema}.t_agg()::text")
-    answer = None if raw is None else json.loads(str(raw))
+    raw = await scalar(pg, f"SELECT {pg.namespace.schema}.agg('t')::text")
+    answer = (
+        None
+        if raw is None
+        else json.loads(str(raw), parse_float=Decimal if exact else float)
+    )
     return answer, await response_headers(pg)
 
 
@@ -324,15 +394,24 @@ def total(alias: str = "n") -> dict[str, str]:
 def ordered(rows: object) -> list[dict[str, object]]:
     """Sort the rows by their text, because the function gives the groups in no order."""
     assert isinstance(rows, list)
-    return sorted(rows, key=lambda row: json.dumps(row, sort_keys=True))
+    return sorted(rows, key=lambda row: json.dumps(row, sort_keys=True, default=str))
 
 
 async def add_files_function(pg: Postgres, schema: str) -> None:
     """Add a stand-in for the function that lists the files of a table, which the sync worker makes."""
     await pg.connection.execute(
         f"""
-        CREATE FUNCTION {schema}.dl_table_files(table_name text)
+        CREATE FUNCTION {schema}.files(table_name text)
         RETURNS TABLE (path text, size_bytes bigint, delete_file text)
         LANGUAGE sql AS $$ SELECT table_name || '.parquet', 10::bigint, NULL::text $$
         """.encode()
     )
+
+
+async def fetch_all_rows(pg: Postgres, sql: str) -> list[dict[str, object]]:
+    """Run a query and give its rows as dicts, with a number kept as it is, so the digits can be compared."""
+    cursor = await pg.connection.execute(sql.encode())
+    description = cursor.description
+    assert description is not None
+    names = [column.name for column in description]
+    return [dict(zip(names, row, strict=True)) for row in await cursor.fetchall()]

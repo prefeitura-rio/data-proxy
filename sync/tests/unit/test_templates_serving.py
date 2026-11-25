@@ -195,7 +195,7 @@ class TestServingFunctions:
             ),
         ],
     )
-    async def test_table_changes_function_returns_the_changed_rows(
+    async def test_change_feed_returns_the_changed_rows(
         self,
         ducklake_view: Postgres,
         start: int,
@@ -213,7 +213,7 @@ class TestServingFunctions:
 
         assert rows == expected
 
-    async def test_table_changes_function_returns_no_row_for_a_table_without_row_rules(
+    async def test_change_feed_returns_no_row_for_a_table_without_row_rules(
         self, ducklake_view: Postgres
     ) -> None:
         """A token that lists the schema, with no wildcard and no grant (*, *), reads no change."""
@@ -232,7 +232,7 @@ class TestServingFunctions:
 
         assert rows == []
 
-    async def test_table_changes_function_refuses_a_role_without_read_ducklake(
+    async def test_change_feed_refuses_a_role_without_read_ducklake(
         self, ducklake_view: Postgres
     ) -> None:
         """The api role reads data but not the change feed of the catalog."""
@@ -287,9 +287,7 @@ class TestServingFunctions:
         """Snapshot function returns the latest snapshot."""
         schema = ducklake_view.namespace.schema
 
-        assert (
-            await scalar(ducklake_view, f'SELECT "{schema}".dl_latest_snapshot()') == 2
-        )
+        assert await scalar(ducklake_view, f'SELECT "{schema}".snapshot()') == 2
 
     async def test_serving_functions_of_two_schemas_attach_one_catalog_each(
         self, ducklake_view: Postgres
@@ -302,10 +300,10 @@ class TestServingFunctions:
         )
         await ducklake_view.connection.execute(
             render_template(
-                "postgres/create_current_snapshot_function",
+                "postgres/create_snapshot",
                 {
                     "schema": ducklake_view.namespace.identifier,
-                    "function": Identifier("dl_latest_snapshot_other"),
+                    "function": Identifier("snapshot_other"),
                     "metadata_schema": other,
                     "data_path": f"s3://{settings.S3_BUCKET}/{settings.DUCKLAKE_CATALOG_PATH}/{other}",
                     "user_role": Identifier(settings.AUTH_USER_ROLE),
@@ -313,8 +311,8 @@ class TestServingFunctions:
             ).encode()
         )
 
-        await scalar(ducklake_view, f'SELECT "{schema}".dl_latest_snapshot()')
-        await scalar(ducklake_view, f'SELECT "{schema}".dl_latest_snapshot_other()')
+        await scalar(ducklake_view, f'SELECT "{schema}".snapshot()')
+        await scalar(ducklake_view, f'SELECT "{schema}".snapshot_other()')
 
         cursor = await ducklake_view.connection.execute(
             b"""
@@ -334,7 +332,7 @@ class TestServingFunctions:
         """A backend that serves for an hour returns its freed memory, so a heavy answer does not stay in its heap."""
         schema = ducklake_view.namespace.schema
 
-        await scalar(ducklake_view, f'SELECT "{schema}".dl_latest_snapshot()')
+        await scalar(ducklake_view, f'SELECT "{schema}".snapshot()')
 
         cursor = await ducklake_view.connection.execute(
             b"""
