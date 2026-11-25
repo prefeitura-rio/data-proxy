@@ -10,7 +10,7 @@ use ./lib.nu [
     wait-for-relation
 ]
 
-# Create the roles of the requests: the anonymous role, the roles of rbac.toml, the PostgREST login, and the signer login of the console
+# Create the roles of the requests: the anonymous role, the roles of rbac.toml, the PostgREST login, and the signer login of the console.
 def create-roles []: nothing -> nothing {
     let context = rbac-context
 
@@ -26,7 +26,7 @@ def create-roles []: nothing -> nothing {
     log info 'Request roles setup completed'
 }
 
-# Persist the DuckDB secrets. Only a superuser may write them, so this step relies on ops being one.
+# Persist DuckDB secrets with the privileged database role.
 def configure-ducklake []: nothing -> nothing {
     execute-sql postgres/configure_ducklake.sql {
         s3_key_id: $env.S3_ACCESS_KEY
@@ -39,7 +39,7 @@ def configure-ducklake []: nothing -> nothing {
     log info 'DuckLake S3 and catalog reader secret configuration completed'
 }
 
-# Load the rules of the rbac.toml file into the rbac schema that the migrations made, all in one transaction
+# Load the rules of the rbac.toml file into the rbac schema that the migrations made, all in one transaction.
 def load-rbac []: nothing -> nothing {
     let context = rbac-context
 
@@ -49,7 +49,7 @@ def load-rbac []: nothing -> nothing {
     log info $'RBAC rules loaded, file hash ($context.source_hash)'
 }
 
-# Stop the job when the roles of the database differ from the roles of the rbac.toml file
+# Stop the job when the roles of the database differ from the roles of the rbac.toml file.
 def verify-rbac []: nothing -> nothing {
     let context = rbac-context
 
@@ -61,8 +61,7 @@ def verify-rbac []: nothing -> nothing {
     log info 'Database roles match the rules file'
 }
 
-# Install the procedure that puts the workflows of terminated sync pods back in the queue.
-# The procedure takes the name of the application from the chart, so a migration can't make it.
+# Install the chart-configured procedure that requeues workflows from terminated sync pods.
 def install-recovery []: nothing -> nothing {
     execute-sql postgres/recover_orphaned_workflows.sql {
         schema: (app-schema)
@@ -72,7 +71,7 @@ def install-recovery []: nothing -> nothing {
     log info 'Workflow recovery procedure setup completed'
 }
 
-# Create the request roles. The migrations grant to them, so this runs before the migrations.
+# Create request roles before the migrations grant their privileges.
 def "main roles" []: nothing -> nothing {
     log info 'Request role setup started'
 
@@ -94,8 +93,7 @@ def "main rules" []: nothing -> nothing {
     log info 'Database initialization completed'
 }
 
-# Create the roles, wait for the migrations, and then load the rules.
-# The Job `migrate-db` waits for the roles and makes the schemas, the functions and the grants in between.
+# Create request roles, wait for migrations and load the configured rules.
 def main []: nothing -> nothing {
     main roles
     main rules

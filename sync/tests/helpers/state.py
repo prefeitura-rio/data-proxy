@@ -39,7 +39,6 @@ from sync.views import stages
 from sync.views.reconcile import reconcile_views
 from tests.fixtures.types import Postgres
 from tests.helpers.core import helm_sql
-from tests.helpers.routing import schema_scope_condition
 
 type Selection = RangeSelection | TimeRangeSelection | RemainderSelection
 
@@ -222,23 +221,16 @@ async def put_state(pg: Postgres, table: str, state: TableState | None) -> None:
 
 async def initialize_schemas(pg_conn: PgConnection, config: SyncConfig) -> bool:
     """Create each application schema, as the provision job does. The migrations made the shared objects."""
-    app_schema = Identifier(settings.DBOS_APP_SCHEMA)
-
     for schema_name in config.schemas:
-        schema = Identifier(schema_name)
-        for statement in (
-            helm_sql("create_schema", {"schema": schema}),
+        await pg_conn.connection.execute(
             helm_sql(
-                "setup_access_policy",
+                "create_schema",
                 {
-                    "schema": schema,
+                    "schema": Identifier(schema_name),
                     "user_role": Identifier(settings.AUTH_USER_ROLE),
-                    "scope": schema_scope_condition(schema_name),
-                    "app_schema": app_schema,
                 },
-            ),
-        ):
-            await pg_conn.connection.execute(statement.encode())
+            ).encode()
+        )
 
     await pg_conn.commit()
     return True

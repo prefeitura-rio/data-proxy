@@ -1,5 +1,5 @@
 import { consoleCall } from "./console.js";
-import { rowsOf, safeJson } from "./http.js";
+import { readRows, safeJson } from "./http.js";
 import { waitUntil } from "./wait.js";
 
 const FINAL_STATUSES = ["SUCCESS", "ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_EXCEEDED"];
@@ -10,8 +10,8 @@ const FINAL_STATUSES = ["SUCCESS", "ERROR", "CANCELLED", "MAX_RECOVERY_ATTEMPTS_
  * @param {string} [client="admin"]
  * @returns {Record<string, unknown> | undefined}
  */
-export function runOf(runId, client = "admin") {
-    return rowsOf(consoleCall("GET", `/runs?id=eq.${encodeURIComponent(runId)}`, client))[0];
+export function readRun(runId, client = "admin") {
+    return readRows(consoleCall("GET", `/runs?id=eq.${encodeURIComponent(runId)}`, client))[0];
 }
 
 /**
@@ -38,11 +38,11 @@ export function startRun(schemas, tables = [], client = "admin") {
 export function waitForRun(runId, timeoutSeconds = 600, client = "admin") {
     waitUntil(
         timeoutSeconds,
-        () => FINAL_STATUSES.includes(String(runOf(runId, client)?.status)),
+        () => FINAL_STATUSES.includes(String(readRun(runId, client)?.status)),
         `run ${runId} to finish`,
     );
 
-    const status = String(runOf(runId, client)?.status);
+    const status = String(readRun(runId, client)?.status);
 
     return FINAL_STATUSES.includes(status) ? status : undefined;
 }

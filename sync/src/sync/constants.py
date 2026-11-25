@@ -45,4 +45,3 @@ PUBLISH_QUEUE: Final = "publish"
 CACHE_GENERATION_PREFIX: Final = "cache:generation:"
 
 MAX_IDENTIFIER_BYTES: Final = 63
-AGGREGATE_FUNCTION_SUFFIX: Final = "_aggregate"

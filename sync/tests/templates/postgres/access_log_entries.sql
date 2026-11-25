@@ -1,10 +1,8 @@
 {#
 {
   "kind": "template",
-  "description": "Select access-log rows in change order.",
-  "inputs": {
-    "schema": "SQL-safe PostgreSQL schema identifier."
-  }
+  "description": "Select the rows of access.log in change order.",
+  "inputs": {}
 }
 #}
 SELECT
@@ -12,5 +10,5 @@ SELECT
     unit_type,
     unit_id,
     action
-FROM {{ schema }}.access_log
+FROM access.log
 ORDER BY changed_at

@@ -17,9 +17,3 @@ The history doesn't record a rule that the database deletes together with its ta
 It returns one row for each schema, table and rule with the action `insert`, `update`, `delete` or `unchanged`. A token needs `import_config`.
 
 The Config tab shows the preview before it imports. The import applies only after you choose Apply import.
-
-<!-- nav:start -->
----
-
-[Previous: Configuration](./configuration.md) | [Next: Query tab](./query.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

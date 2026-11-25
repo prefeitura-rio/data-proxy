@@ -1,24 +1,75 @@
-name: Restore the task state
-description: Restore the state of the devenv tasks, which tells devenv what changed since the last green run on main.
+name: Restore compatible task state
+description: Restore a compatible devenv task database without caching generated-file manifests.
 inputs:
-  group:
-    description: The name of the jobs that share this state.
-    required: true
   profile:
-    description: The devenv profile that runs the tasks.
-    default: repo
+    description: The profile that runs the checks.
+    required: true
   force:
-    description: Skip the restore, so every task runs.
+    description: Discard saved task state and run every check.
     default: "false"
+outputs:
+  key:
+    description: The cache key for this commit and task environment.
+    value: ${{ steps.metadata.outputs.key }}
+  state-dir:
+    description: The actual state directory of the checks.
+    value: ${{ steps.metadata.outputs.state-dir }}
 runs:
   using: composite
   steps:
-    - if: ${{ inputs.force != 'true' }}
+    - id: metadata
+      shell: devenv --profile ${{ inputs.profile }} shell -- nu {0}
+      env:
+        CACHE_PROFILE: ${{ inputs.profile }}
+        TASK_CONFIG_HASH: ${{ hashFiles('devenv.lock', 'devenv.yaml', 'devenv.nix', '*/devenv.nix', 'nix/**/*.nix', '.github/actions/task-state-restore/action.yaml', '.github/actions/task-state-save/action.yaml', '.github/actions/setup-devenv/action.yaml') }}
+      run: |
+        let compatibility = [
+            $env.CACHE_PROFILE
+            $env.RUNNER_OS
+            $env.RUNNER_ARCH
+            (devenv --version | str trim)
+            $env.TASK_CONFIG_HASH
+        ] | to json --raw | hash sha256
+        let prefix = $'task-state-v2-($env.CACHE_PROFILE)-($compatibility)-'
+        let state = $env.DEVENV_STATE
+        [
+            $'key=($prefix)($env.GITHUB_SHA)'
+            $'prefix=($prefix)'
+            $'state-dir=($state)'
+        ] | str join (char nl) | $in + (char nl) | save --append $env.GITHUB_OUTPUT
+    - id: cache
+      if: ${{ inputs.force != 'true' }}
       uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
-        path: |
-          .devenv/profiles/${{ inputs.profile }}/state/tasks.db*
-          .devenv/profiles/${{ inputs.profile }}/state/files.json
-        key: task-state-${{ inputs.group }}-${{ runner.os }}-${{ github.sha }}
-        restore-keys: |
-          task-state-${{ inputs.group }}-${{ runner.os }}-
+        path: .devenv/task-cache/${{ inputs.profile }}
+        key: ${{ steps.metadata.outputs.key }}
+        restore-keys: ${{ steps.metadata.outputs.prefix }}
+    - name: Restore a valid database or use cold state
+      id: snapshot
+      shell: python
+      env:
+        STATE_DIR: ${{ steps.metadata.outputs.state-dir }}
+        SNAPSHOT_DIR: .devenv/task-cache/${{ inputs.profile }}
+        FORCE_CHECKS: ${{ inputs.force }}
+      run: |
+        import os
+        from pathlib import Path
+        import sqlite3
+
+        state = Path(os.environ['STATE_DIR'])
+        state.mkdir(parents=True, exist_ok=True)
+        target = state / 'tasks.db'
+        snapshot = Path(os.environ['SNAPSHOT_DIR']).resolve() / 'tasks.db'
+        for suffix in ('', '-wal', '-shm'):
+            Path(str(target) + suffix).unlink(missing_ok=True)
+        if os.environ['FORCE_CHECKS'] != 'true' and snapshot.is_file():
+            try:
+                with sqlite3.connect(snapshot.as_uri() + '?mode=ro', uri=True) as source:
+                    if source.execute('PRAGMA quick_check').fetchone() != ('ok',):
+                        raise sqlite3.DatabaseError('Task snapshot failed integrity validation')
+                    with sqlite3.connect(target) as destination:
+                        source.backup(destination)
+            except (OSError, sqlite3.Error) as error:
+                print(f'::warning::Discarding invalid task state: {error}')
+                for suffix in ('', '-wal', '-shm'):
+                    Path(str(target) + suffix).unlink(missing_ok=True)

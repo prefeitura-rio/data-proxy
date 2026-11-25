@@ -5,7 +5,7 @@ import {
     mutateSnapshotFixture,
     postgrestDeploymentRevision,
     proxyGet,
-    rowsOf,
+    readRows,
     scenario,
     SNAPSHOT_SOURCE,
     SNAPSHOT_TABLE,
@@ -30,7 +30,7 @@ function historical(k8s) {
     const before = proxyGet(path, token, { "X-DuckLake-Snapshot": snapshotN });
     requirePrecondition("the snapshot fixture can be read", before.status === 200, { status: before.status });
 
-    requirePrecondition("snapshot fixture starts at version A", rowsOf(before)[0]?.version === "A", {
+    requirePrecondition("snapshot fixture starts at version A", readRows(before)[0]?.version === "A", {
         status: before.status,
     });
 
@@ -41,9 +41,9 @@ function historical(k8s) {
     const latest = proxyGet(path, token);
     expect("the snapshot fixture publication creates a new snapshot", snapshotN1 !== snapshotN);
 
-    expect("the historical snapshot keeps version A", rowsOf(historical)[0]?.version === "A");
+    expect("the historical snapshot keeps version A", readRows(historical)[0]?.version === "A");
 
-    expect("the latest snapshot returns version B", rowsOf(latest)[0]?.version === "B");
+    expect("the latest snapshot returns version B", readRows(latest)[0]?.version === "B");
 
     expect("publication clears the unpinned cache", cacheHeader(latest) === "MISS");
 }
@@ -84,7 +84,7 @@ function pinnedVersion(token) {
 
     expect(
         "the latest version returns the same rows as the default request",
-        stable(rowsOf(pinned)) === stable(rowsOf(latest)),
+        stable(readRows(pinned)) === stable(readRows(latest)),
     );
 
     const unknown = proxyGet(path, token, {

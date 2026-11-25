@@ -1,8 +1,8 @@
 use std/log
 
 const NAMESPACE = 'data-proxy'
-const TEST_SCHEMA = 'test'
-const NEW_SCHEMA = 'e2e_new'
+const TEST_SCHEMA = 'default__test'
+const NEW_SCHEMA = 'default__e2e_new'
 const DB_PASSWORD = 'test-pg-pass'
 const JSONPATH = 'jsonpath={.items[0].metadata.name}'
 

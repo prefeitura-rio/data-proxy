@@ -1,6 +1,6 @@
 /** @import { Kubernetes } from 'k6/x/kubernetes' */
 import {
-    API_URL,
+    DATA_URL,
     authHeaders,
     BIG_TABLE,
     checkSql,
@@ -12,7 +12,7 @@ import {
     pgdogAvailable,
     postgresPodsMountSecret,
     POSTGREST_URL,
-    rowsOf,
+    readRows,
     runCommandJob,
     scenario,
     SCHEMA,
@@ -159,7 +159,7 @@ export function topology(k8s) {
     verifyStandbys(k8s);
     seedAccessPolicy();
     waitForAccessPolicyReplication(userToken());
-    const read = uncachedReads(API_URL, authHeaders(userToken()));
+    const read = uncachedReads(DATA_URL, authHeaders(userToken()));
 
     expect(
         "every read through the proxy succeeds",
@@ -168,7 +168,7 @@ export function topology(k8s) {
 
     expect(
         "every read through the proxy returns rows",
-        read.every((response) => rowsOf(response).length > 0),
+        read.every((response) => readRows(response).length > 0),
     );
 
     expect(

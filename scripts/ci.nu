@@ -6,8 +6,7 @@ use ci/common.nu [ci-config previous-helm-tag write-output]
 use lib.nu [IMAGES]
 use lib/release.nu [chart-files images-changed]
 
-# Return the commit to compare with. A push to main compares with the last chart release, so a red run does not hide
-# its files from the next green run. Another run compares with the commit before the push.
+# Return the comparison revision for a main-branch release or another CI run.
 def comparison-base []: nothing -> string {
     let release = if ($env.GITHUB_REF? == refs/heads/main) { previous-helm-tag } else { null }
 

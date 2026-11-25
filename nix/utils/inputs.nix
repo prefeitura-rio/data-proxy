@@ -2,7 +2,7 @@
 let
   /**
     The input files of a task, for `execIfModified`. Every entry must name files: a file, or a glob whose last part names
-    an extension. The call throws for a directory, for a file that does not exist, for a glob over a folder that does not
+    an extension. An entry that starts with a slash is an absolute file, such as the log of a Git worktree. The call throws for a directory, for a file that does not exist, for a glob over a folder that does not
     exist, and for a glob that ends in a star.
 
     devenv compares a file by its content, so a fresh checkout does not run the task again. It compares a directory by
@@ -20,7 +20,7 @@ let
     map (
       entry:
       let
-        path = "${config.devenv.root}/${entry}";
+        path = if lib.hasPrefix "/" entry then entry else "${config.devenv.root}/${entry}";
         parts = lib.splitString "/" entry;
         last = lib.last parts;
         names = last != "*" && last != "**";
@@ -74,8 +74,8 @@ let
               [ "${path}/${name}" ]
           ) (builtins.readDir path)
         );
-      extensionOf = file: lib.last (lib.splitString "." (baseNameOf file));
-      unknown = lib.filter (file: !(lib.elem (extensionOf file) extensions)) (
+      fileExtension = file: lib.last (lib.splitString "." (baseNameOf file));
+      unknown = lib.filter (file: !(lib.elem (fileExtension file) extensions)) (
         walk "${config.devenv.root}/${dir}"
       );
     in

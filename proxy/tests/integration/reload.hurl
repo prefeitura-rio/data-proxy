@@ -1,11 +1,11 @@
 # This proxy reads its settings from the console, and the console tells it when they change.
 # The first sync.json lists /private in noCachePaths, so the proxy never caches it.
-GET http://{{host_reload}}/private
+GET http://{{host_reload}}/default/test/private
 
 HTTP 200
 X-Cache: MISS
 
-GET http://{{host_reload}}/private
+GET http://{{host_reload}}/default/test/private
 
 HTTP 200
 X-Cache: MISS
@@ -13,17 +13,17 @@ X-Cache: MISS
 # The console now serves a sync.json without /private, with a new revision. The proxy does not know yet.
 POST http://{{console_reload}}/console/set?etag=%222%22
 ```
-{"noCachePaths":["/access_policy"]}
+{"noCachePaths":["/audit"],"schemas":{"default__test":{}}}
 ```
 
 HTTP 200
 
-GET http://{{host_reload}}/private
+GET http://{{host_reload}}/default/test/private
 
 HTTP 200
 X-Cache: MISS
 
-GET http://{{host_reload}}/private
+GET http://{{host_reload}}/default/test/private
 
 HTTP 200
 X-Cache: MISS
@@ -36,12 +36,12 @@ HTTP 200
 jsonpath "$.changed" == true
 jsonpath "$.revision" == "\"2\""
 
-GET http://{{host_reload}}/private?case=after-reload
+GET http://{{host_reload}}/default/test/private?case=after-reload
 
 HTTP 200
 X-Cache: MISS
 
-GET http://{{host_reload}}/private?case=after-reload
+GET http://{{host_reload}}/default/test/private?case=after-reload
 
 HTTP 200
 X-Cache: HIT
@@ -67,12 +67,12 @@ HTTP 502
 [Asserts]
 jsonpath "$.error" == "Could not reload sync.json"
 
-GET http://{{host_reload}}/access_policy?case=after-failure
+GET http://{{host_reload}}/default/test/audit?case=after-failure
 
 HTTP 200
 X-Cache: MISS
 
-GET http://{{host_reload}}/access_policy?case=after-failure
+GET http://{{host_reload}}/default/test/audit?case=after-failure
 
 HTTP 200
 X-Cache: MISS

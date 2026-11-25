@@ -1,0 +1,39 @@
+%% Sync run sequence
+sequenceDiagram
+  participant t as Trigger
+  participant run as run_sync
+  participant prov as Provision Job
+  participant pg as PostgreSQL
+  participant wk as Workers
+  participant src as Source
+  participant s3 as SeaweedFS
+  participant api as PostgREST
+  participant r as Redis
+  t->>run: start a run
+  run->>prov: run Job, wait
+  run->>pg: read configuration
+  run->>src: plan changed tables
+  run->>wk: enqueue dump tasks
+  par dump tasks
+    wk->>src: extract rows
+  and
+    wk->>s3: write scratch Parquet
+  end
+  wk-->>run: results
+  run->>pg: record scope
+  run->>pg: seed views, functions
+  run->>wk: enqueue publish tasks
+  rect rgba(128, 128, 128, 0.15)
+    Note over t,r: For each schema (in parallel)
+    wk->>s3: read scratch, write data
+    wk->>pg: commit snapshot
+    wk->>pg: commit table state
+    wk->>pg: maintenance
+    pg->>pg: replicate to standbys
+  end
+  opt views changed
+    run->>pg: wait for standbys
+    pg-->>api: NOTIFY: reload
+  end
+  run->>s3: remove scratch objects
+  run->>r: count up the cache generation of each schema

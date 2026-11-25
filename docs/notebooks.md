@@ -3,24 +3,7 @@
 The query tab of the console embeds a notebook that runs in the browser. `console/notebooks/` builds the static site of that notebook. The site runs on its own origin, so it shares no cookie with the console.
 
 ```mermaid
-%% Notebook flow
-sequenceDiagram
-  participant u as User
-  participant page as Console page
-  participant nb as Notebook<br/>(own origin, in an iframe)
-  participant app as Console server
-  participant s3 as Object storage
-  u->>page: choose tables
-  page->>nb: open /?tables=people
-  nb-->>page: ready
-  page->>app: ask for a grant
-  app-->>page: signed links, valid 5 minutes
-  page->>nb: post the grant<br/>only from the console origin
-  nb->>nb: register the links,<br/>create a view for each table
-  nb-->>page: applied
-  u->>nb: run: await query(sql)
-  nb->>s3: DuckDB-WASM reads Parquet<br/>with the signed links
-  s3-->>nb: rows
+{{#include diagrams/notebook-flow.mmd}}
 ```
 
 ## What the site contains
@@ -49,9 +32,3 @@ A cell needs `await`, because DuckDB-WASM runs in another worker. If the links e
 Run `nu console/notebooks/build.nu notebooks/query.py dist` to build the site. The header of `build.nu` lists the steps and the pins. The console image contains the site. The chart starts that image a second time with `node notebooks/server.ts`, as its own Deployment on its own host.
 
 The server sends a Content Security Policy. The page can send data only to itself and to the storage host, and only the console can embed the page. `console/notebooks/csp.ts` builds the policy, and the chart builds the same string. The header of `server.ts` explains the policy and the cells.
-
-<!-- nav:start -->
----
-
-[Previous: Glossary](./glossary.md) | [Next: SQL Templates](./sql.md) | [Home](./index.md)
-<!-- nav:end -->

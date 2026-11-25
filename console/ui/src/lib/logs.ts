@@ -90,10 +90,10 @@ export function filterLogs(lines: LogLine[], { level, table, text }: LogFilter):
 	);
 }
 
-export const levelsOf = (lines: LogLine[]): string[] => [...new Set(lines.map((line) => line.level))].sort();
+export const listLogLevels = (lines: LogLine[]): string[] => [...new Set(lines.map((line) => line.level))].sort();
 
 /** The tables that the lines name, each once, in order. */
-export const tablesOf = (lines: LogLine[]): string[] =>
+export const listLogTables = (lines: LogLine[]): string[] =>
 	[
 		...new Set(lines.flatMap((line) => (line.table_name === null || line.table_name === '' ? [] : [line.table_name])))
 	].sort();

@@ -1,0 +1,30 @@
+%% Console requests
+sequenceDiagram
+  participant u as Browser
+  participant app as Console server
+  participant api as PostgREST
+  participant db as PostgreSQL
+  participant w as Sync worker
+  rect rgba(128, 128, 128, 0.15)
+    Note over u,w: Load a page
+    u->>app: GET /sync
+    app->>api: views, with the user token
+    api->>db: switch role, check rights
+    db-->>api: rows
+    api-->>app: rows
+    app-->>u: page
+  end
+  rect rgba(128, 128, 128, 0.15)
+    Note over u,w: Start a run
+    u->>app: press Start run
+    app->>api: POST /rpc/start_sync
+    api->>db: enqueue run_sync
+    w->>db: take the run
+  end
+  rect rgba(128, 128, 128, 0.15)
+    Note over u,w: Edit the configuration
+    u->>app: save a change
+    app->>api: write a row
+    api->>db: check schemas, run triggers
+    w->>db: take queued workflows
+  end

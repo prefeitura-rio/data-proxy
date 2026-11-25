@@ -4,15 +4,16 @@ import {
     consoleCall,
     cronJobPodSpec,
     removeSchemaFromConsole,
-    rowsOf,
+    readRows,
     runCommandJob,
     scenario,
+    schemaIdentity,
     waitUntil,
 } from "../lib/index.js";
 
 const { expect, requirePrecondition } = scenario("query_scope");
 
-const SCHEMAS = ["e2e_scope_a", "e2e_scope_b"];
+const SCHEMAS = ["default__e2e_scope_a", "default__e2e_scope_b"];
 const PROVISION_TIMEOUT_SECONDS = 90;
 
 /**
@@ -53,7 +54,7 @@ export function queryScope(k8s) {
         for (const name of SCHEMAS) {
             requirePrecondition(
                 `the console accepts the schema ${name}`,
-                consoleCall("POST", "/schemas", "admin", { name, claim: "preferred_username" }).status === 201,
+                consoleCall("POST", "/schemas", "admin", { ...schemaIdentity(name), claim: "preferred_username" }).status === 201,
                 {},
             );
         }
@@ -63,7 +64,7 @@ export function queryScope(k8s) {
                 `provision creates the schema ${name}`,
                 waitUntil(
                     PROVISION_TIMEOUT_SECONDS,
-                    () => rowsOf(consoleCall("GET", `/health?name=eq.${name}`, "admin"))[0]?.access_policy === true,
+                    () => readRows(consoleCall("GET", `/health?name=eq.${name}`, "admin"))[0]?.schema_exists === true,
                     "provision to create the schema",
                 ),
             );

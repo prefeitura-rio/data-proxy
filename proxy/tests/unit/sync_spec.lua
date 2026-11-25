@@ -31,22 +31,22 @@ check("sync.load", function(case) return sync_from(case.content) end, {
 	{
 		name = "reads the cache time of a table by its short name",
 		content = PEOPLE_JSON,
-		expected = { tables = { people = { cache_ttl = 42 } }, disabled_endpoints = { "/access_policy" } },
+		expected = { tables = { people = { cache_ttl = 42 } }, schemas = { test = true }, disabled_endpoints = {} },
 	},
 	{
 		name = "gives empty tables and the default paths for an empty document",
 		content = "{}",
-		expected = { tables = {}, disabled_endpoints = { "/access_policy" } },
+		expected = { tables = {}, schemas = {}, disabled_endpoints = {} },
 	},
 	{
 		name = "uses the no-cache paths of the file",
 		content = '{"noCachePaths":["/private"]}',
-		expected = { tables = {}, disabled_endpoints = { "/private" } },
+		expected = { tables = {}, schemas = {}, disabled_endpoints = { "/private" } },
 	},
 	{
 		name = "skips a table whose name has no short form",
 		content = '{"schemas":{"test":{"tables":[{"name":"project.test.","cache_ttl":42}]}}}',
-		expected = { tables = {}, disabled_endpoints = { "/access_policy" } },
+		expected = { tables = {}, schemas = { test = true }, disabled_endpoints = {} },
 	},
 })
 
@@ -54,24 +54,25 @@ check("sync.parse", function(case) return sync.parse(case.content) end, {
 	{
 		name = "reads the cache time of a table from the text of a document",
 		content = PEOPLE_JSON,
-		expected = { tables = { people = { cache_ttl = 42 } }, disabled_endpoints = { "/access_policy" } },
+		expected = { tables = { people = { cache_ttl = 42 } }, schemas = { test = true }, disabled_endpoints = {} },
 	},
 	{
 		name = "uses the no-cache paths of the document",
 		content = '{"noCachePaths":["/private"]}',
-		expected = { tables = {}, disabled_endpoints = { "/private" } },
+		expected = { tables = {}, schemas = {}, disabled_endpoints = { "/private" } },
 	},
 	{
 		name = "reads the revision of the access policy and the rules",
 		content = '{"revision":12}',
-		expected = { tables = {}, disabled_endpoints = { "/access_policy" }, revision = 12 },
+		expected = { tables = {}, schemas = {}, disabled_endpoints = {}, revision = 12 },
 	},
 	{
 		name = "reads the scope of each subject",
 		content = '{"scopes":{"alice":"9e1c","bob":"9e1c"}}',
 		expected = {
 			tables = {},
-			disabled_endpoints = { "/access_policy" },
+			schemas = {},
+			disabled_endpoints = {},
 			scopes = { alice = "9e1c", bob = "9e1c" },
 		},
 	},
@@ -103,10 +104,10 @@ describe("the document that console.config() writes", function()
 		assert.same({ staff = {}, events = {}, orders = { cache_ttl = 60 } }, config.tables)
 	end)
 
-	it("carries the revision of the rules and keeps the default paths that are never cached", function()
+	it("carries the revision of the rules and lists the physical names of the schemas", function()
 		local config = sync.load(path)
 		assert.equal(7, config.revision)
-		assert.same({ "/access_policy" }, config.disabled_endpoints)
+		assert.same({ default__hr = true, default__sales = true }, config.schemas)
 	end)
 end)
 

@@ -1,6 +1,6 @@
 import pytest
 
-from tests.fixtures.console import as_token, refusal, use_database_role
+from tests.fixtures.console import add_table, as_token, refusal, use_database_role
 from tests.fixtures.types import Postgres
 from tests.helpers.console import (
     ADD_PROJECT,
@@ -9,7 +9,7 @@ from tests.helpers.console import (
     add_schemas,
     load_claims,
 )
-from tests.helpers.core import names
+from tests.helpers.core import names, scalar
 
 CHECK_VIOLATION = "23514"
 FOREIGN_KEY_VIOLATION = "23503"
@@ -20,17 +20,19 @@ INSUFFICIENT = "42501"
 
 @pytest.mark.postgres
 class TestProjectNames:
-    """A schema has one name in the database: its short name, with the prefix of its project unless the project is default."""
+    """A schema has one name in the database: its project, two underscores and its short name, also in the project default."""
 
     @pytest.mark.parametrize(
         ("project", "short_name", "name"),
         [
             pytest.param(
-                "sales", "orders", "sales_orders", id="a-project-adds-its-prefix"
+                "sales", "orders", "sales__orders", id="a-project-adds-its-prefix"
             ),
-            pytest.param("default", "orders", "orders", id="default-adds-no-prefix"),
             pytest.param(
-                "sales", "a_b", "sales_a_b", id="the-short-name-keeps-its-underscores"
+                "default", "orders", "default__orders", id="default-has-a-prefix-too"
+            ),
+            pytest.param(
+                "sales", "a_b", "sales__a_b", id="the-short-name-keeps-its-underscores"
             ),
         ],
     )
@@ -44,19 +46,19 @@ class TestProjectNames:
 
         assert await names(console_api, "SELECT name FROM console.schemas") == [name]
 
-    async def test_a_name_with_no_project_belongs_to_default(
+    async def test_a_name_with_its_project_gives_the_short_name(
         self, console_api: Postgres
     ) -> None:
-        """Keep the old insert, which gives only a name, working."""
+        """Let an insert that gives only the name work, when the name starts with its project."""
         await console_api.connection.execute(
-            b"INSERT INTO console.schemas (name) VALUES ('hr')"
+            b"INSERT INTO console.schemas (name) VALUES ('default__hr')"
         )
 
         cursor = await console_api.connection.execute(
             b"SELECT name, project, short_name FROM console.schemas"
         )
 
-        assert await cursor.fetchall() == [("hr", "default", "hr")]
+        assert await cursor.fetchall() == [("default__hr", "default", "hr")]
 
     @pytest.mark.parametrize(
         ("project", "state"),
@@ -83,18 +85,13 @@ class TestProjectNames:
             pytest.param(
                 "missing", "orders", FOREIGN_KEY_VIOLATION, id="unknown-project"
             ),
-            pytest.param("sales", "x" * 50, None, id="name-of-56-characters"),
+            pytest.param("sales", "x" * 49, None, id="name-of-56-characters"),
             pytest.param(
-                "sales", "x" * 51, CHECK_VIOLATION, id="name-of-57-characters"
+                "sales", "x" * 50, CHECK_VIOLATION, id="name-of-57-characters"
             ),
             pytest.param(
                 "sales", "Orders", CHECK_VIOLATION, id="upper-case-short-name"
             ),
-            pytest.param(
-                "sales", "pg_data", None, id="a-prefix-reserves-the-whole-name-only"
-            ),
-            pytest.param("default", "console", CHECK_VIOLATION, id="reserved-name"),
-            pytest.param("default", "pg_data", CHECK_VIOLATION, id="reserved-prefix"),
         ],
     )
     async def test_the_schema_checks_follow_the_whole_name(
@@ -110,7 +107,7 @@ class TestProjectNames:
         assert await refusal(console_api, ADD_SCHEMA, project, short_name) == state
 
     async def test_two_schemas_never_share_a_name(self, console_api: Postgres) -> None:
-        """Refuse `a_b` of default and `b` of project a, because both make `a_b`."""
+        """Refuse `a_b` of default and `b` of project a, because both would keep their files in the S3 folder `a_b`."""
         await add_projects(console_api, "a")
         await add_schemas(console_api, ("default", "a_b"))
 
@@ -123,9 +120,9 @@ class TestProjectNames:
         await add_projects(console_api, "sales", "hr")
         await add_schemas(console_api, ("sales", "orders"))
 
-        move = "UPDATE console.schemas SET project = 'hr' WHERE name = 'sales_orders'"
-        rename = "UPDATE console.schemas SET short_name = 'sales' WHERE name = 'sales_orders'"
-        same = "UPDATE console.schemas SET short_name = short_name WHERE name = 'sales_orders'"
+        move = "UPDATE console.schemas SET project = 'hr' WHERE name = 'sales__orders'"
+        rename = "UPDATE console.schemas SET short_name = 'sales' WHERE name = 'sales__orders'"
+        same = "UPDATE console.schemas SET short_name = short_name WHERE name = 'sales__orders'"
 
         assert await refusal(console_api, move) == CHECK_VIOLATION
         assert await refusal(console_api, rename) == CHECK_VIOLATION
@@ -146,41 +143,37 @@ class TestProjectNames:
 
 
 @pytest.mark.postgres
-@pytest.mark.usefixtures("seed")
+@pytest.mark.usefixtures("claim_seed")
 class TestProjectClaim:
     """A token with the projects claim reaches every schema of its projects, also a schema that comes later."""
-
-    @pytest.fixture
-    async def seed(self, console_api: Postgres) -> None:
-        """Make two projects with schemas, and a schema of default."""
-        await add_projects(console_api, "sales", "hr")
-        await add_schemas(
-            console_api,
-            ("sales", "orders"),
-            ("sales", "crm"),
-            ("hr", "staff"),
-            ("default", "legacy"),
-        )
 
     @pytest.mark.parametrize(
         ("schemas", "projects", "expected"),
         [
             pytest.param("", "", "", id="no-claim"),
-            pytest.param("legacy", "", ",legacy,", id="schemas-claim-only"),
-            pytest.param("", "sales", ",sales_crm,sales_orders,", id="a-project"),
+            pytest.param(
+                "default.legacy", "", ",default__legacy,", id="schemas-claim-only"
+            ),
+            pytest.param("", "sales", ",sales__crm,sales__orders,", id="a-project"),
             pytest.param(
                 "",
                 "sales:*",
-                ",sales_crm:*,sales_orders:*,",
+                ",sales__crm:*,sales__orders:*,",
                 id="all-rows-of-a-project",
             ),
             pytest.param(
-                "", "sales,hr", ",hr_staff,sales_crm,sales_orders,", id="two-projects"
+                "",
+                "sales,hr",
+                ",hr__staff,sales__crm,sales__orders,",
+                id="two-projects",
             ),
             pytest.param(
-                "legacy", "hr", ",legacy,hr_staff,", id="schemas-and-projects"
+                "default.legacy",
+                "hr",
+                ",default__legacy,hr__staff,",
+                id="schemas-and-projects",
             ),
-            pytest.param("", "default", ",legacy,", id="the-default-project"),
+            pytest.param("", "default", ",default__legacy,", id="the-default-project"),
             pytest.param("", "missing", "", id="an-unknown-project"),
             pytest.param("", "*", ",*,", id="every-project"),
             pytest.param("", "sale", "", id="a-prefix-is-not-a-project"),
@@ -202,15 +195,17 @@ class TestProjectClaim:
         before = await load_claims(console_api, projects="hr")
         await add_schemas(console_api, ("hr", "payroll"))
 
-        assert before == ",hr_staff,"
-        assert await load_claims(console_api, projects="hr") == ",hr_payroll,hr_staff,"
+        assert before == ",hr__staff,"
+        assert (
+            await load_claims(console_api, projects="hr") == ",hr__payroll,hr__staff,"
+        )
 
     @pytest.mark.parametrize(
         ("claim", "reads"),
         [
-            pytest.param("sales", ["sales_crm", "sales_orders"], id="its-project"),
-            pytest.param("hr", ["hr_staff"], id="another-project"),
-            pytest.param("sales:*", ["sales_crm", "sales_orders"], id="all-rows"),
+            pytest.param("sales", ["sales__crm", "sales__orders"], id="its-project"),
+            pytest.param("hr", ["hr__staff"], id="another-project"),
+            pytest.param("sales:*", ["sales__crm", "sales__orders"], id="all-rows"),
             pytest.param("none", [], id="no-project"),
         ],
     )
@@ -269,21 +264,15 @@ class TestProjectClaim:
 
 
 @pytest.mark.postgres
-@pytest.mark.usefixtures("seed")
+@pytest.mark.usefixtures("rows_seed")
 class TestProjectRows:
     """A token sees and changes the project rows of its claim."""
-
-    @pytest.fixture
-    async def seed(self, console_api: Postgres) -> None:
-        """Make two projects with a schema each, and an empty project."""
-        await add_projects(console_api, "sales", "hr", "empty")
-        await add_schemas(console_api, ("sales", "orders"), ("hr", "staff"))
 
     @pytest.mark.parametrize(
         ("schemas", "projects", "reads"),
         [
             pytest.param([], ["sales"], ["sales"], id="by-the-project-claim"),
-            pytest.param(["hr_staff"], [], ["hr"], id="by-a-schema-of-the-project"),
+            pytest.param(["hr__staff"], [], ["hr"], id="by-a-schema-of-the-project"),
             pytest.param([], [], [], id="no-claim"),
             pytest.param(
                 [], ["*"], ["default", "empty", "hr", "sales"], id="every-project"
@@ -358,3 +347,132 @@ class TestProjectRows:
         )
 
         assert cursor.rowcount == deleted
+
+
+@pytest.mark.postgres
+class TestDefaultProject:
+    """No token deletes the project default, which the schemas of an old install belong to."""
+
+    @pytest.mark.parametrize(
+        ("project", "deleted"),
+        [
+            pytest.param("default", 0, id="default-stays"),
+            pytest.param("empty", 1, id="another-empty-project-goes"),
+        ],
+    )
+    async def test_a_global_token_deletes_no_default_project(
+        self, console_api: Postgres, project: str, deleted: int
+    ) -> None:
+        """A row policy that hides the row removes nothing, also for the role with grant_all."""
+        await add_projects(console_api, "empty")
+        await as_token(console_api, "dp_admin", [], database_role=True)
+
+        cursor = await console_api.connection.execute(
+            b"DELETE FROM console.projects WHERE name = %s", (project,)
+        )
+
+        assert cursor.rowcount == deleted
+
+
+@pytest.mark.postgres
+class TestCatalog:
+    """The view console.catalog gives every project, schema and table one ltree path."""
+
+    @pytest.mark.parametrize(
+        ("ancestor", "path", "expected"),
+        [
+            pytest.param(
+                "sales", "sales.orders.items", True, id="a-project-covers-a-table"
+            ),
+            pytest.param(
+                "sales", "sales_x.orders.items", False, id="a-prefix-is-not-a-project"
+            ),
+            pytest.param(
+                "sales.orders", "sales", False, id="a-child-does-not-cover-its-parent"
+            ),
+            pytest.param(
+                "", "sales.orders", True, id="the-empty-path-covers-every-path"
+            ),
+        ],
+    )
+    async def test_an_ltree_path_covers_what_is_below_it(
+        self, console_api: Postgres, ancestor: str, path: str, expected: bool
+    ) -> None:
+        """The scope `*` can be the empty path, and a project never covers a project that starts with its name."""
+        assert (
+            await scalar(console_api, "SELECT %s::ltree @> %s::ltree", ancestor, path)
+            is expected
+        )
+
+    async def test_the_catalog_lists_each_schema_and_each_table_once(
+        self, console_api: Postgres
+    ) -> None:
+        """A schema is a row with no table, and a table is a row with its schema and its project."""
+        await add_projects(console_api, "sales")
+        await add_schemas(console_api, ("sales", "orders"), ("default", "legacy"))
+        await add_table(console_api, "p.d.items", "sales__orders")
+
+        cursor = await console_api.connection.execute(
+            b"SELECT path::text, project, schema_name, table_name, physical_schema "
+            b"FROM console.catalog ORDER BY path"
+        )
+
+        assert await cursor.fetchall() == [
+            ("default.legacy", "default", "legacy", None, "default__legacy"),
+            ("sales.orders", "sales", "orders", None, "sales__orders"),
+            ("sales.orders.items", "sales", "orders", "items", "sales__orders"),
+        ]
+
+    async def test_a_name_that_ltree_refuses_gets_no_path_and_does_not_break_the_view(
+        self, console_api: Postgres
+    ) -> None:
+        """A table name with a dollar sign can't be an ltree label, and the rest of the view still reads."""
+        await add_schemas(console_api, ("default", "legacy"))
+        await add_table(console_api, "p.d.odd$name", "default__legacy")
+
+        cursor = await console_api.connection.execute(
+            b"SELECT table_name, path IS NULL FROM console.catalog ORDER BY table_name NULLS FIRST"
+        )
+
+        assert await cursor.fetchall() == [(None, False), ("odd$name", True)]
+
+    @pytest.mark.parametrize(
+        ("role", "schemas", "projects", "seen"),
+        [
+            pytest.param(
+                "dp_console",
+                ["sales__orders"],
+                [],
+                ["sales__orders"],
+                id="a-schema-of-the-claim",
+            ),
+            pytest.param(
+                "dp_console", [], ["hr"], ["hr__staff"], id="a-project-of-the-claim"
+            ),
+            pytest.param("dp_api", ["sales__orders"], [], [], id="no-read-config"),
+            pytest.param("dp_console", [], [], [], id="no-claim"),
+            pytest.param(
+                "dp_admin", [], [], ["hr__staff", "sales__orders"], id="grant-all"
+            ),
+        ],
+    )
+    async def test_a_token_reads_the_catalog_rows_of_its_scope_only(
+        self,
+        console_api: Postgres,
+        role: str,
+        schemas: list[str],
+        projects: list[str],
+        seen: list[str],
+    ) -> None:
+        """The view runs with the rights of the caller, so the row policies of the tables decide."""
+        await add_projects(console_api, "sales", "hr")
+        await add_schemas(console_api, ("sales", "orders"), ("hr", "staff"))
+        await as_token(
+            console_api, role, schemas, projects=projects, database_role=True
+        )
+
+        cursor = await console_api.connection.execute(
+            b"SELECT DISTINCT physical_schema FROM console.catalog ORDER BY 1"
+        )
+
+        assert [row[0] for row in await cursor.fetchall()] == seen

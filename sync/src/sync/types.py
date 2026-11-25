@@ -7,7 +7,7 @@ from collections.abc import (
     Sequence,
 )
 from datetime import datetime
-from typing import Annotated, Literal, LiteralString, Protocol
+from typing import Annotated, Final, Literal, LiteralString, Protocol
 
 from psycopg.sql import Composable
 from pydantic import Field
@@ -15,6 +15,7 @@ from whenever import Instant
 
 type DatabaseValue = bool | int | float | str | datetime | Instant | None
 type DatabaseRow = tuple[object, ...]
+DescribeRow: Final = tuple[str, str, object, object, object, object]
 type PostgresParams = tuple[DatabaseValue, ...] | dict[str, DatabaseValue]
 type DuckDBValue = DatabaseValue | Sequence[str]
 type DuckDBParams = Sequence[DuckDBValue]

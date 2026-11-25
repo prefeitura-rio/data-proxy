@@ -32,6 +32,30 @@ def e2e-subset [scenarios: string]: nothing -> nothing {
     nu (git-root | path join scripts cluster.nu) k6 e2e --scenarios $scenarios
 }
 
+# Wait until all terminating sync pods stop before checking the upgraded release.
+def wait-for-old-workers [kubecfg: path]: nothing -> nothing {
+    log info 'Waiting for the sync pods of the old release to stop...'
+
+    for _ in 1..60 {
+        let stopping = try {
+            wrap-kubectl $kubecfg -n $NAMESPACE get pods -l app.kubernetes.io/component=sync --output json
+            | from json
+            | get items
+            | where $it.metadata.deletionTimestamp? != null
+        } catch {|err|
+            fail $'Cannot list the sync pods: ($err.msg)'
+        }
+
+        if ($stopping | is-empty) {
+            return
+        }
+
+        sleep 5sec
+    }
+
+    fail 'A sync pod of the old release is still stopping' | ignore
+}
+
 # Check what an upgrade must keep: the migrations, the rules, the logins, and the serving workloads.
 def check-upgraded-release [kubecfg: path]: nothing -> nothing {
     let migrations = try {
@@ -67,7 +91,8 @@ def check-upgraded-release [kubecfg: path]: nothing -> nothing {
     | wait-for deployment $kubecfg
 }
 
-# Install a published chart release, upgrade it to the local chart, and check the upgraded release. Run it at release time, after the first release exists.
+# Install a released chart, upgrade it to the local chart and verify the result.
+@example "Verify a chart upgrade locally" { nu --no-config-file scripts/cluster.nu upgrade --from '2.21.0' }
 export def "main upgrade" [
     --from: string # Version of the published chart to start from, such as 1.127.0.
     --chart: string = 'oci://ghcr.io/prefeitura-rio/charts/data-proxy' # OCI address of the published chart.
@@ -99,5 +124,6 @@ export def "main upgrade" [
     wrap-helmfile $kubecfg --image-tag (local-image-tag) sync
 
     check-upgraded-release $kubecfg
+    wait-for-old-workers $kubecfg
     e2e-subset 'roles,access,console,cache'
 }

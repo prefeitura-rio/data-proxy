@@ -9,13 +9,12 @@ Use a normal end-user token:
 ```bash
 curl \
   --header "Authorization: Bearer ${USER_TOKEN}" \
-  --header "Accept-Profile: test" \
-  "${BASE_URL}/participants?limit=20"
+  "${BASE_URL}/default/test/participants?limit=20"
 ```
 
 The proxy sends every request to PostgREST, and PgDog sends a `GET` to a standby. Rows from the source follow the same authentication and row-level security (RLS) rules as DuckLake rows. [Request sequence](../architecture/serving.md#request-sequence) shows the whole read.
 
-See [Proxy](../proxy/index.md) for the routing and cache rules. `/access_policy` is never response-cached.
+See [Proxy](../proxy/index.md) for the routing and cache rules. The proxy never serves the schemas `console` and `access`.
 
 ## Expected results
 
@@ -31,9 +30,3 @@ The table maps each result of a request to its meaning.
 | `404`           | The schema profile, the table, or the snapshot is unknown or unpublished. |
 
 With `ingress.auth.enabled`, the Istio policy of the proxy needs a valid token for each request. It allows only `GET` and `HEAD` on `/health` without a token, and on `/` when the Swagger UI is on. Any other request without the `Authorization` header gets `403` with the body `RBAC: access denied`, and not `401`. It never reaches the proxy.
-
-<!-- nav:start -->
----
-
-[Previous: Schema and row authorization](./authorization.md) | [Next: Identity provider](./identity.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

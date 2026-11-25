@@ -1,6 +1,6 @@
 # DuckDB Memory and Spill
 
-These values tune the memory and the spill of the sync workers. The defaults are in [`helm/values.yaml`](../../helm/values.yaml). [KEDA Scaling](keda.md) describes the scale of the workers.
+These values tune the memory and the spill of the sync workers. The defaults are in [`helm/values.yaml`](https://github.com/prefeitura-rio/data-proxy/blob/main/helm/values.yaml). [KEDA Scaling](keda.md) describes the scale of the workers.
 
 | Value | Default | Effect |
 | --- | --- | --- |
@@ -29,9 +29,3 @@ Set `sync.duckdb.tempVolume.enabled` to give the folder a disk of its own. Use `
 A disk-backed volume belongs to root. The chart sets `fsGroup` on the sync pod to the group of the sync user, so the sync can write to the volume.
 
 Don't mount a bucket through FUSE as the spill folder. Each connection writes and reads small blocks at random, and a bucket mount is slow for that access. Each connection also needs a folder of its own.
-
-<!-- nav:start -->
----
-
-[Previous: KEDA Scaling](./keda.md) | [Next: Lookup Layout](./lookups.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

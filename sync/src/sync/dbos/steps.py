@@ -44,7 +44,7 @@ from sync.state import (
     read_sync_config,
     write_scope,
 )
-from sync.utils import sha256_hex
+from sync.utils import destination_name, sha256_hex
 from sync.views.reconcile import reconcile_views
 
 from . import logs
@@ -379,7 +379,7 @@ async def remove_dropped_tables(document: str) -> list[str]:
 
         for table in dropped:
             await clear_s3_prefix(table_prefix(schema_name, table))
-            removed.append(f"{schema_name}.{table}")
+            removed.append(destination_name(schema_name, table))
 
     async with Postgres.connect(
         settings.DBOS_SYSTEM_DATABASE_URL.get_secret_value()

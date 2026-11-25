@@ -1,0 +1,25 @@
+%% Install Jobs sequence
+sequenceDiagram
+  participant h as Helm install or upgrade
+  participant cfg as configure-db Job
+  participant mig as migrate-db Job
+  participant prov as provision Job
+  participant pg as PostgreSQL primary
+  participant pgr as PostgREST
+  h->>cfg: start
+  cfg->>pg: wait for the writer
+  cfg->>pg: request roles
+  h->>mig: start
+  mig->>pg: wait for the request roles
+  mig->>pg: dbos migrate
+  mig->>pg: goose up (application and catalog databases)
+  cfg->>pg: wait for the rbac schema
+  cfg->>pg: DuckDB secrets and the rules of rbac.toml
+  h->>prov: start
+  prov->>pg: wait for the migrations and the rules
+  prov->>pg: fill an empty configuration
+  prov->>pg: schemas, access policies, reader roles
+  prov->>pg: set pgrst.db_schemas
+  opt the schema list changed
+    pg->>pgr: NOTIFY after the standbys replay
+  end

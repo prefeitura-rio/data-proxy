@@ -1,5 +1,5 @@
+/** @import { Response as K6Response } from 'k6/http' */
 /** @import { Kubernetes } from 'k6/x/kubernetes' */
-import { sleep } from "k6";
 import {
     clearProxyCache,
     clientToken,
@@ -11,7 +11,7 @@ import {
     podsForComponent,
     proxyGet,
     readyInstances,
-    rowsOf,
+    readRows,
     runCommandJob,
     scenario,
     SCHEMA,
@@ -83,7 +83,7 @@ function instanceCatalogs(k8s, token) {
         runCommandJob(
             k8s,
             `instance-snapshot-${instance.metadata.name}`,
-            `test "$(psql "${dsn}" -tAc ${JSON.stringify(`SELECT ${SCHEMA}.dl_latest_snapshot()`)})" = ${JSON.stringify(snapshot)}`,
+            `test "$(psql "${dsn}" -tAc ${JSON.stringify(`SELECT ${SCHEMA}.snapshot()`)})" = ${JSON.stringify(snapshot)}`,
         );
     }
 }
@@ -112,9 +112,14 @@ function changeFeed() {
     ];
 
     for (const feed of feeds) {
-        const path = `/rpc/dl_changes_${feed.table}?select=change_snapshot_id,change_type,${feed.columns}&start_snapshot=0`;
+        // The row columns are in the object `data`, so each one is read by a JSON path with its own name.
+        const columns = feed.columns
+            .split(",")
+            .map((name) => `${name}:data->>${name}`)
+            .join(",");
+        const path = `/rpc/changes?table=${feed.table}&select=change_snapshot_id,change_type,${columns}&start_snapshot=0`;
         const all = proxyGet(path, token);
-        const rows = rowsOf(all);
+        const rows = readRows(all);
         const bounded = proxyGet(`${path}&end_snapshot=${latest}`, token);
         const refused = proxyGet(path, clientToken("api"));
         const other = proxyGet(path, otherToken);
@@ -136,12 +141,133 @@ function changeFeed() {
 
         expect(
             `${feed.table} change feed ends at the latest snapshot by default`,
-            rowsOf(bounded).length === rows.length,
+            readRows(bounded).length === rows.length,
         );
 
         expect(`${feed.table} change feed is refused without read_ducklake`, refused.status === 403);
         expect(`${feed.table} change feed is refused to a console client without read_ducklake`, other.status === 403);
     }
+}
+
+/**
+ * Reads the first object of a JSON answer that is a list, or null.
+ * @param {K6Response} response
+ * @returns {Record<string, unknown> | null}
+ */
+function firstRow(response) {
+    const rows = readRows(response);
+
+    return rows.length > 0 ? rows[0] : null;
+}
+
+/**
+ * Verifies the generic functions of the schema through the proxy: `agg`, `hll` and the refusal of a table that the
+ * token cannot use. One function of the schema serves every table, and the table is in the query string.
+ */
+function genericFunctions() {
+    const token = clientToken("admin");
+    const base = `/rpc/hll?table=${FULL_TABLE}&column=unit_id`;
+
+    // hll: an estimate within 5 percent of the exact number of distinct units.
+    const exactRows = readRows(proxyGet(`/${FULL_TABLE}?select=unit_id&limit=100000`, token));
+    const exact = new Set(exactRows.map((row) => String(row.unit_id))).size;
+    const estimated = proxyGet(base, token);
+    const estimate = Number(firstRow(estimated)?.estimate);
+
+    expect("hll answers 200", estimated.status === 200);
+    expect("hll answers one object with an estimate", Number.isFinite(estimate));
+    expect(
+        "hll estimate is within 5% of the exact count",
+        exact > 0 && Math.abs(estimate - exact) / exact < 0.05,
+    );
+
+    const grouped = proxyGet(`${base}&group_by=unit_id`, token);
+    expect("hll with group_by answers 200", grouped.status === 200);
+    expect(
+        "hll with group_by answers one estimate for each unit",
+        readRows(grouped).length === exact && readRows(grouped).every((row) => Number(row.estimate) >= 1),
+    );
+
+    // hll refuses what it cannot count.
+    expect(
+        "hll refuses an unknown table",
+        [400, 403].includes(proxyGet(`/rpc/hll?table=nothing_here&column=unit_id`, token).status),
+    );
+    expect(
+        "hll refuses an unknown column",
+        [400, 403].includes(proxyGet(`/rpc/hll?table=${FULL_TABLE}&column=nothing_here`, token).status),
+    );
+    expect(
+        "hll refuses a precision out of range",
+        [400, 403].includes(proxyGet(`${base}&lg_k=99`, token).status),
+    );
+    expect(
+        "hll refuses a hostile table name",
+        [400, 403].includes(proxyGet(`/rpc/hll?table=${encodeURIComponent('x"; DROP TABLE y;--')}&column=unit_id`, token).status),
+    );
+    expect(
+        "hll is refused without read_api",
+        proxyGet(base, clientToken("policy")).status === 403,
+    );
+    expect(
+        "hll does not read a table of another schema",
+        [400, 403].includes(proxyGet(base, clientToken("admin_other")).status),
+    );
+
+    // agg: the function answers null without an aggregate in the filter, and never fails.
+    const bare = directPostgrest(`/rpc/agg?table=${FULL_TABLE}`, token);
+    expect("agg answers null or 200 for a request without an aggregate", bare.status === 200 && String(bare.body).trim() === "null");
+    expect(
+        "agg refuses an unknown table",
+        [400, 403].includes(directPostgrest(`/rpc/agg?table=nothing_here`, token).status),
+    );
+    expect(
+        "agg is refused without read_api",
+        directPostgrest(`/rpc/agg?table=${FULL_TABLE}`, clientToken("policy")).status === 403,
+    );
+
+    // An aggregate through the proxy runs in DuckDB and gives the counts of the table.
+    const counted = proxyGet(`/${FULL_TABLE}?select=unit_id,n:count()`, token);
+    const perUnit = new Map();
+    exactRows.forEach((row) => perUnit.set(String(row.unit_id), (perUnit.get(String(row.unit_id)) ?? 0) + 1));
+
+    expect("an aggregate through the proxy answers 200", counted.status === 200);
+    expect("an aggregate through the proxy is answered by DuckDB", sourceHeader(counted) === "ducklake");
+    expect(
+        "an aggregate through the proxy equals the count of each unit",
+        readRows(counted).length === perUnit.size &&
+            readRows(counted).every((row) => perUnit.get(String(row.unit_id)) === Number(row.n)),
+    );
+}
+
+/**
+ * Verifies that the change feed refuses a table that is not served, and the old function of a table is gone.
+ */
+function changeFeedRefusals() {
+    const token = clientToken("admin");
+
+    expect(
+        "the change feed refuses a table that is not served",
+        proxyGet(`/rpc/changes?table=nothing_here&start_snapshot=0`, token).status === 403,
+    );
+    expect(
+        "the change feed of a table name that holds SQL is refused",
+        proxyGet(`/rpc/changes?table=${encodeURIComponent("x'; DROP TABLE y;--")}&start_snapshot=0`, token).status === 403,
+    );
+    expect(
+        "the functions with the old dl_ names are gone",
+        ["dl_chg?table=nothing_here&start_snapshot=0", "dl_table_files?table=nothing_here", "dl_latest_snapshot"].every(
+            (path) => proxyGet(`/rpc/${path}`, token).status === 404,
+        ),
+    );
+    expect(
+        "the function of one table, which the generic function replaced, is gone",
+        proxyGet(`/rpc/${FULL_TABLE}_dl_chg?start_snapshot=0`, token).status === 404,
+    );
+    expect(
+        "the aggregate function of one table, which the generic function replaced, is gone",
+        proxyGet(`/rpc/${FULL_TABLE}_agg`, token).status === 404,
+    );
 }
 
 /**
@@ -151,7 +277,7 @@ function changeFeed() {
 function readerMount(token) {
     const response = directPostgrest(`/${FULL_TABLE}?limit=1`, token);
     expect("PostgREST answers 200 from the instance-local DuckLake catalog", response.status === 200);
-    expect("PostgREST serves rows from the instance-local DuckLake catalog", rowsOf(response).length > 0);
+    expect("PostgREST serves rows from the instance-local DuckLake catalog", readRows(response).length > 0);
 }
 
 /**
@@ -161,7 +287,6 @@ function readerMount(token) {
  */
 export function source(token, k8s) {
     clearProxyCache(k8s);
-    sleep(1);
     const response = proxyGet(`/${FULL_TABLE}?select=id&limit=1`, token);
     expect("a table without fallbacks answers 200", response.status === 200);
     expect("a table without fallbacks is served from DuckLake only", sourceHeader(response) === "ducklake");
@@ -171,6 +296,8 @@ export function source(token, k8s) {
 export const steps = [
     { scenario: "ducklake", name: "publication", stage: 110, run: () => publication(userToken()) },
     { scenario: "ducklake", name: "changeFeed", stage: 120, run: () => changeFeed() },
+    { scenario: "ducklake", name: "genericFunctions", stage: 125, run: () => genericFunctions() },
+    { scenario: "ducklake", name: "changeFeedRefusals", stage: 126, run: () => changeFeedRefusals() },
     { scenario: "ducklake", name: "catalogSync", stage: 130, run: ({ k8s }) => catalogSync(k8s) },
     {
         scenario: "ducklake",

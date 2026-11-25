@@ -4,7 +4,7 @@ Feature: Sync runs
     Given I sign in as "web_admin"
     Then the header shows "web_admin (dp_admin)"
     When I open the "Sync" tab
-    And I start a run for the schema "test"
+    And I start a run for the schema "default__test"
     Then I see that a run started
     When I open the run that started
     Then I see the page of that run
@@ -37,7 +37,7 @@ Feature: Sync runs
   Scenario: An admin cancels a run and resumes it
     Given I sign in as "web_admin"
     When I open the "Sync" tab
-    And I start a run for the schema "test"
+    And I start a run for the schema "default__test"
     Then I see that a run started
     When I open the run that started
     And I cancel the run
@@ -48,7 +48,7 @@ Feature: Sync runs
   Scenario: The runs list shows the new status of a run without a reload
     Given I sign in as "web_admin"
     When I open the "Sync" tab
-    And I start a run for the schema "test"
+    And I start a run for the schema "default__test"
     Then I see that a run started
     When I post a cancel request for this run directly
     Then the run list shows the status "CANCELLED" for that run
@@ -74,13 +74,13 @@ Feature: Sync runs
 
   Scenario: A console user of another schema cannot pause the schedule of a schema
     Given I sign in as "web_other"
-    When I post a pause request for the schedule "sync-test" directly
+    When I post a pause request for the schedule "sync-default__test" directly
     Then the answer is 404
 
   Scenario: A user of another schema does not see the schedule of a schema
     Given I sign in as "web_other"
     When I open the "Sync" tab
-    Then I do not see the schedule "sync-test"
+    Then I do not see the schedule "sync-default__test"
 
   Scenario: A finished run shows its tasks, steps and log
     Given I sign in as "web_admin"
@@ -134,7 +134,7 @@ Feature: Sync runs
   Scenario: The runs list filters by schema
     Given I sign in as "web_admin"
     When I open the "Sync" tab
-    And I set "Schema" to "test" in the form "Filter the runs" and submit it
+    And I set "Schema" to "default__test" in the form "Filter the runs" and submit it
     Then the list with the column "Started by" says "1 to 25 of"
 
   Scenario: The log stops at 5000 lines

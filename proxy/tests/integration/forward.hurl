@@ -1,5 +1,5 @@
 # A read miss crosses to PostgREST, forwards the allowlisted header, and stores the answer.
-GET http://{{host}}/people?case=miss
+GET http://{{host}}/default/test/people?case=miss
 Authorization: Bearer t
 
 HTTP 200

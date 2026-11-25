@@ -125,6 +125,8 @@ export const SchemaRow = v.object({
 });
 
 export const SchemaName = v.pick(SchemaRow, ['name']);
+export const CatalogPath = v.object({ path: v.string() });
+export const CatalogEntry = v.object({ table_name: nullableString, path: nullableString });
 export const SchemaFlags = v.pick(SchemaRow, ['name', 'encrypted']);
 
 export const TableRow = v.object({
@@ -153,7 +155,6 @@ export const RulesRow = v.object({
 export const Health = v.object({
 	name: v.string(),
 	schema_exists: v.boolean(),
-	access_policy: v.boolean(),
 	view_count: v.number()
 });
 
@@ -167,6 +168,7 @@ export const Synced = v.object({
 
 export const PolicyRow = v.object({
 	subject: v.string(),
+	scope: v.string(),
 	unit_type: nullableString,
 	unit_id: nullableString
 });

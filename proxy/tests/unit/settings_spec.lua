@@ -102,23 +102,23 @@ end
 check("settings.current", current_with, {
 	{
 		name = "gives the defaults when nothing is stored",
-		expected = { tables = {}, disabled_endpoints = { "/access_policy" } },
+		expected = { tables = {}, schemas = {}, disabled_endpoints = {} },
 	},
 	{
 		name = "gives the defaults when the stored document is not valid",
 		stored = { document = "not json", version = 1 },
-		expected = { tables = {}, disabled_endpoints = { "/access_policy" } },
+		expected = { tables = {}, schemas = {}, disabled_endpoints = {} },
 	},
 	{
 		name = "parses the stored document",
 		stored = { document = PEOPLE_JSON, version = 1 },
-		expected = { tables = { people = { cache_ttl = 42 } }, disabled_endpoints = { "/access_policy" } },
+		expected = { tables = { people = { cache_ttl = 42 } }, schemas = { test = true }, disabled_endpoints = {} },
 	},
 	{
 		name = "parses again when the version moved",
 		stored = { document = PEOPLE_JSON, version = 2 },
 		cache = { version = 1, value = { tables = {}, disabled_endpoints = {} } },
-		expected = { tables = { people = { cache_ttl = 42 } }, disabled_endpoints = { "/access_policy" } },
+		expected = { tables = { people = { cache_ttl = 42 } }, schemas = { test = true }, disabled_endpoints = {} },
 	},
 	{
 		name = "keeps the parsed settings while the version stays",

@@ -15,11 +15,7 @@ from tests.constants import FULL, POSTGRES_URL, ROUTED_TABLE
 from tests.fixtures.types import Postgres
 from tests.helpers.core import execute_sql
 from tests.helpers.rbac import install_rbac
-from tests.helpers.routing import (
-    create_access_policy,
-    grant_everything,
-    install_aggregate_function,
-)
+from tests.helpers.routing import grant_everything, install_aggregate_function
 from tests.helpers.state import put_state
 
 
@@ -37,7 +33,6 @@ async def routing(postgres: Postgres) -> Postgres:
 @pytest.fixture
 async def table_function(routing: Postgres) -> Postgres:
     """Install helpers that report the arguments the per-table function passes."""
-    await create_access_policy(routing)
     await execute_sql(
         routing,
         "postgres/create_routing_stubs",
@@ -49,7 +44,6 @@ async def table_function(routing: Postgres) -> Postgres:
 @pytest.fixture
 async def aggregate_function(routing: Postgres) -> Postgres:
     """Install a DuckLake helper with six rows, for the aggregate function."""
-    await create_access_policy(routing)
     await execute_sql(
         routing,
         "postgres/create_aggregate_stubs",
@@ -93,4 +87,12 @@ async def capped(aggregate_function: Postgres) -> Postgres:
     )
     await put_state(aggregate_function, ROUTED_TABLE, FULL)
     await grant_everything(aggregate_function)
+    return aggregate_function
+
+
+@pytest.fixture
+async def ruled_aggregate(aggregate_function: Postgres) -> Postgres:
+    """Install the aggregate function for a table with row rules."""
+    await install_aggregate_function(aggregate_function, has_rls=True, fallbacks=[])
+    await put_state(aggregate_function, ROUTED_TABLE, FULL)
     return aggregate_function

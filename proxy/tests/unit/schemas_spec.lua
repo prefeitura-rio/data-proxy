@@ -8,7 +8,7 @@ local check = helpers.check(describe, it)
 --- The names of a table, in order, so the names of two tables can be compared.
 ---@param source table
 ---@return string[]
-local function names_of(source)
+local function sorted_names(source)
 	local names = {}
 	tablex.foreach(source, function(_, name) names[#names + 1] = name end)
 	table.sort(names)
@@ -28,7 +28,7 @@ local required = {
 --- The text of the required variables, with the changes of the case.
 ---@param changes table<string, string|false>|nil A false removes the variable.
 ---@return table<string, string>
-local function text_of(changes)
+local function configure_variables(changes)
 	local text = tablex.update({}, required)
 	tablex.foreach(changes or {}, function(value, name) text[name] = value or nil end)
 	return text
@@ -104,7 +104,7 @@ check("schemas.jwt_claims", function(case) return schemas.jwt_claims:validate(ca
 	{ name = "rejects projects that are a number", value = { projects = 1 }, reason = 'field "projects"' },
 })
 
-check("schemas.config rejects", function(case) return schemas.config:validate(text_of(case.changes)) end, {
+check("schemas.config rejects", function(case) return schemas.config:validate(configure_variables(case.changes)) end, {
 	{ name = "rejects a ttl that is not a number", changes = { cache_ttl = "abc" }, reason = 'field "cache_ttl"' },
 	{ name = "rejects a ttl in hexadecimal", changes = { cache_ttl = "0x10" }, reason = 'field "cache_ttl"' },
 	{ name = "rejects a ttl that is not whole", changes = { cache_ttl = "1.5" }, reason = 'field "cache_ttl"' },
@@ -153,11 +153,11 @@ describe("schemas.config", function()
 		}
 
 		assert.same(expected, schemas.config:validate(full_text))
-		assert.same(names_of(expected), names_of(schemas.config.fields))
+		assert.same(sorted_names(expected), sorted_names(schemas.config.fields))
 	end)
 
 	it("applies the defaults", function()
-		local config = assert(schemas.config:validate(text_of()))
+		local config = assert(schemas.config:validate(configure_variables()))
 		assert.same(300, config.cache_ttl)
 		assert.same(262144, config.max_body)
 		assert.same(6379, config.redis_port)
@@ -169,9 +169,9 @@ describe("schemas.config", function()
 	end)
 
 	it("does not change the text that it reads", function()
-		local text = text_of({ cache_ttl = "60" })
+		local text = configure_variables({ cache_ttl = "60" })
 		schemas.config:validate(text)
-		assert.same(text_of({ cache_ttl = "60" }), text)
+		assert.same(configure_variables({ cache_ttl = "60" }), text)
 	end)
 end)
 

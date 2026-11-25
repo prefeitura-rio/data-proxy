@@ -2,7 +2,7 @@ suite: Backup CronJob
 templates:
   - jobs.yaml
 tests:
-  - it: renders one backup for every schema with the configured schedule and image
+  - it: renders one backup of the access tables with the configured schedule and image
     set:
       jobs.backup.enabled: true
       jobs.backup.schedule: "30 4 * * *"

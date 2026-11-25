@@ -1,6 +1,6 @@
 # A client that accepts gzip gets a JSON body compressed. Hurl decodes the body, so the
 # assert checks that the decoded text is the whole answer.
-GET http://{{host}}/big
+GET http://{{host}}/default/test/big
 Accept-Encoding: gzip
 
 HTTP 200
@@ -10,7 +10,7 @@ Vary: Accept-Encoding
 bytes count == 300002
 
 # A client that does not ask for gzip gets the plain body.
-GET http://{{host}}/big
+GET http://{{host}}/default/test/big
 
 HTTP 200
 [Asserts]

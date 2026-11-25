@@ -1,15 +1,16 @@
 # Using the API
 
-Data Proxy exposes synced tables through [PostgREST](https://docs.postgrest.org/). Use a JSON Web Token (JWT) and select the target schema with `Accept-Profile`.
+Data Proxy exposes synced tables through [PostgREST](https://docs.postgrest.org/). Use a JSON Web Token (JWT) and name the project and the schema in the path: `/<project>/<schema>/<table>`.
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
-  "${BASE_URL}/participants?select=region_id,name&limit=20"
+  "${BASE_URL}/my_project/my_schema/participants?select=region_id,name&limit=20"
 ```
 
 ## Request routing
+
+The proxy reads the first two segments of the path as the project and the schema. It answers 404 when the configuration has no such schema. The segments `access`, `console`, `rbac`, `dbos`, `public`, `duckdb`, `rpc`, `docs` and `v1` never name a project. The proxy replaces any `Accept-Profile` header that the client sends.
 
 The proxy sends every request to the `postgrest` Deployment, which connects through PgDog. PgDog sends a `GET` to a standby and every write to the primary. See [Topology](operations/topology.md).
 
@@ -25,7 +26,7 @@ ${BASE_URL}/docs
 
 The page can list table and column names without exposing data. Use its Authorize control with the token value only. The page adds `Bearer `.
 
-The schema selector lists the schemas of the console. A sync worker updates the list after each schema change and at the start of every sync run. Reload the page to see the change, which takes about a minute.
+The schema selector lists the schemas of the console as `<project>__<schema>`. The page calls the path `/<project>/<schema>/` of the chosen schema. A sync worker updates the list after each schema change and at the start of every sync run. Reload the page to see the change, which takes about a minute.
 
 ## Querying
 
@@ -41,32 +42,64 @@ Combine filters with `&`. PostgREST applies them with AND. row-level security (R
 
 A `select` with `sum()`, `avg()`, `count()`, `min()` or `max()` and a group runs inside DuckDB, so it stays fast on large tables. See [Query pushdown](proxy/pushdown.md#aggregates).
 
+## Distinct count estimate
+
+Each schema has a read-only RPC named `hll`. It estimates the number of distinct values of a column with a HyperLogLog sketch, in DuckDB. It takes the table in `table` and the column in `column`. The optional `group_by` gives one estimate for each value of another column, and `lg_k` sets the precision from 4 to 21. The default is 12, which gives a mean error of about 1 percent.
+
+```bash
+curl \
+  --header "Authorization: Bearer ${TOKEN}" \
+  --get "${BASE_URL}/my_project/my_schema/rpc/hll" \
+  --data-urlencode "table=participants" \
+  --data-urlencode "column=cpf" \
+  --data-urlencode "group_by=city"
+```
+
+The answer is `[{"city": "Rio", "estimate": 18211}]`, or `[{"estimate": 18211}]` without `group_by`. The column and the `group_by` column must be a text, a whole number, a date or a true-or-false column. The estimate applies the row policy of the table. The function answers `409` for a table with a fallback source, because it reads only DuckLake.
+
 Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`. A count reads every row, so the proxy doesn't push the `limit` for it.
 
 ## DuckLake change feed
 
-Each configured table exposes a read-only RPC named `dl_changes_<table>` in its target schema. PostgreSQL cuts a name at 63 bytes, so the RPC of a table with a very long name has the cut name. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID and typed row columns.
+Each schema has a read-only RPC named `changes`. It takes the table in the argument `table`, and it accepts `start_snapshot` and an optional `end_snapshot`. It returns the DuckLake change type, the snapshot ID, the row ID and the row. The row is the object `data`, with one key for each column of the table.
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
-  --get "${BASE_URL}/rpc/dl_changes_participants" \
+  --get "${BASE_URL}/my_project/my_schema/rpc/changes" \
+  --data-urlencode "table=participants" \
   --data-urlencode "start_snapshot=12" \
-  --data-urlencode "end_snapshot=15"
+  --data-urlencode "end_snapshot=15" \
+  --data-urlencode "select=change_type,cpf:data->>cpf"
 ```
 
-Use the schema RPC `dl_latest_snapshot` to get the current cursor before or after reading a range:
+A client reads a column with a JSON path, for example `data->>cpf`, and filters with `data->>cpf=eq.1`. The function replaces `<table>_dl_chg`, which gave one typed column for each column. A client of that function reads `data->>column` now.
+
+Use the schema RPC `snapshot` to get the current cursor before or after reading a range:
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
   --request POST \
-  "${BASE_URL}/rpc/dl_latest_snapshot"
+  "${BASE_URL}/my_project/my_schema/rpc/snapshot"
 ```
 
 Snapshot bounds are inclusive. The feed returns deleted rows as preimages. The same schema scope and row policy apply to change rows, including deleted preimages. DuckLake keeps the snapshot history for seven days, so consumers must advance their cursor within that window. Compaction preserves change history, but snapshot expiration removes history that references expired snapshots.
+
+## Renamed functions
+
+A release renamed three functions of each data schema and one function of the `rbac` schema. The old names no longer exist, and a request to an old name answers 404. Use the new names.
+
+| Old name | New name |
+| --- | --- |
+| `/rpc/dl_latest_snapshot` | `/rpc/snapshot` |
+| `/rpc/dl_table_files` | `/rpc/files` |
+| `/rpc/dl_chg` | `/rpc/changes` |
+| `rbac.all_rows(schema)` | `rbac.whole(schema)` |
+
+The internal table `data_proxy.table_meta` is now `data_proxy.meta`, and its column `dl_view` is now `view`. Only the sync and the generic functions read it.
+
+Deploy the migration and the sync first, and the proxy after. Until the sync runs, `changes` and `files` refuse every table.
 
 ## Response source and cache
 
@@ -91,9 +124,8 @@ Send `X-DuckLake-Snapshot` to read DuckLake as of one snapshot. A pinned request
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --header "Accept-Profile: my_schema" \
   --header "X-DuckLake-Snapshot: 42" \
-  "${BASE_URL}/my_table?limit=20"
+  "${BASE_URL}/my_project/my_schema/my_table?limit=20"
 ```
 
 An unknown or expired snapshot returns `404`, and a value that's not a whole number returns `400`. DuckLake keeps the snapshot history for seven days. A table that has no published data and no fallback also returns `404`.
@@ -125,9 +157,3 @@ token --issuer https://sso.example.com/realms/prod --client-id my-client --usern
 ```
 
 The client secret can also come from `KEYCLOAK_CLIENT_SECRET`. `--username` and `--password` switch to the password grant, and `--scope` adds scopes.
-
-<!-- nav:start -->
----
-
-[Previous: Sync](./sync.md) | [Next: Proxy](proxy/index.md) | [Home](./index.md)
-<!-- nav:end -->

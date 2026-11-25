@@ -7,4 +7,4 @@
   }
 }
 #}
-SELECT path, size_bytes, delete_file FROM {{ schema }}.dl_table_files(%(table_name)s);
+SELECT path, size_bytes, delete_file FROM {{ schema }}.files(%(table_name)s);

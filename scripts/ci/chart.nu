@@ -3,16 +3,13 @@ use ../lib.nu [
     checked
     fail
     IMAGES
-    make-dir
-    read-data
-    read-text
-    write-text
 ]
 use ../lib/release.nu [
     chart-files
     images-changed
     next-dbos-version
     release-commit
+    release-notes
     release-tag
     replace-once
 ]
@@ -67,13 +64,13 @@ def resolve-images []: nothing -> nothing {
     log info 'Resolved all image tags.'
 }
 
-# Calculate and write the next Helm chart version from commit history. Return true when a release is due.
+# Calculate the next chart version and report whether a release is due.
 def read-next-version []: nothing -> bool {
     log info 'Calculating the next Helm chart version...'
 
-    write-output current (read-data helm/Chart.yaml | get version)
+    write-output current (open helm/Chart.yaml | get version)
 
-    let tag = checked 'cog bump --dry-run' cog bump --auto --dry-run | release-tag
+    let tag = checked 'cog bump --dry-run' cog bump --package helm-v --auto --dry-run | release-tag
 
     if $tag == null {
         write-output release (false | into string)
@@ -104,7 +101,7 @@ def pin-images []: nothing -> nothing {
         }
     }
 
-    let values = read-text helm/values.yaml
+    let values = open --raw helm/values.yaml | decode utf-8
     | lines
     | each {|line|
         $replacements | reduce --fold $line {|replacement value|
@@ -121,24 +118,24 @@ def pin-images []: nothing -> nothing {
         fail $'Expected ($IMAGES | length) pinned image lines, found ($pinned)'
     }
 
-    $values | write-text helm/values.yaml
+    $values | save --force helm/values.yaml
     log info $'Pinned ($pinned) image references in helm/values.yaml.'
 }
 
-# Set the chart version. The pre-bump hook of cog.toml calls it with the next version.
+# Set the chart version.
 def bump-chart-version [
     version: string # The next chart version, without the helm-v prefix.
 ]: nothing -> nothing {
     log info $'Bumping Helm chart version to ($version)...'
 
-    read-text helm/Chart.yaml
+    (open --raw helm/Chart.yaml | decode utf-8)
     | str replace --regex '(?m)^version: .*$' $'version: ($version)'
-    | write-text helm/Chart.yaml
+    | save --force helm/Chart.yaml
 
     log info 'Helm chart version updated.'
 }
 
-# Raise the DBOS application version when the code of the sync changed since the last release. The pre-bump hook of cog.toml calls it.
+# Raise the DBOS application version when the code of the sync changed since the last release.
 def bump-dbos-version []: nothing -> nothing {
     let tag = previous-helm-tag
 
@@ -152,7 +149,7 @@ def bump-dbos-version []: nothing -> nothing {
         fail $'git diff failed: ($diff.stderr | str trim)'
     }
 
-    let versions = read-text sync/src/sync/settings.py
+    let versions = open --raw sync/src/sync/settings.py | decode utf-8
     | parse --regex 'DBOS_APPLICATION_VERSION: str = "(?<version>[^"]+)"'
 
     if ($versions | is-empty) {
@@ -172,7 +169,6 @@ def bump-dbos-version []: nothing -> nothing {
     replace-once helm/values.yaml '^\s+applicationVersion: ' $'    applicationVersion: ($next)'
     replace-once sync/src/sync/settings.py '^\s+DBOS_APPLICATION_VERSION: str = ' $'    DBOS_APPLICATION_VERSION: str = "($next)"'
     replace-once docs/operations/environment.md '^\| `DBOS_APPLICATION_VERSION` \|' $'| `DBOS_APPLICATION_VERSION` | `($next)` | DBOS application version. |'
-    checked 'docs.nu llms write' nu scripts/docs.nu llms write | ignore
 }
 
 # Log in to the OCI chart registry.
@@ -189,18 +185,18 @@ def login-chart-registry []: nothing -> nothing {
 # Package the Helm chart into the packaged directory.
 def package-chart []: nothing -> nothing {
     log info 'Packaging Helm chart...'
-    make-dir packaged
+    mkdir packaged
     helm package helm/ --destination packaged
     log info 'Helm chart packaged.'
 }
 
-# Bump the chart version, write the changelog, commit and tag with cog. The hooks of cog.toml pin the images first.
+# Create the release commit and tag with cog after preparing chart files.
 def tag-release []: nothing -> nothing {
     log info 'Bumping the Helm release with cog...'
 
     git config user.name (ci-config).bot_name
     git config user.email (ci-config).bot_email
-    checked 'cog bump' cog bump --auto --skip-ci | print
+    checked 'cog bump' cog bump --package helm-v --auto --skip-ci | print
 
     log info 'Helm release committed and tagged.'
 }
@@ -211,8 +207,8 @@ def write-release-notes [
 ]: nothing -> nothing {
     log info $'Writing the notes of ($tag)...'
 
-    make-dir packaged
-    checked 'cog changelog' cog changelog --at $tag | write-text packaged/notes.md
+    mkdir packaged
+    open --raw CHANGELOG.md | release-notes $tag | save --force packaged/notes.md
 }
 
 # Publish the packaged chart to the OCI registry.
@@ -226,8 +222,7 @@ def push-chart []: nothing -> nothing {
     log info 'Published the Helm chart.'
 }
 
-# Decide whether a Helm release is needed: a chart file or an image path changed since the last release tag, and a
-# release commit outside the Terraform provider and the docs came since then.
+# Determine whether changed chart or image files and eligible commits require a release.
 def check-release-needed [release: bool]: nothing -> nothing {
     log info 'Checking whether a Helm release is needed...'
 
@@ -241,15 +236,15 @@ def check-release-needed [release: bool]: nothing -> nothing {
     log info $'Release needed: (not $skip)'
 }
 
-# Plan the chart release: resolve the image tags, read the next version, and decide whether to skip. It writes the image ids,
-# `current`, `release`, `next`, `tag` and `skip`. It changes no file.
+# Resolve image tags, calculate the next chart version and write the release decision.
+@example "Plan a chart release" { nu --no-config-file scripts/ci.nu plan chart }
 export def 'main plan chart' []: nothing -> nothing {
     resolve-images
     check-release-needed (read-next-version)
 }
 
-# Prepare the files of a chart release for cog: pin the images, set the chart version and raise the DBOS version.
-# The pre-bump hook of cog.toml calls it with the next version.
+# Prepare chart versions and pinned images for the cog release hook.
+@example "Prepare chart release files" { nu --no-config-file scripts/ci.nu prepare chart '2.21.0' }
 export def 'main prepare chart' [
     version: string # The next chart version, without the helm-v prefix.
 ]: nothing -> nothing {
@@ -258,19 +253,21 @@ export def 'main prepare chart' [
     bump-dbos-version
 }
 
-# Commit and tag the chart release with cog. The hook of cog.toml prepares the files first. The login comes first, so a bad
-# token stops the job before the release commit and the tag exist.
+# Authenticate to the registry and create the chart release commit and tag.
+@example "Create a chart release commit" { nu --no-config-file scripts/ci.nu release chart }
 export def 'main release chart' []: nothing -> nothing {
     login-chart-registry
     tag-release
 }
 
 # Package the chart into the packaged directory.
+@example "Package the current chart" { nu --no-config-file scripts/ci.nu package chart }
 export def 'main package chart' []: nothing -> nothing {
     package-chart
 }
 
-# Publish the packaged chart and write the release notes. It logs in again, so a run at an old tag works alone.
+# Authenticate, publish the packaged chart and write its release notes.
+@example "Publish a packaged chart release" { nu --no-config-file scripts/ci.nu publish chart 'helm-v2.21.0' }
 export def 'main publish chart' [
     tag: string # The release tag, such as helm-v1.128.0.
 ]: nothing -> nothing {

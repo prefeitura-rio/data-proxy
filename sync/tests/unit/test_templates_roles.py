@@ -20,7 +20,6 @@ from tests.constants import (
 from tests.fixtures.types import Postgres
 from tests.helpers.core import query_plan, scalar, set_setting
 from tests.helpers.dbos import answers_for
-from tests.helpers.migrations import ROLES, migration_sql
 from tests.helpers.rbac import (
     RBAC,
     SOURCE_HASH,
@@ -32,6 +31,7 @@ from tests.helpers.rbac import (
     install_rbac_sync,
     make_serving_login,
     revision,
+    signer_keys,
     stored_roles,
     stored_roles_sync,
     verify_rbac,
@@ -42,15 +42,6 @@ from tests.strategies import (
     claim_and_schema,
     rbac_rules,
 )
-
-
-def signer_keys() -> str:
-    """Return the migration that makes the table of sealed keys, for the signer login of the tests."""
-    return migration_sql(
-        "ducklake",
-        "00002_signer_keys.sql",
-        env={**ROLES, "AUTH_SIGNER_ROLE": SIGNER},
-    )
 
 
 @pytest.mark.postgres
@@ -504,7 +495,7 @@ class TestRbacTemplate:
         await set_setting(rbac, "app.claim_role", "dp_admin")
         await rbac.connection.execute(b"SELECT rbac.load()")
 
-        assert await scalar(rbac, "SELECT rbac.all_rows(%s)", "s1") is False
+        assert await scalar(rbac, "SELECT rbac.whole(%s)", "s1") is False
 
     @pytest.mark.parametrize(
         ("claim", "schema", "expected"),
@@ -525,22 +516,35 @@ class TestRbacTemplate:
             pytest.param("", "s1", False, id="empty-claim"),
         ],
     )
-    async def test_all_rows_answers_whether_the_claim_lifts_the_row_filter_of_the_schema(
+    async def test_whole_answers_whether_the_claim_lifts_the_row_filter_of_the_schema(
         self, rbac: Postgres, claim: str, schema: str, expected: bool
     ) -> None:
         """Only the element schema:* or the element * lifts the row filter, and schema:* only for its schema."""
         await set_setting(rbac, "app.claim_schemas", claim)
         await rbac.connection.execute(b"SELECT rbac.load()")
 
-        assert await scalar(rbac, "SELECT rbac.all_rows(%s)", schema) is expected
+        assert await scalar(rbac, "SELECT rbac.whole(%s)", schema) is expected
 
-    async def test_all_rows_denies_every_schema_without_a_schemas_claim(
+    async def test_whole_is_open_to_the_request_role_and_the_anonymous_role(
+        self, rbac: Postgres
+    ) -> None:
+        """The grant of the old function moved with the rename, and the old name is gone."""
+        cursor = await rbac.connection.execute(
+            b"SELECT has_function_privilege('dp_api', 'rbac.whole(text)', 'EXECUTE'),"
+            b" has_function_privilege('anon', 'rbac.whole(text)', 'EXECUTE'),"
+            b" has_function_privilege('public', 'rbac.whole(text)', 'EXECUTE'),"
+            b" to_regprocedure('rbac.all_rows(text)') IS NULL"
+        )
+
+        assert await cursor.fetchone() == (True, True, False, True)
+
+    async def test_whole_denies_every_schema_without_a_schemas_claim(
         self, rbac: Postgres
     ) -> None:
         """A request without the claim reads no row."""
         await rbac.connection.execute(b"SELECT rbac.load()")
 
-        assert await scalar(rbac, "SELECT rbac.all_rows(%s)", "s1") is False
+        assert await scalar(rbac, "SELECT rbac.whole(%s)", "s1") is False
 
     @pytest.mark.parametrize(
         "rules",

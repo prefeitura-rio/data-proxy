@@ -27,8 +27,11 @@ function sync.parse(text)
 
 	---@type table<string, TableSettings>
 	local tables = {}
+	---@type table<string, boolean>
+	local names = {}
 
-	tablex.foreach(document.schemas or {}, function(schema)
+	tablex.foreach(document.schemas or {}, function(schema, name)
+		names[name] = true
 		List(schema.tables or {}):foreach(function(config)
 			local short_name = config.name:match(regex.table_name)
 			if short_name then tables[short_name] = { cache_ttl = config.cache_ttl } end
@@ -37,6 +40,7 @@ function sync.parse(text)
 
 	return {
 		tables = tables,
+		schemas = names,
 		disabled_endpoints = document.noCachePaths or constants.disabled_endpoints,
 		revision = document.revision,
 		scopes = document.scopes,
@@ -47,10 +51,10 @@ end
 --- The function builds a new table on each call, so no caller shares it.
 ---
 --- ```lua
---- sync.empty()  --> { tables = {}, disabled_endpoints = { "/access_policy" } }
+--- sync.empty()  --> { tables = {}, schemas = {}, disabled_endpoints = {} }
 --- ```
 ---@return SyncConfig config
-function sync.empty() return { tables = {}, disabled_endpoints = constants.disabled_endpoints } end
+function sync.empty() return { tables = {}, schemas = {}, disabled_endpoints = constants.disabled_endpoints } end
 
 --- Read sync.json from a file and return the table settings that the proxy uses.
 --- The function raises an error if the file cannot be opened or the text is not valid.

@@ -1,10 +1,7 @@
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
 import pytest
 
-from sync import identities
 from sync.identities import remove_stale_identities, stale_users
 from sync.settings import settings
 from sync.utils import RemovalLimitError
@@ -48,36 +45,17 @@ class TestStaleUsers:
 class TestRemoveStaleIdentities:
     """Deleting S3 identities cannot be undone, so one run may remove only MAX_REMOVALS of them."""
 
-    @pytest.fixture
-    def remove(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-        """Stand in for the object store with three stale identities, and return the delete call."""
-
-        @asynccontextmanager
-        async def client(*_: object) -> AsyncGenerator[None]:
-            yield
-
-        remove = AsyncMock()
-        monkeypatch.setattr(identities, "create_iam_client", client)
-        monkeypatch.setattr(
-            identities,
-            "list_users",
-            AsyncMock(return_value=["sig_a", "sig_b", "sig_c"]),
-        )
-        monkeypatch.setattr(identities, "remove_user", remove)
-
-        return remove
-
     async def test_removes_the_stale_identities_up_to_the_limit(
-        self, remove: AsyncMock, monkeypatch: pytest.MonkeyPatch
+        self, identity_removal: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Three identities at a limit of three go."""
         monkeypatch.setattr(settings, "MAX_REMOVALS", 3)
 
         assert await remove_stale_identities(set()) == ["sig_a", "sig_b", "sig_c"]
-        assert remove.await_count == 3
+        assert identity_removal.await_count == 3
 
     async def test_removes_nothing_above_the_limit(
-        self, remove: AsyncMock, monkeypatch: pytest.MonkeyPatch
+        self, identity_removal: AsyncMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """An empty configuration makes every identity stale, so the step stops before the first delete."""
         monkeypatch.setattr(settings, "MAX_REMOVALS", 2)
@@ -90,4 +68,4 @@ class TestRemoveStaleIdentities:
         ):
             await remove_stale_identities(set())
 
-        remove.assert_not_awaited()
+        identity_removal.assert_not_awaited()

@@ -4,10 +4,10 @@ This page explains what the proxy caches and how it builds the cache key. A toke
 
 - The proxy stores only non-empty `GET` answers with status 200. An empty answer can mean three things: access was denied, the data isn't published yet or the access policy changed. The proxy never stores it.
 - An entry stores the body with `X-Source` and `X-DuckLake-Snapshot`, so a cache hit reports what produced the answer. `X-Cache` tells a hit from a miss.
-- OpenResty doesn't cache ranged, write, oversized or non-JSON responses. `/access_policy` and its subpaths are never cached. The OpenAPI document at `/` isn't cached either, because it changes when PostgREST reloads the schema after a sync run.
+- OpenResty doesn't cache ranged, write, oversized or non-JSON responses. A path in `noCachePaths` and its subpaths are never cached. The OpenAPI document at `/` isn't cached either, because it changes when PostgREST reloads the schema after a sync run.
 - The proxy reads and writes the cache through one Redis endpoint.
 - After a sync run, the sync service counts up the data generation of each schema that the run planned. The answers of the other schemas stay in the cache.
-- The key has the parts in the table below, and the table also has the three counters that keep the cache current.
+- The key has the parts in the table below, and the table also has the counters that keep the cache current.
 - When an entry is missing, only one request for that key asks PostgREST. The lock section shows how.
 
 ## The cache key
@@ -18,13 +18,12 @@ This page explains what the proxy caches and how it builds the cache key. A toke
 | Schema profile and representation headers | The same path can answer in another schema or format. |
 | The pinned snapshot (`X-DuckLake-Snapshot`) | A pinned read must not share an entry with the latest data. |
 | The scope of the user, or the user, then the schemas and the role | A token with another identity never reads an answer that another token cached. Users with the same grants have the same scope and share their answers. |
-| The access policy generation | A write to `/access_policy` through the proxy raises this counter in Redis. |
-| The data generation of the schema | The sync service counts it up after a run that planned the schema. The proxy reads the counter of the `Accept-Profile` schema, so a run of one schema doesn't empty the cache of another. A request without a profile reads the counter of the empty name, which every run also counts up. |
-| The settings revision | `console.config()` contains it in its document. Any other change of the access policy or the rules moves `rbac.revision`. |
+| The data generation of the schema | The sync service counts it up after a run that planned the schema. The proxy reads the counter of the schema in the path, so a run of one schema doesn't empty the cache of another. |
+| The settings revision | `console.config()` contains it in its document. A change of a grant or of the rules moves `rbac.revision`. |
 
 A trigger on `rbac.revision` queues a `reload_proxy` workflow. The sync worker asks every proxy pod to read the settings. A proxy that takes a new document stops serving the old answers immediately. Examples of such a change are a write to the access policy from the console, and a new `rbac.toml` that `configure-db` loads.
 
-Redis keeps the counters as `policy:generation` and `cache:generation:<schema>`. The proxy reads both in one `MGET`. Upgrade the proxy before the sync workers. An older proxy ignores the data generation. It can show an answer that a run changed until the entry expires. The old keys and the new keys never meet, because the key has one more part.
+Redis keeps the counters as `policy:generation` and `cache:generation:<schema>`. The proxy reads both in one `MGET`.
 
 ## The scope
 
@@ -41,34 +40,7 @@ Without a lock, a slow entry that expires sends every request for it to PostgRES
 The proxy calls the first request for a key the leader. The other requests for the same key are followers, and they wait for the leader.
 
 ```mermaid
-%% Cache lock sequence
-sequenceDiagram
-  participant a as Request A
-  participant b as Request B (same key)
-  participant n as Proxy
-  participant r as Redis
-  participant pr as PostgREST
-  a->>n: GET
-  n->>n: build the key
-  n->>r: look up the key
-  r-->>n: miss
-  n->>n: A takes the lock
-  b->>n: GET
-  n->>r: look up the key
-  r-->>n: miss
-  n->>n: B waits (up to 30 s)
-  n->>pr: A asks PostgREST
-  pr-->>n: answer
-  alt 200 and not empty
-    n->>r: store the entry
-    n->>n: A frees the lock
-    n->>r: B reads the entry
-    r-->>n: entry
-  else nothing stored, or B timed out
-    n->>pr: B asks PostgREST itself
-  end
-  n-->>a: answer
-  n-->>b: answer
+{{#include ../diagrams/cache-lock-sequence.mmd}}
 ```
 
 - A follower waits up to 30 seconds and reads the entry that the leader stored.
@@ -77,9 +49,3 @@ sequenceDiagram
 - A follower asks PostgREST itself if the leader stored nothing (for example after an error) or if the wait times out.
 
 See [Using the API](../using.md#response-source-and-cache) for the response headers.
-
-<!-- nav:start -->
----
-
-[Previous: Query pushdown](./pushdown.md) | [Next: Retries and limits](./limits.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

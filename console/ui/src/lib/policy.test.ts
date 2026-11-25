@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_UNITS, parseUnits } from './policy';
+import { explainPath, MAX_UNITS, parseUnits, expandScopes } from './policy';
 
 const rows = (unitType: string, ...ids: string[]) => ({
 	ok: true,
@@ -49,5 +49,37 @@ describe('parseUnits', () => {
 		const repeated = Array.from({ length: MAX_UNITS + 5 }, () => 'north').join(',');
 
 		expect(parseUnits('region', repeated)).toEqual(rows('region', 'north'));
+	});
+});
+
+describe('expandScopes', () => {
+	it.each([
+		['a table path', 'default.test.big_table', ['', 'default', 'default.test', 'default.test.big_table']],
+		['a schema path', 'default.test', ['', 'default', 'default.test']],
+		['a project path', 'default', ['', 'default']]
+	])('%s', (_name, path, expected) => {
+		expect(expandScopes(path)).toEqual(expected);
+	});
+});
+
+describe('explainPath', () => {
+	const entries = [
+		{ table_name: null, path: 'default.test' },
+		{ table_name: 'big_table', path: 'default.test.big_table' },
+		{ table_name: 'odd.name', path: null }
+	];
+
+	it.each([
+		['a table of the catalog', 'p.d.big_table', 'default.test.big_table'],
+		['a table that ltree cannot store', 'p.d.odd.name', 'default.test'],
+		['a table that the catalog lacks', 'p.d.missing', 'default.test'],
+		['no table', null, 'default.test'],
+		['an empty table', '', 'default.test']
+	])('%s', (_name, table, expected) => {
+		expect(explainPath(entries, table)).toBe(expected);
+	});
+
+	it('gives null for a schema that the catalog lacks', () => {
+		expect(explainPath([], 'p.d.big_table')).toBeNull();
 	});
 });

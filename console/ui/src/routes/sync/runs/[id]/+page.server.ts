@@ -1,7 +1,7 @@
 import { resolve } from '$app/paths';
 import * as v from 'valibot';
 import { error, fail, redirect } from '@sveltejs/kit';
-import { pageOf, rangeQuery } from '#lib/list.js';
+import { parsePage, rangeQuery } from '#lib/list.js';
 import { collectLines } from '#lib/logs.js';
 import { controlMessage } from '#lib/messages.js';
 import { can } from '#lib/permissions.js';
@@ -23,8 +23,8 @@ export const load: PageServerLoad = async ({ locals, parent, params, url, depend
 
 	const client = api(locals.session);
 	const id = encodeURIComponent(params.id);
-	const tasksPage = pageOf(url.searchParams, PAGE, 'tasks_page');
-	const stepsPage = pageOf(url.searchParams, PAGE, 'steps_page');
+	const tasksPage = parsePage(url.searchParams, PAGE, 'tasks_page');
+	const stepsPage = parsePage(url.searchParams, PAGE, 'steps_page');
 	const asked = Number(url.searchParams.get('lines') ?? LINES);
 	const lines = Number.isInteger(asked) && asked >= LINES ? Math.min(asked, MAX_LINES) : LINES;
 	const [runs, tasks, steps, logs] = await Promise.all([

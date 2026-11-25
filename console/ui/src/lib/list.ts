@@ -1,7 +1,7 @@
 export type PageQuery = { page: number; size: number };
 
 /** Read the page number of a list from the address. A wrong value means the first page. */
-export function pageOf(params: { get(name: string): string | null }, size: number, key = 'page'): PageQuery {
+export function parsePage(params: { get(name: string): string | null }, size: number, key = 'page'): PageQuery {
 	const page = Number(params.get(key) ?? 0);
 
 	return { page: Number.isInteger(page) && page > 0 ? page : 0, size };

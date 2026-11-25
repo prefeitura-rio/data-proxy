@@ -1,17 +1,26 @@
-tag_prefix = "helm-v"
 skip_ci = "[skip ci]"
 ignore_merge_commits = true
+monorepo_version_separator = ""
+generate_mono_repository_global_tag = false
 
-# The hooks run after cog checks that the checkout is clean, and before the release commit. The commit then has their changes.
-pre_bump_hooks = [
-  "nu scripts/ci.nu prepare chart {{version}}",
-]
+[monorepo.packages.v]
+path = "provider"
+changelog_path = "provider/CHANGELOG.md"
+
+[monorepo.packages.helm-v]
+path = "."
+include = ["**"]
+ignore = ["provider/**", "docs/**"]
+changelog_path = "CHANGELOG.md"
+pre_bump_hooks = ["nu scripts/ci.nu prepare chart {{version}}"]
 
 [changelog]
 path = "CHANGELOG.md"
 template = "scripts/changelog.tera"
+package_template = "scripts/changelog.tera"
 
 # Only a feature, a fix and a breaking change reach the changelog.
+# Repository checks also use this table as the allowed commit types.
 [commit_types]
 chore = { omit_from_changelog = true }
 docs = { omit_from_changelog = true }

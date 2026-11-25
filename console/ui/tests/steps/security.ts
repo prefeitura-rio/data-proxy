@@ -5,7 +5,7 @@ import { After, BASE, Given, Then, When } from '../fixtures';
 When('I post a run request from the origin {string}', async ({ page, world }, origin: string) => {
 	const response = await page.request.post(`${BASE}/sync?/start`, {
 		headers: { Origin: origin, 'Content-Type': 'application/x-www-form-urlencoded' },
-		data: 'schemas=test&tables='
+		data: 'schemas=default__test&tables='
 	});
 
 	world.lastStatus = response.status();

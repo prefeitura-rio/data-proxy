@@ -64,7 +64,7 @@ def main [
     if $local {
         $result
         | insert port_forward 'kubectl -n istio-ingress port-forward svc/istio-ingressgateway 3111:80'
-        | insert request $"curl -s http://localhost:3111/full_table -H 'Host: data-proxy.local' -H 'Accept-Profile: test' -H \"Authorization: Bearer $TOKEN\""
+        | insert request $"curl -s http://localhost:3111/default/test/full_table -H 'Host: data-proxy.local' -H \"Authorization: Bearer $TOKEN\""
     } else {
         $result
     }

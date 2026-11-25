@@ -19,6 +19,7 @@ from sync.models import (
 )
 from sync.postgres import Postgres
 from sync.settings import settings
+from tests.fixtures.dbos import CONNECTION
 from tests.helpers.core import exactly
 from tests.helpers.dbos import (
     run_sync,
@@ -28,25 +29,10 @@ from tests.helpers.dbos import (
 )
 from tests.helpers.state import DOCUMENT, sync_config
 
-CONNECTION = object()
 
-
-@pytest.mark.usefixtures("standbys")
+@pytest.mark.usefixtures("proxy_standbys")
 class TestNotifyProxies:
     """The reload workflow asks every proxy pod to read the configuration again."""
-
-    @pytest.fixture
-    def standbys(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-        """Stand in for the database and return the wait for the standbys."""
-
-        @asynccontextmanager
-        async def connect(dsn: str) -> AsyncGenerator[object]:
-            yield CONNECTION
-
-        wait = AsyncMock()
-        monkeypatch.setattr(Postgres, "connect", connect)
-        monkeypatch.setattr(steps, "wait_for_standbys", wait)
-        return wait
 
     async def test_resolves_the_pods_and_reloads_each_of_them(
         self, monkeypatch: pytest.MonkeyPatch
@@ -70,7 +56,7 @@ class TestNotifyProxies:
         )
 
     async def test_waits_for_the_standbys_before_it_asks_the_pods(
-        self, monkeypatch: pytest.MonkeyPatch, standbys: AsyncMock
+        self, monkeypatch: pytest.MonkeyPatch, proxy_standbys: AsyncMock
     ) -> None:
         """The proxy reads the configuration from a standby, so the standbys must have replayed the change first."""
         events: list[str] = []
@@ -82,7 +68,7 @@ class TestNotifyProxies:
         async def reload(*_: object) -> None:
             events.append("reload")
 
-        standbys.side_effect = wait
+        proxy_standbys.side_effect = wait
         monkeypatch.setattr(
             settings, "PROXY_ADMIN_URL", "http://proxy-admin:8081/reload"
         )

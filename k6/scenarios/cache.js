@@ -1,7 +1,7 @@
 import http from "k6/http";
 import { sleep } from "k6";
 import {
-    API_URL,
+    DATA_URL,
     authHeaders,
     cacheHeader,
     changeAccessPolicy,
@@ -14,10 +14,11 @@ import {
     proxyGet,
     reloadProxy,
     removePolicy,
-    rowsOf,
+    readRows,
     scenario,
     sourceHeader,
     stable,
+    waitUntil,
 } from "../lib/index.js";
 
 const { expect, requirePrecondition } = scenario("cache");
@@ -31,26 +32,42 @@ const BURST_REQUESTS = 5;
  */
 function verifyProxyCache(token, otherToken) {
     const path = `/${FULL_TABLE}?select=id&limit=4`;
+    const settled = `/${FULL_TABLE}?select=id&limit=1`;
+
+    requirePrecondition(
+        "the revision of the access policy is stable before the cache check",
+        waitUntil(
+            30,
+            () => {
+                proxyGet(settled, token);
+
+                return cacheHeader(proxyGet(settled, token)) === "HIT";
+            },
+            "the proxy to settle on one revision",
+        ),
+        {},
+    );
+
     const first = proxyGet(path, token);
 
     requirePrecondition("the first answer is a cache miss", cacheHeader(first) === "MISS", {
         cache: cacheHeader(first),
     });
 
-    requirePrecondition("the first answer has rows", rowsOf(first).length > 0, { status: first.status });
+    requirePrecondition("the first answer has rows", readRows(first).length > 0, { status: first.status });
     const second = proxyGet(path, token);
     expect("a repeated request is served from the cache", cacheHeader(second) === "HIT");
     const refreshed = fetchToken();
     requirePrecondition("a fresh token differs from the first one", refreshed !== token, {});
     const rotated = proxyGet(path, refreshed);
     expect("a refreshed token is served from the cache", cacheHeader(rotated) === "HIT");
-    expect("a refreshed token receives the same answer", stable(rowsOf(rotated)) === stable(rowsOf(second)));
+    expect("a refreshed token receives the same answer", stable(readRows(rotated)) === stable(readRows(second)));
     const forged = proxyGet(path, "forged.token.value");
     expect("a forged token is refused", forged.status === 401 || forged.status === 403);
-    expect("a forged token is not served the cached answer", rowsOf(forged).length === 0);
-    expect("the cached answer is the same", stable(rowsOf(second)) === stable(rowsOf(first)));
+    expect("a forged token is not served the cached answer", readRows(forged).length === 0);
+    expect("the cached answer is the same", stable(readRows(second)) === stable(readRows(first)));
     const otherSubject = proxyGet(path, otherToken);
-    expect("another subject does not receive the answer", stable(rowsOf(otherSubject)) !== stable(rowsOf(first)));
+    expect("another subject does not receive the answer", stable(readRows(otherSubject)) !== stable(readRows(first)));
 
     expect(
         "a cache hit keeps the source of the stored answer",
@@ -59,7 +76,10 @@ function verifyProxyCache(token, otherToken) {
 
     const probe = [{ subject: "e2e_cache_probe", unit_type: "unit", unit_id: "unit_cache" }];
     expect("a new policy row is stored", changeAccessPolicy("POST", "", probe) === 201);
-    expect("a change of the access policy makes a cached answer stale", cacheHeader(proxyGet(path, token)) === "MISS");
+    expect(
+        "a change of the access policy makes a cached answer stale",
+        waitUntil(30, () => cacheHeader(proxyGet(path, token)) === "MISS", "the proxy to read the new revision"),
+    );
     expect("the new policy row is removed again", changeAccessPolicy("DELETE", "?subject=eq.e2e_cache_probe") < 300);
     sleep(CACHE_TTL_SECONDS + 3);
     expect("an entry expires after the configured lifetime", cacheHeader(proxyGet(path, token)) === "MISS");
@@ -103,7 +123,7 @@ function verifyCoalescing(token) {
     for (let i = 0; i < BURST_REQUESTS; i++) {
         burst.push({
             method: "GET",
-            url: `${API_URL}${path}`,
+            url: `${DATA_URL}${path}`,
             params: { headers: authHeaders(token), tags: { name: "coalesce" } },
         });
     }
@@ -111,12 +131,12 @@ function verifyCoalescing(token) {
     requirePrecondition("the burst path is not cached yet", cacheHeader(proxyGet(path, token)) === "MISS", {});
     proxyGet("/e2e", token);
     const responses = http.batch(burst);
-    const bodies = responses.filter((r) => rowsOf(r).length > 0);
+    const bodies = responses.filter((r) => readRows(r).length > 0);
     expect("a burst is answered with rows", bodies.length === responses.length);
 
     expect(
         "a burst is served the same answer",
-        stable(rowsOf(responses[0])) === stable(rowsOf(responses[BURST_REQUESTS - 1])),
+        stable(readRows(responses[0])) === stable(readRows(responses[BURST_REQUESTS - 1])),
     );
 }
 

@@ -1,0 +1,21 @@
+name: Check prewarmed images
+description: Wait for background image preparation and fail before tests if a build, load or verification failed.
+inputs:
+  postgres-image:
+    description: The PostgreSQL image from the prewarm action.
+    required: true
+  keycloak-image:
+    description: The optional Keycloak image from the prewarm action.
+    default: ""
+  timeout-seconds:
+    description: Maximum wait for each background preparation process.
+    default: "900"
+runs:
+  using: composite
+  steps:
+    - shell: devenv --profile base shell -- nu {0}
+      env:
+        POSTGRES_IMAGE: ${{ inputs.postgres-image }}
+        KEYCLOAK_IMAGE: ${{ inputs.keycloak-image }}
+        PREWARM_TIMEOUT: ${{ inputs.timeout-seconds }}
+      run: nu ($env.DEVENV_ROOT | path join scripts prewarm-images.nu)

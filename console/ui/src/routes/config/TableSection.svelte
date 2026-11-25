@@ -39,7 +39,7 @@
 	let editing = $state<TableRow | null>(null);
 	let removing = $state<TableRow | null>(null);
 
-	const syncedOf = (name: string) => synced.find((row) => row.name === name);
+	const findSyncedTable = (name: string) => synced.find((row) => row.name === name);
 
 	const gone = new SvelteSet<string>();
 	const rows = $derived(tables.filter((table) => !gone.has(table.name)));
@@ -89,7 +89,7 @@
 		empty="No table matches these filters."
 	>
 		{#each rows as table (table.name)}
-			{@const row = syncedOf(table.name)}
+			{@const row = findSyncedTable(table.name)}
 			<tr>
 				<td>{table.name}</td>
 				<td>{table.schema}</td>

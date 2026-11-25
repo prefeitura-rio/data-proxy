@@ -1,30 +1,20 @@
 # Backups
 
-A sync rebuilds application tables from the source. It doesn't rebuild access grants. The chart backs up each `<schema>.access_policy` table and, when configured, its `<schema>.access_log` audit trail.
+A sync rebuilds application tables from the source. It doesn't rebuild access grants. The chart backs up the table `access.policy` and the audit trail `access.log`.
 
 ## Operation
 
 ```mermaid
-%% Backup flow
-flowchart LR
-  schemas[("console.schemas<br/>the list of schemas")]
-  subgraph job["Backup CronJob backup.schedule"]
-    each["For each schema"] --> export["Export access_policy<br/>and access_log"] --> prune["Delete access_log rows<br/>older than retentionDays"]
-  end
-  bucket[("Backup bucket<br/>prefix/schema/date/")]
-  fail["One schema fails:<br/>the job goes on, then fails<br/>and names the schema"]
-  schemas -->|"read at each run"| each
-  export -->|"upload two dumps"| bucket
-  each -.->|"on a failure"| fail
+{{#include ../diagrams/backup-flow.mmd}}
 ```
 
-Set `backup.enabled` to create the backup CronJob. It reads the schemas from the `console.schemas` table, so it backs up a schema that an editor adds in the console from its first night.
+Set `backup.enabled` to create the backup CronJob. The two tables store the grants of every project, so one run backs up all of them.
 
-For each schema it exports `<schema>.access_policy` and `<schema>.access_log`, uploads both dumps to the separate backup S3/GCS-compatible service, then prunes `access_log` rows older than `backup.accessLog.retentionDays`. A failure in one schema doesn't stop the others. The job fails at the end and names the schemas that failed. The objects are:
+It exports `access.policy` and `access.log`, uploads both dumps to the separate backup S3/GCS-compatible service, then prunes `access.log` rows older than `backup.accessLog.retentionDays` with the procedure `access.prune_log`. The objects are:
 
 ```text
-<backup.prefix>/<schema>/<date>/access_policy.dump
-<backup.prefix>/<schema>/<date>/access_log.dump
+<backup.prefix>/<date>/policy.dump
+<backup.prefix>/<date>/log.dump
 ```
 
 The chart default prefix is:
@@ -61,17 +51,17 @@ Download the dump and inspect it before restoring:
 
 ```bash
 rclone copy \
-  ":s3:<bucket>/backups/access_policy/<schema>/<date>/access_policy.dump" \
-  access_policy.dump
+  ":s3:<bucket>/backups/access_policy/<date>/policy.dump" \
+  policy.dump
 
-pg_restore --list access_policy.dump
+pg_restore --list policy.dump
 ```
 
 ## Restore
 
 1. Download the reviewed dump from the separate backup service.
 2. Restore it into a temporary database or table.
-3. Compare it with `<schema>.access_policy`.
+3. Compare it with `access.policy`.
 4. Apply reviewed rows only.
 
 Don't load an unreviewed backup into a live access policy table.
@@ -111,9 +101,3 @@ Restore the database with the recovery of the whole cluster. Create a new cluste
 Don't change `cnpg.image` to a new major version in place. The image of `pg_duckdb` links `libduckdb.so` by an absolute path, so the CloudNativePG upgrade job can't start the old server. The job fails in seconds, and Helm rolls the release back.
 
 Create a new cluster that imports the old one instead, with `bootstrap.initdb.import` of the type `monolith`. See the [CloudNativePG import guide](https://cloudnative-pg.io/documentation/current/database_import/). Stop the writers first, because the import copies one snapshot. Run a base backup before you start, and check the row counts of both clusters before you delete the old one.
-
-<!-- nav:start -->
----
-
-[Previous: Metrics](./metrics.md) | [Next: Terraform provider](../terraform.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

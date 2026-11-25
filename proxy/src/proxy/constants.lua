@@ -35,7 +35,8 @@ return {
 		reload_failed_body = '{"error":"Could not reload sync.json"}',
 		unavailable_status = 502,
 		overloaded_body = '{"error":"Proxy overloaded"}',
-		forbidden_body = '{"error":"The console schema is not available through the proxy"}',
+		forbidden_body = '{"error":"The profile is not available through the proxy"}',
+		unknown_schema_body = '{"error":"The path is /project/schema/table, and the schema is not known"}',
 		overloaded_status = 503,
 		overloaded_reason = "overloaded",
 		retry_after_seconds = "1",
@@ -61,12 +62,25 @@ return {
 		},
 	},
 	internal_profile = "console",
-	disabled_endpoints = { "/access_policy" },
-	policy_endpoints = { "/access_policy" },
+	internal_profiles = { console = true, access = true }, -- Profiles that only the cluster may use.
+	reserved_projects = { -- The first segments that are never a project: they belong to the services of the host.
+		access = true,
+		console = true,
+		rbac = true,
+		dbos = true,
+		public = true,
+		duckdb = true,
+		rpc = true,
+		docs = true,
+		v1 = true,
+	},
+	schema_separator = "__", -- The physical schema of `/project/schema/table` is `project__schema`.
+	disabled_endpoints = {},
 	log = {
 		messages = {
 			request = "Proxy request completed",
 			["postgrest-retried"] = "Proxy PostgREST request retry started",
+			["aggregate-declined"] = "Proxy aggregate function declined the request, sent the original request",
 			["aggregate-failed"] = "Proxy aggregate function failed, sent the original request",
 			["count-failed"] = "Proxy count in DuckDB failed, sent the original request",
 			["lock-unavailable"] = "Proxy lock is not available",
@@ -74,11 +88,12 @@ return {
 			["redis-failed"] = "Proxy Redis cache failed",
 			["sync-load-failed"] = "Proxy sync.json load failed",
 			["sync-reload-failed"] = "Proxy sync.json reload failed",
+			["schema-unknown"] = "Proxy path names no known schema",
 		},
 		fallback_message = "Proxy request state changed",
 		leading_fields = { "status", "source" },
 		trailing_fields = { "bytes", "error" },
-		note_fields = { "operation", "error" },
+		note_fields = { "operation", "error", "method", "path", "sub" },
 	},
 	redis = {
 		connect_timeout_ms = 1000,
@@ -133,13 +148,15 @@ return {
 		percent_escape_digits = 2,
 	},
 	aggregate = {
-		rpc_prefix = "/rpc/",
-		function_suffix = "_aggregate",
-		max_function_bytes = 63, -- PostgreSQL cuts a longer identifier without an error.
+		path = "/rpc/agg", -- One function of the schema for every table. The table goes in the query string.
+		table_argument = "table",
 		empty_body = "null", -- The answer of the function for a request that the table function must serve.
 	},
 	count = {
-		prefer = "count=exact", -- The only Prefer value that the proxy answers with a count in DuckDB.
+		-- The Prefer values that the proxy answers with an exact count in DuckDB. PostgreSQL has no statistics for a
+		-- table behind a function, so planned and estimated give a fixed guess there (1000 rows), and the proxy counts.
+		prefers = { "count=exact", "count=planned", "count=estimated" },
+		exact = "count=exact", -- What a count that the proxy cannot do itself asks of PostgREST.
 		alias = "total",
 		item = { fn = "count", alias = "total" },
 	},

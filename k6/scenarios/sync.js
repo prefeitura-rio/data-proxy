@@ -1,8 +1,7 @@
 /** @import { Kubernetes } from 'k6/x/kubernetes' */
-import { sleep } from "k6";
 import http from "k6/http";
 import {
-    API_URL,
+    DATA_URL,
     authHeaders,
     BIG_TABLE,
     buildMetrics,
@@ -16,7 +15,7 @@ import {
     killWorkflowOwner,
     PARTITIONED_TABLE,
     isRecord,
-    rowsOf,
+    readRows,
     runSqlJob,
     scenario,
     snapshotValue,
@@ -91,7 +90,7 @@ function blockedTable(k8s) {
         );
     }
 
-    const blockedErrors = rowsOf(consoleCall("GET", "/errors?reason=eq.table_blocked", "console"));
+    const blockedErrors = readRows(consoleCall("GET", "/errors?reason=eq.table_blocked", "console"));
 
     expect(
         "a viewer sees why a table is blocked",
@@ -111,12 +110,12 @@ function blockedTable(k8s) {
         "DBOS_SYSTEM_DATABASE_URL",
     );
 
-    const blocked = http.get(`${API_URL}/${FAILING_TABLE}?limit=1`, {
+    const blocked = http.get(`${DATA_URL}/${FAILING_TABLE}?limit=1`, {
         headers: authHeaders(userToken()),
         tags: { name: "blocked_table" },
     });
 
-    const served = http.get(`${API_URL}/${FULL_TABLE}?limit=1`, {
+    const served = http.get(`${DATA_URL}/${FULL_TABLE}?limit=1`, {
         headers: authHeaders(userToken()),
         tags: { name: "blocked_table_neighbour" },
     });
@@ -162,7 +161,6 @@ export const steps = [
         stage: 40,
         run: ({ k8s }) => {
             clearProxyCache(k8s);
-            sleep(2);
             metrics();
         },
     },

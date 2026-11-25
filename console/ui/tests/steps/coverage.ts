@@ -75,7 +75,7 @@ When('a log line {string} is added to the run', async ({ world }, message: strin
 		INSERT INTO dbos.streams (workflow_uuid, key, value, "offset", serialization)
 		SELECT '${world.runId}', 'logs',
 			json_build_object('time', now(), 'level', 'INFO', 'message', '${message}', 'fields', '{}'::json,
-				'schema', 'test', 'table', 'full_table')::text,
+				'schema', 'default__test', 'table', 'full_table')::text,
 			coalesce(max("offset"), -1) + 1, 'portable_json'
 		FROM dbos.streams WHERE workflow_uuid = '${world.runId}' AND key = 'logs'`);
 });
@@ -254,5 +254,5 @@ After({ tags: '@new-schema' }, async ({ world }) => {
 });
 
 After({ tags: '@import-ttl' }, async () => {
-	await sql("UPDATE console.tables SET cache_ttl = NULL WHERE schema = 'test' AND cache_ttl = 322");
+	await sql("UPDATE console.tables SET cache_ttl = NULL WHERE schema = 'default__test' AND cache_ttl = 322");
 });

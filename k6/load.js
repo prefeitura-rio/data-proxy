@@ -13,7 +13,7 @@
  *
  * Traffic of one iteration, with real Keycloak tokens and no write: 92% data reads of the roles `dp_api` (84% in
  * capacity mode), 1% fallback pairs and 1% bottleneck cases (5% each in capacity mode), 5% console reads with the
- * tokens of `console` (70%) and `admin` (30%), and 1% reads of `access_policy` with the token of `policy`. The setup
+ * tokens of `console` (70%) and `admin` (30%), and 1% reads of `access.policy` with the token of `policy`. The setup
  * reads every console route once with each client, seeds the access policy that the reads need, and stops on a
  * failure. The console reads go to `POSTGREST_URL`, as the web app does.
  *
@@ -36,8 +36,10 @@ import { check, sleep } from "k6";
 import { Kubernetes } from "k6/x/kubernetes";
 import { Counter, Rate, Trend } from "k6/metrics";
 import {
-    allOf,
+    combineChecks,
     API_URL,
+    DATA_URL,
+    schemaPath,
     authHeaders,
     authorizedRows,
     CONSOLE_ADMIN_CLIENT_ID,
@@ -48,7 +50,7 @@ import {
     FULL_SOURCE,
     groupedCounts,
     hasStatus,
-    headerOf,
+    readHeader,
     HEAVY_LIMIT_MIN,
     info,
     inStep,
@@ -59,7 +61,7 @@ import {
     POLICY_CLIENT_ID,
     POSTGREST_URL,
     randomItem,
-    recordsOf,
+    filterRecords,
     readableSnapshots,
     safeJson,
     scalingReplicaCounts,
@@ -69,7 +71,7 @@ import {
     setupGet,
     sortedDescending,
     sourceKind,
-    sourceOf,
+    responseSource,
     tokenWithExpiry,
     uniqueLimit,
     visibleIds,
@@ -263,7 +265,7 @@ const ACCESS_POLICY_ROWS = [
 /** @type {Route[]} */
 const ROUTES = [
     {
-        profile: "test",
+        profile: "default__test",
         path: "/full_table?unit_id=eq.unit_1&limit=20",
         name: "test_full_table_unit_1",
         expectedSource: "ducklake",
@@ -272,7 +274,7 @@ const ROUTES = [
         checkBody: authorizedRows("unit_id", ["unit_1"]),
     },
     {
-        profile: "test",
+        profile: "default__test",
         path: "/full_table?unit_id=eq.unit_2&limit=20",
         name: "test_full_table_unit_2",
         expectedSource: "ducklake",
@@ -281,7 +283,7 @@ const ROUTES = [
         checkBody: authorizedRows("unit_id", ["unit_2"]),
     },
     {
-        profile: "test",
+        profile: "default__test",
         path: "/multi_rls_table?region_id=eq.region_1&limit=20",
         name: "test_multi_rls_table_region_1",
         expectedSource: "ducklake",
@@ -290,7 +292,7 @@ const ROUTES = [
         checkBody: authorizedRows("region_id", ["region_1"]),
     },
     {
-        profile: "test",
+        profile: "default__test",
         path: "/multi_rls_table?group_id=eq.group_1&limit=20",
         name: "test_multi_rls_table_group_1",
         expectedSource: "ducklake",
@@ -299,7 +301,7 @@ const ROUTES = [
         checkBody: authorizedRows("group_id", ["group_1"]),
     },
     {
-        profile: "test",
+        profile: "default__test",
         path: "/partitioned_table?unit_id=eq.unit_1&limit=20&order=date.desc",
         name: "test_partitioned_table_unit_1",
         expectedSource: "fallback",
@@ -308,7 +310,7 @@ const ROUTES = [
         checkBody: authorizedRows("unit_id", ["unit_1"]),
     },
     {
-        profile: "test",
+        profile: "default__test",
         path: "/multi_rls_table?select=region_id,group_id,count()",
         name: "test_multi_rls_table_group_by",
         expectedSource: "ducklake",
@@ -318,7 +320,7 @@ const ROUTES = [
         checkBody: groupedCounts("region_id", ["region_1", "region_2", "region_3"]),
     },
     {
-        profile: "test",
+        profile: "default__test",
         path: "/big_table?select=metadata->>status,count()",
         name: "test_big_table_group_by_json",
         expectedSource: "ducklake",
@@ -328,24 +330,24 @@ const ROUTES = [
         checkBody: groupedCounts("status", ["active", "inactive", "pending"]),
     },
     {
-        profile: "test",
+        profile: "default__test",
         path: "/big_table?select=id,name,unit_id,metadata&order=name.desc",
         name: "test_big_table_scan_sorted",
         expectedSource: "ducklake",
         heavy: true,
         weight: 5,
         clients: ["api"],
-        checkBody: allOf(authorizedRows("unit_id", ["unit_1"]), sortedDescending("name")),
+        checkBody: combineChecks(authorizedRows("unit_id", ["unit_1"]), sortedDescending("name")),
     },
     {
-        profile: "test",
+        profile: "default__test",
         path: "/big_table?select=id,unit_id,metadata&metadata->>status=eq.active&order=id.desc",
         name: "test_big_table_json_filter_sorted",
         expectedSource: "ducklake",
         heavy: true,
         weight: 5,
         clients: ["api"],
-        checkBody: allOf(authorizedRows("unit_id", ["unit_1"]), hasStatus("active"), sortedDescending("id")),
+        checkBody: combineChecks(authorizedRows("unit_id", ["unit_1"]), hasStatus("active"), sortedDescending("id")),
     },
 ];
 
@@ -357,7 +359,7 @@ const SECOND_ACCESS_POLICY_ROWS = [{ subject: "test_user_2", unit_type: "unit", 
 function verifyNoAccess() {
     const token = tokenWithExpiry(OIDC_NO_POLICY_CLIENT_ID);
 
-    const response = setupGet(`${API_URL}/full_table?limit=1`, {
+    const response = setupGet(`${DATA_URL}/full_table?limit=1`, {
         headers: authHeaders(token.token),
         tags: { name: "no_access_check" },
     });
@@ -367,8 +369,8 @@ function verifyNoAccess() {
     check(response, {
         "user without policy gets 200": /** @param {K6Response} item */ (item) => item.status === 200,
         "no-access returns zero rows": () => Array.isArray(body) && body.length === 0,
-        "no-access queries no source": () => headerOf(response, "X-Source") === "",
-        "no-access response omits snapshot": () => headerOf(response, "X-DuckLake-Snapshot") === "",
+        "no-access queries no source": () => readHeader(response, "X-Source") === "",
+        "no-access response omits snapshot": () => readHeader(response, "X-DuckLake-Snapshot") === "",
     });
 }
 
@@ -463,7 +465,7 @@ function pickRoute(clientId) {
  * @param {Trend} [ducklakeTrend]
  */
 function recordSourceDuration(response, ducklakeTrend) {
-    const source = sourceOf(response);
+    const source = responseSource(response);
 
     if (source === "ducklake" && ducklakeTrend) {
         ducklakeTrend.add(response.timings.duration);
@@ -496,7 +498,7 @@ function recordLoadCheckFailure(route, reason, response) {
             route,
             reason,
             status: response.status,
-            source: headerOf(response, "X-Source") || "none",
+            source: readHeader(response, "X-Source") || "none",
             duration_ms: Math.round(response.timings.duration),
             body: String(response.body).slice(0, 160),
         });
@@ -506,7 +508,7 @@ function recordLoadCheckFailure(route, reason, response) {
         route,
         reason,
         status: String(response.status),
-        source: headerOf(response, "X-Source") || "none",
+        source: readHeader(response, "X-Source") || "none",
     });
 }
 
@@ -520,8 +522,8 @@ function request(route, token) {
         ? `${route.path}&limit=${HEAVY_LIMIT_MIN + Math.floor(Math.random() * HEAVY_LIMIT_MIN)}`
         : route.path;
 
-    const response = http.get(`${API_URL}${path}`, {
-        headers: { ...authHeaders(token), "Accept-Profile": route.profile },
+    const response = http.get(`${API_URL}${schemaPath(route.profile)}${path}`, {
+        headers: { ...authHeaders(token) },
         tags: { name: route.name, tag: route.name },
     });
 
@@ -558,20 +560,20 @@ function requestFallbackPair(clientId, token, dates) {
         tags: { name: `fallback:${clientId}` },
     };
 
-    const first = http.get(`${API_URL}${path}`, params);
+    const first = http.get(`${DATA_URL}${path}`, params);
     recordSourceDuration(first);
     loadRequestFailed.add(first.status !== 200);
     const firstBody = safeJson(first);
-    const second = http.get(`${API_URL}${path}`, params);
+    const second = http.get(`${DATA_URL}${path}`, params);
     recordSourceDuration(second);
     loadRequestFailed.add(second.status !== 200);
     const firstStatusOk = first.status === 200;
-    const firstSourceOk = sourceOf(first) === "fallback" || sourceOf(first) === "cache";
+    const firstSourceOk = responseSource(first) === "fallback" || responseSource(first) === "cache";
     const firstPartitionOk = authorizedRows(PARTITION_COLUMN, [date])(firstBody);
     const expectedUnit = clientId === OIDC_NO_POLICY_CLIENT_ID ? "unit_2" : "unit_1";
     const firstRlsOk = authorizedRows("unit_id", [expectedUnit])(firstBody);
     const secondStatusOk = second.status === 200;
-    const secondCacheOk = sourceOf(second) === "cache";
+    const secondCacheOk = responseSource(second) === "cache";
     const secondBodyOk = second.body === first.body;
     if (!firstStatusOk) recordLoadCheckFailure(`fallback:${clientId}`, "status", first);
     if (!firstSourceOk) recordLoadCheckFailure(`fallback:${clientId}`, "source", first);
@@ -673,7 +675,7 @@ function observe(data) {
 function selectiveLookup(token, ids, expectedUnit) {
     const id = randomItem(ids);
 
-    const response = http.get(`${API_URL}/big_table?select=id,unit_id&id=eq.${id}&limit=${uniqueLimit()}`, {
+    const response = http.get(`${DATA_URL}/big_table?select=id,unit_id&id=eq.${id}&limit=${uniqueLimit()}`, {
         headers: authHeaders(token),
         tags: { name: "selective_lookup" },
     });
@@ -682,9 +684,9 @@ function selectiveLookup(token, ids, expectedUnit) {
     loadRequestFailed.add(response.status !== 200);
     const body = safeJson(response);
     const statusOk = response.status === 200;
-    const rows = recordsOf(body);
+    const rows = filterRecords(body);
     const bodyOk = rows.length === 1 && String(rows[0].id) === id && rows[0].unit_id === expectedUnit;
-    const sourceOk = headerOf(response, "X-Source") === "ducklake";
+    const sourceOk = readHeader(response, "X-Source") === "ducklake";
     if (!statusOk) recordLoadCheckFailure("selective_lookup", "status", response);
     if (!bodyOk) recordLoadCheckFailure("selective_lookup", "body", response);
     if (!sourceOk) recordLoadCheckFailure("selective_lookup", "source", response);
@@ -705,7 +707,7 @@ function selectiveLookup(token, ids, expectedUnit) {
 function pinnedSnapshot(token, snapshots, expectedUnit) {
     const snapshot = randomItem(snapshots);
 
-    const response = http.get(`${API_URL}/big_table?unit_id=eq.${expectedUnit}&limit=${uniqueLimit()}`, {
+    const response = http.get(`${DATA_URL}/big_table?unit_id=eq.${expectedUnit}&limit=${uniqueLimit()}`, {
         headers: { ...authHeaders(token), "X-DuckLake-Snapshot": snapshot },
         tags: { name: "pinned_snapshot" },
     });
@@ -715,8 +717,8 @@ function pinnedSnapshot(token, snapshots, expectedUnit) {
     const body = safeJson(response);
     const statusOk = response.status === 200;
     const bodyOk = authorizedRows("unit_id", [expectedUnit])(body);
-    const sourceOk = headerOf(response, "X-Source") === "ducklake";
-    const snapshotOk = headerOf(response, "X-DuckLake-Snapshot") === snapshot;
+    const sourceOk = readHeader(response, "X-Source") === "ducklake";
+    const snapshotOk = readHeader(response, "X-DuckLake-Snapshot") === snapshot;
     if (!statusOk) recordLoadCheckFailure("pinned_snapshot", "status", response);
     if (!bodyOk) recordLoadCheckFailure("pinned_snapshot", "body", response);
     if (!sourceOk) recordLoadCheckFailure("pinned_snapshot", "source", response);
@@ -804,7 +806,7 @@ function consoleRead(route, clientId, token) {
     consoleDuration.add(response.timings.duration);
     loadRequestFailed.add(response.status !== 200);
     const body = safeJson(response);
-    const rows = recordsOf(body);
+    const rows = filterRecords(body);
     const statusOk = response.status === 200;
     const shapeOk = Array.isArray(body);
     const rowsOk = (!route.nonEmpty || rows.length > 0) && (route.checkRows?.(rows) ?? true);
@@ -837,8 +839,8 @@ function consoleTraffic(data) {
 function policyTraffic(data) {
     const token = ensureToken(POLICY_CLIENT_ID, data.otherTokens[POLICY_CLIENT_ID]);
 
-    const response = http.get(`${API_URL}/access_policy?limit=20`, {
-        headers: authHeaders(token.token),
+    const response = http.get(`${POSTGREST_URL}/policy?limit=20`, {
+        headers: { Authorization: `Bearer ${token.token}`, "Accept-Profile": "access" },
         tags: { name: "policy_read", tag: "policy_read" },
     });
 

@@ -2,7 +2,6 @@
   lib,
   pkgs,
   config,
-  import-tree,
 }:
 let
   args = {
@@ -15,7 +14,14 @@ let
   };
 
   utils = lib.mergeAttrsList (
-    (import-tree.filterNot (lib.hasSuffix "/default.nix")).pipeTo (map (file: import file args)) ./.
+    map (file: import file args) [
+      ./command.nix
+      ./hooks.nix
+      ./inputs.nix
+      ./processes.nix
+      ./state.nix
+      ./tasks.nix
+    ]
   );
 in
 utils

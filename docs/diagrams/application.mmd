@@ -1,3 +1,4 @@
+%% Application database tables
 erDiagram
 
 "console.schemas" }o--|| "console.projects" : ""
@@ -6,15 +7,6 @@ erDiagram
 "data_proxy.scope" }o--|| "console.schemas" : ""
 "console.config_history" }o--|| "console.schemas" : ""
 
-"rbac.revision" {
-  boolean singleton
-  bigint value
-}
-"rbac.roles" {
-  text name
-  text__ permissions
-  text wrapped
-}
 "data_proxy.state" {
   text table_name
   jsonb state
@@ -30,6 +22,15 @@ erDiagram
   text run_id
   text schema_name
   text table_name
+}
+"rbac.revision" {
+  boolean singleton
+  bigint value
+}
+"rbac.roles" {
+  text name
+  text__ permissions
+  text wrapped
 }
 "console.schemas" {
   text name
@@ -61,6 +62,8 @@ erDiagram
   text unit_type
   timestamp_with_time_zone updated_at
   text updated_by
+  integer rule_group
+  integer sort_order
 }
 "console.config_history" {
   bigint id
@@ -78,13 +81,15 @@ erDiagram
   timestamp_with_time_zone updated_at
   text updated_by
 }
-"test.access_policy" {
+"access.policy" {
   text subject
+  ltree scope
   text unit_type
   text unit_id
 }
-"test.access_log" {
+"access.log" {
   text subject
+  ltree scope
   text unit_type
   text unit_id
   text action

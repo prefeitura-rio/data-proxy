@@ -1,18 +1,46 @@
-name: Save the task state
-description: Save the state of the devenv tasks after a green run, so the next run skips what did not change.
+name: Save compatible task state
+description: Save a coherent task-database snapshot after successful main-branch checks.
 inputs:
-  group:
-    description: The name of the jobs that share this state.
-    required: true
   profile:
-    description: The devenv profile that runs the tasks.
-    default: repo
+    description: The profile that runs the checks.
+    required: true
+  key:
+    description: The compatibility key from the restore action.
+    required: true
+  state-dir:
+    description: The state directory from the restore action.
+    required: true
 runs:
   using: composite
   steps:
+    - name: Snapshot successful main state
+      id: snapshot
+      if: success() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+      shell: python
+      env:
+        STATE_DIR: ${{ inputs.state-dir }}
+        SNAPSHOT_DIR: .devenv/task-cache/${{ inputs.profile }}
+      run: |
+        import os
+        from pathlib import Path
+        import sqlite3
+
+        state = Path(os.environ['STATE_DIR']).resolve() / 'tasks.db'
+        target = Path(os.environ['SNAPSHOT_DIR']) / 'tasks.db'
+        saved = False
+        if state.is_file():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.unlink(missing_ok=True)
+            with sqlite3.connect(state.as_uri() + '?mode=ro', uri=True) as source:
+                if source.execute('PRAGMA quick_check').fetchone() != ('ok',):
+                    raise sqlite3.DatabaseError('Task database failed integrity validation')
+                with sqlite3.connect(target) as destination:
+                    source.backup(destination)
+            saved = True
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+            output.write(f'saved={str(saved).lower()}\n')
     - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      if: steps.snapshot.outputs.saved == 'true'
       with:
-        path: |
-          .devenv/profiles/${{ inputs.profile }}/state/tasks.db*
-          .devenv/profiles/${{ inputs.profile }}/state/files.json
-        key: task-state-${{ inputs.group }}-${{ runner.os }}-${{ github.sha }}
+        path: .devenv/task-cache/${{ inputs.profile }}
+        key: ${{ inputs.key }}

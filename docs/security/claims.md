@@ -5,7 +5,7 @@ This page lists the claims that a token needs. A normal end-user token for the e
 ```json
 {
   "role": "dp_api",
-  "schemas": ["test"],
+  "schemas": ["default.test"],
   "preferred_username": "test_user_1"
 }
 ```
@@ -15,9 +15,3 @@ The `role` claim is one role of `rbac.toml`, and PostgREST switches to the datab
 A token can also carry a `projects` claim, such as `"projects": ["sales:*"]`. It gives access to every schema of each project, including a schema that the project gets later. Use `sales` for the schemas of the project, and `sales:*` for every row of those schemas. The database expands the claim into the `schemas` claim for each request, so a token can have both claims. See [Permissions](permissions.md).
 
 You configure the exact identity claim per schema. If the schema uses `sub` instead of `preferred_username`, the access policy subject must match the token's `sub` value.
-
-<!-- nav:start -->
----
-
-[Previous: Security](./index.md) | [Next: Permissions](./permissions.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

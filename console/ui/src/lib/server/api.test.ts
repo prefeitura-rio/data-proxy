@@ -5,7 +5,7 @@ vi.mock('./settings', () => ({ settings: () => ({ postgrestUrl: 'http://postgres
 
 const refusal = (status: number) => ({ ok: false as const, status, message: `refused ${status}` });
 
-function statusOf(call: () => unknown): number {
+function captureStatus(call: () => unknown): number {
 	try {
 		call();
 	} catch (error) {
@@ -27,6 +27,6 @@ describe('need', () => {
 		['a status that is not an error', 302, 500],
 		['a status beyond the HTTP range', 700, 500]
 	])('stops the page for %s with the right status', (_name, status, expected) => {
-		expect(statusOf(() => need(refusal(status)))).toBe(expected);
+		expect(captureStatus(() => need(refusal(status)))).toBe(expected);
 	});
 });

@@ -1,7 +1,7 @@
 /** @import { Response as K6Response } from 'k6/http' */
 import http from "k6/http";
 import { POSTGREST_URL } from "./env.js";
-import { isRecord, memberOf, rowsOf, safeJson } from "./http.js";
+import { isRecord, readRecord, readRows, safeJson } from "./http.js";
 import { clientToken } from "./auth.js";
 import { rememberRequest } from "./log.js";
 import { waitUntil } from "./wait.js";
@@ -53,7 +53,7 @@ export function postgrestCall(profile, method, path, clientId, body) {
 export function postgrestRows(profile, path, clientId) {
     const response = postgrestCall(profile, "GET", path, clientId);
 
-    return response.status === 200 ? rowsOf(response).length : -1;
+    return response.status === 200 ? readRows(response).length : -1;
 }
 
 /**
@@ -106,8 +106,8 @@ function canonical(value) {
  * @param {string} name
  * @returns {unknown}
  */
-export function documentOf(name) {
-    return memberOf(safeJson(consoleCall("GET", "/rpc/sync_config", "admin")), "schemas")[name];
+export function readSchemaConfig(name) {
+    return readRecord(safeJson(consoleCall("GET", "/rpc/sync_config", "admin")), "schemas")[name];
 }
 
 /**
@@ -118,6 +118,6 @@ export function documentOf(name) {
  */
 export function documentBecomes(name, expected) {
     return waitUntil(10, () =>
-        expected === undefined ? documentOf(name) === undefined : canonical(documentOf(name)) === canonical(expected),
+        expected === undefined ? readSchemaConfig(name) === undefined : canonical(readSchemaConfig(name)) === canonical(expected),
     );
 }

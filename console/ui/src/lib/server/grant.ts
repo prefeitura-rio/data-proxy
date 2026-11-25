@@ -47,7 +47,7 @@ export function resolvePath(dataPath: string, parts: [string, boolean][]): strin
 	return resolved;
 }
 
-function keyOf(path: string, bucket: string): string {
+function parseObjectKey(path: string, bucket: string): string {
 	const prefix = `s3://${bucket}/`;
 
 	if (!path.startsWith(prefix)) {
@@ -79,8 +79,8 @@ export async function buildGrant(options: {
 		const table = tables.get(row.table) ?? { name: row.table, files: [] };
 
 		table.files.push({
-			data: await options.sign(keyOf(data, options.bucket)),
-			delete: deleted === null ? null : await options.sign(keyOf(deleted, options.bucket))
+			data: await options.sign(parseObjectKey(data, options.bucket)),
+			delete: deleted === null ? null : await options.sign(parseObjectKey(deleted, options.bucket))
 		});
 		tables.set(row.table, table);
 	}
@@ -93,8 +93,8 @@ export async function buildGrant(options: {
 }
 
 /** The key prefix of a data path, with the trailing slash, for the policy of an identity. */
-export function prefixOf(dataPath: string, bucket: string): string {
-	return keyOf(dataPath.replace(/\/?$/, '/'), bucket);
+export function policyPrefix(dataPath: string, bucket: string): string {
+	return parseObjectKey(dataPath.replace(/\/?$/, '/'), bucket);
 }
 
 type Deps = {

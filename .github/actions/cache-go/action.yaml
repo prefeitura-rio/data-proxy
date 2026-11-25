@@ -1,14 +1,24 @@
-name: Cache the Go modules
-description: Keep the Go module cache, the Go build cache and the golangci-lint cache between runs, keyed by terraform/go.sum, so the provider tasks download and compile nothing that did not change.
+name: Cache Go dependencies and builds
+description: Cache the paths of the provider Go environment without depending on the devenv state directory.
 runs:
   using: composite
   steps:
+    - id: paths
+      shell: devenv --profile provider shell -- nu {0}
+      run: |
+        let settings = go env -json GOMODCACHE GOCACHE GOVERSION | from json
+        [
+            $'modules=($settings.GOMODCACHE)'
+            $'build=($settings.GOCACHE)'
+            $'lint=($env.GOLANGCI_LINT_CACHE)'
+            $'version=($settings.GOVERSION)'
+        ] | str join (char nl) | $in + (char nl) | save --append $env.GITHUB_OUTPUT
     - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: |
-          ~/go/pkg/mod
-          ~/.cache/go-build
-          ~/.cache/golangci-lint
-        key: go-${{ runner.os }}-${{ hashFiles('terraform/go.sum') }}
+          ${{ steps.paths.outputs.modules }}
+          ${{ steps.paths.outputs.build }}
+          ${{ steps.paths.outputs.lint }}
+        key: go-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.version }}-${{ hashFiles('devenv.lock', 'provider/go.mod', 'provider/go.sum', 'provider/.golangci.yaml') }}
         restore-keys: |
-          go-${{ runner.os }}-
+          go-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.paths.outputs.version }}-

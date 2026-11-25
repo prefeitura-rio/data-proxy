@@ -5,22 +5,20 @@ use ./lib.nu [
     data-prefix
     execute-sql
     fail
+    legacy-name
     orphans
-    parse-json
     query-sql
     quote-identifier
     quote-literal
     rclone-env
-    read-text
     served-schemas
     sync-config
     wait-for-postgres
 ]
 
-# Fill an empty configuration from the values file, once. Editors own it afterward. The job has no token, so it acts as
-# the role that holds import_config, for one transaction.
+# Import the values file once when the console configuration is empty.
 def bootstrap-config []: nothing -> nothing {
-    let bootstrap = try { read-text $env.SYNC_CONFIG_PATH | parse-json } catch { {
+    let bootstrap = try { (open --raw $env.SYNC_CONFIG_PATH | decode utf-8) | from json } catch { {
         schemas: {}
     } }
 
@@ -37,26 +35,18 @@ def bootstrap-config []: nothing -> nothing {
     log info 'The values file filled the empty configuration'
 }
 
-# Create the schema, its access policy and the role that reads its metadata, for every given schema
+# Create catalog reader roles before their corresponding application schemas.
 def create-schemas [...names: string]: nothing -> nothing {
-    let app_schema = app-schema
-
     for schema in $names {
-        let scope = 'rbac.mine(' + (quote-literal $schema) + ')'
-
-        execute-sql postgres/create_schema.sql {schema: (quote-identifier $schema)}
-
-        execute-sql postgres/setup_access_policy.sql {
-            schema: (quote-identifier $schema)
-            user_role: (quote-identifier $env.AUTH_USER_ROLE)
-            app_schema: $app_schema
-            scope: $scope
-        }
-
         execute-sql postgres/create_schema_reader.sql --dsn $env.DUCKLAKE_ADMIN_URL {
             name: (quote-literal $schema)
             signer: (quote-literal $env.AUTH_SIGNER_ROLE)
             writer: (quote-literal $env.PGUSER)
+        }
+
+        execute-sql postgres/create_schema.sql {
+            schema: (quote-identifier $schema)
+            user_role: (quote-identifier $env.AUTH_USER_ROLE)
         }
     }
 
@@ -65,19 +55,19 @@ def create-schemas [...names: string]: nothing -> nothing {
     }
 }
 
-# The configured schemas that still lack their schema or their access policy
+# Return configured schemas that the database still lacks.
 def unprovisioned-schemas []: nothing -> list<string> {
-    let query = "SELECT name FROM console.schemas WHERE to_regclass(format('%I.access_policy', name)) IS NULL ORDER BY name"
+    let query = "SELECT name FROM console.schemas WHERE to_regnamespace(quote_ident(name)) IS NULL ORDER BY name"
     query-sql $query | lines
 }
 
-# The schemas that PostgREST serves now, as the serving login records them
+# Return the current PostgREST schema list from the serving role.
 def current-db-schemas []: nothing -> string {
     let query = "SELECT coalesce(max(substring(s FROM '^pgrst\\.db_schemas=(.*)$')), '') FROM pg_db_role_setting AS r INNER JOIN pg_roles AS o ON r.setrole = o.oid CROSS JOIN LATERAL unnest(r.setconfig) AS s WHERE o.rolname = " + (quote-literal $env.AUTH_SERVING_ROLE)
     query-sql $query
 }
 
-# Record the schemas that PostgREST serves, or forget the record when the list is empty
+# Record the schemas that PostgREST serves, or forget the record when the list is empty.
 def record-db-schemas [schemas: string]: nothing -> nothing {
     let serving = quote-identifier $env.AUTH_SERVING_ROLE
 
@@ -91,8 +81,7 @@ def record-db-schemas [schemas: string]: nothing -> nothing {
     }
 }
 
-# Serve every configured schema and tell PostgREST to reload only when the list changed.
-# A failed reload takes the new list back, so that the next run tries again.
+# Update served schemas and reload PostgREST when the schema list changes.
 def publish-schemas [...names: string]: nothing -> nothing {
     let desired = served-schemas ...$names
     let current = current-db-schemas
@@ -115,13 +104,12 @@ def publish-schemas [...names: string]: nothing -> nothing {
     log info $'PostgREST serves: ($desired)'
 }
 
-# The schemas of the database that the console no longer lists, which a removal pass drops.
+# Return database schemas that the console no longer configures.
 def orphan-schemas [...configured: string]: nothing -> list<string> {
-    let query = "SELECT schemaname, tablename FROM pg_tables WHERE tablename IN ('access_policy', 'access_log')"
-    query-sql $query | lines | split column ',' schema table | orphans ...$configured
+    query-sql "SELECT nspname FROM pg_namespace ORDER BY nspname" | lines | orphans ...$configured
 }
 
-# Delete the data files of one schema. A folder that does not exist is already gone.
+# Delete the data files of a schema if they exist.
 def purge-data [schema: string]: nothing -> nothing {
     let prefix = data-prefix $env.S3_BUCKET $env.DUCKLAKE_CATALOG_PATH $schema
 
@@ -134,8 +122,7 @@ def purge-data [schema: string]: nothing -> nothing {
     }
 }
 
-# Remove every schema that the console dropped: the files, the catalog, its reader role, and then the schema of the database.
-# The schema of the database goes last, because the next run finds an unfinished removal through it.
+# Remove obsolete schema files, catalogs and reader roles before their application schemas.
 def remove-schemas [...names: string]: nothing -> nothing {
     let app_schema = app-schema
 
@@ -160,15 +147,20 @@ def remove-schemas [...names: string]: nothing -> nothing {
     }
 }
 
-# Make the database match the console configuration: create, serve and remove schemas.
-# The migrations made the console, its functions and the rights of the request roles.
-# Each pass reads both lists again and the loop repeats up to three times, so that an edit made during the run is not lost.
+# Reconcile configured schemas with database schemas, reader roles and PostgREST.
 def main []: nothing -> nothing {
     log info 'Schema provisioning started'
 
     wait-for-postgres $env.PG_DATABASE_URL
 
     bootstrap-config
+
+    for schema in ((sync-config).schemas | columns) {
+        execute-sql postgres/rename_schema_reader.sql --dsn $env.DUCKLAKE_ADMIN_URL {
+            old: (quote-literal (legacy-name $schema))
+            new: (quote-literal $schema)
+        }
+    }
 
     for pass in 0..2 {
         let names = (sync-config).schemas | columns

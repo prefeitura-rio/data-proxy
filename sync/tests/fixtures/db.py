@@ -1,11 +1,13 @@
 import secrets
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from uuid import uuid4
 
 import duckdb
 import psycopg
 import pytest
 from dbos._migration import ensure_dbos_schema, run_dbos_migrations
+from psycopg import AsyncConnection
 from psycopg.sql import SQL, Identifier, Literal
 from pydantic import SecretStr
 from sqlalchemy import create_engine
@@ -44,6 +46,7 @@ from tests.fixtures.types import (
 )
 from tests.helpers.core import clone_database, one_worker_at_a_time
 from tests.helpers.ducklake import publish_people_catalog
+from tests.helpers.migrations import scratch_url
 from tests.helpers.routing import act_as_token, grant_everything
 from tests.helpers.state import initialize_schemas
 
@@ -241,3 +244,28 @@ def dbos_schema(tmp_path_factory: pytest.TempPathFactory, database: str) -> str:
 def psql(database: str) -> Psql:
     """Provide psql against the test database of the PostgreSQL test server."""
     return Psql(database=database)
+
+
+@pytest.fixture
+async def scratch_databases() -> AsyncIterator[tuple[str, str]]:
+    """Give two empty databases, with the DBOS tables in the first, for a run of the whole set of migrations."""
+    app, catalog = f"mig_app_{uuid4().hex[:8]}", f"mig_cat_{uuid4().hex[:8]}"
+    async with await AsyncConnection.connect(
+        f"{POSTGRES_URL}/postgres", autocommit=True
+    ) as admin:
+        for name in (app, catalog):
+            await admin.execute(SQL("CREATE DATABASE {}").format(Identifier(name)))
+
+        engine = create_engine(
+            scratch_url(app).replace("postgresql://", "postgresql+psycopg://", 1)
+        )
+        try:
+            ensure_dbos_schema(engine, "dbos")
+            run_dbos_migrations(engine, "dbos", use_listen_notify=True)
+            yield app, catalog
+        finally:
+            engine.dispose()
+            for name in (app, catalog):
+                await admin.execute(
+                    SQL("DROP DATABASE {} WITH (FORCE)").format(Identifier(name))
+                )

@@ -8,7 +8,9 @@
 ---@field http HttpConstants HTTP methods, statuses, media types and the 502 answer.
 ---@field internal_profile string The schema profile that only the cluster may use. The proxy refuses it.
 ---@field disabled_endpoints string[] Path prefixes that are never cached, unless sync.json replaces them.
----@field policy_endpoints string[] Path prefixes of the access policy. A write there makes cached answers stale.
+---@field internal_profiles table<string, boolean> The profiles that only the cluster may use.
+---@field reserved_projects table<string, boolean> The first path segments that are never a project.
+---@field schema_separator string The text between the project and the schema in the name of a schema of the database.
 ---@field log LogConstants Log messages and fields.
 ---@field redis RedisConstants Redis connection limits.
 ---@field postgrest PostgrestConstants Limits for the calls to PostgREST.
@@ -38,7 +40,8 @@
 ---@field reload_failed_body string JSON body of the answer if the reload fails.
 ---@field unavailable_status integer
 ---@field overloaded_body string Body of the 503 answer. The proxy sends it if too many requests wait for PostgREST.
----@field forbidden_body string Body of the 403 answer, for a request that asks for the console profile.
+---@field forbidden_body string Body of the 403 answer, for a request that asks for an internal profile.
+---@field unknown_schema_body string Body of the 404 answer, for a path that names no known project and schema.
 ---@field overloaded_status integer
 ---@field overloaded_reason string The reason that limiter.run gives if it rejects a task.
 ---@field retry_after_seconds string Value of the Retry-After header of the 503 answer.
@@ -124,14 +127,14 @@
 
 --- Values for calling the aggregate function that runs a group by in DuckDB.
 ---@class AggregateConstants
----@field rpc_prefix string Path of the PostgREST functions.
----@field function_suffix string Added to the table name to make the name of the function.
----@field max_function_bytes integer The longest name of a PostgreSQL function.
+---@field path string Path of the function of the schema that runs the aggregate of any table.
+---@field table_argument string Name of the argument of the function that holds the name of the table.
 ---@field empty_body string The body that tells the proxy to send the original request.
 
 --- Values for answering `Prefer: count=exact` with a count in DuckDB and a page of rows.
 ---@class CountConstants
----@field prefer string The only Prefer value that the proxy answers with a count in DuckDB.
+---@field prefers string[] The Prefer values that the proxy answers with an exact count in DuckDB.
+---@field exact string The Prefer value that PostgREST gets for a planned or estimated count that the proxy cannot do.
 ---@field alias string The name of the count in the answer of the aggregate function.
 ---@field item FilterAggregateItem The aggregate that counts the rows.
 

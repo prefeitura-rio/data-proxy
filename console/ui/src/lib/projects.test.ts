@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupByProject, physicalName, schemaPayload } from './projects';
+import { groupByProject, physicalName, projectProblem, schemaPayload, schemaProblem } from './projects';
 
 const form = (entries: Record<string, string>) => {
 	const data = new FormData();
@@ -13,10 +13,10 @@ const form = (entries: Record<string, string>) => {
 
 describe('physicalName', () => {
 	it.each([
-		['a project adds its prefix', 'sales', 'orders', 'sales_orders'],
-		['default adds no prefix', 'default', 'orders', 'orders'],
-		['the short name keeps its underscores', 'sales', 'a_b', 'sales_a_b'],
-		['no project means default', '', 'orders', 'orders']
+		['a project and a short name make the name', 'sales', 'orders', 'sales__orders'],
+		['default has its prefix too', 'default', 'orders', 'default__orders'],
+		['the short name keeps its underscores', 'sales', 'a_b', 'sales__a_b'],
+		['no project means default', '', 'orders', 'default__orders']
 	])('%s', (_name, project, shortName, expected) => {
 		expect(physicalName(project, shortName)).toBe(expected);
 	});
@@ -66,9 +66,9 @@ describe('groupByProject', () => {
 		);
 
 		expect(groups.map((group) => [group.project, group.schemas.map((item) => item.name)])).toEqual([
-			['default', ['hr']],
+			['default', ['default__hr']],
 			['empty', []],
-			['sales', ['sales_crm', 'sales_orders']]
+			['sales', ['sales__crm', 'sales__orders']]
 		]);
 	});
 
@@ -76,5 +76,47 @@ describe('groupByProject', () => {
 		const groups = groupByProject([], [schema('hr', 'staff')]);
 
 		expect(groups.map((group) => group.project)).toEqual(['hr']);
+	});
+});
+
+describe('projectProblem', () => {
+	it.each([
+		['a reserved name', 'access', 'The project name access is reserved.'],
+		['the name of a console route', 'docs', 'The project name docs is reserved.'],
+		['a free name', 'sales', null],
+		['a name that only starts like a reserved one', 'accessx', null]
+	])('%s', (_name, name, expected) => {
+		expect(projectProblem(name)).toBe(expected);
+	});
+});
+
+describe('schemaProblem', () => {
+	it.each([
+		['a plain name', 'sales', 'orders', null],
+		['a single underscore', 'sales', 'a_b_', null],
+		['two underscores in a row', 'sales', 'a__b', "A schema name can't contain two underscores in a row."],
+		['exactly 56 bytes', 'sales', 'a'.repeat(49), null],
+		['57 bytes', 'sales', 'a'.repeat(50), `The name sales__${'a'.repeat(50)} has 57 bytes. The limit is 56.`],
+		['default counts as a project name', 'default', 'a'.repeat(47), null],
+		[
+			'default with one byte too many',
+			'default',
+			'a'.repeat(48),
+			`The name default__${'a'.repeat(48)} has 57 bytes. The limit is 56.`
+		],
+		[
+			'no project means default',
+			'',
+			'a'.repeat(48),
+			`The name default__${'a'.repeat(48)} has 57 bytes. The limit is 56.`
+		],
+		[
+			'a multibyte letter counts in bytes',
+			'sales',
+			`${'a'.repeat(48)}é`,
+			`The name sales__${'a'.repeat(48)}é has 57 bytes. The limit is 56.`
+		]
+	])('%s', (_name, project, shortName, expected) => {
+		expect(schemaProblem(project, shortName)).toBe(expected);
 	});
 });

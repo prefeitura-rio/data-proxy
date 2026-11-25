@@ -10,6 +10,10 @@
 {#
 CREATE OR REPLACE can't rename a parameter, so the routing templates must replace this function.
 The old function gives a fixed text, so a test sees whether the new function replaced it.
+An earlier test can commit its transaction, and then the new function is in the shared database. The drop makes
+the test start from the older release in any order of tests. It rolls back with the test transaction.
 #}
+DROP FUNCTION IF EXISTS {{ schema }}.render_filter_node(jsonb, text[]);
+
 CREATE FUNCTION {{ schema }}.render_filter_node(node jsonb, columns text[]) RETURNS text
 LANGUAGE sql IMMUTABLE AS $$ SELECT 'old'::text $$

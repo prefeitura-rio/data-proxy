@@ -19,7 +19,6 @@ from sync.utils import RemovalLimitError
 from tests.fixtures.types import (
     RecordedOptions,
     RecordingDbos,
-    ReturnsAtOnce,
 )
 from tests.helpers.core import exactly
 from tests.helpers.dbos import (
@@ -133,23 +132,9 @@ class TestCatalogLockRetryClassification:
         assert utils.retry_catalog_locked(error) is expected
 
 
-@pytest.mark.usefixtures("recording")
+@pytest.mark.usefixtures("recording_dbos")
 class TestServe:
     """Startup creates the queues and the schedule when they are missing, and never overwrites them."""
-
-    @pytest.fixture
-    def recording(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Replace DBOS, and reset what it recorded."""
-        RecordingDbos.queues = []
-        RecordingDbos.concurrency = {}
-        RecordingDbos.enqueued = []
-        RecordingDbos.listened = []
-        RecordingDbos.deduplicated = False
-        RecordingDbos.options = []
-        RecordingDbos.destroyed = []
-        monkeypatch.setattr(dbos_main, "DBOS", RecordingDbos)
-        monkeypatch.setattr(dbos_main, "SetEnqueueOptions", RecordedOptions)
-        monkeypatch.setattr(dbos_main, "Event", ReturnsAtOnce)
 
     @pytest.mark.asyncio
     async def test_leaves_the_stored_queues_alone(self) -> None:
@@ -235,17 +220,9 @@ class TestServe:
 class TestDumpTask:
     """A dump that fails records its failure. A dump that DBOS cancelled records nothing and stays cancelled."""
 
-    @pytest.fixture
-    def recorded(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-        """Stand in for the failure record, and return it."""
-        record = AsyncMock()
-        monkeypatch.setattr(workflows, "record_dump_failure", record)
-
-        return record
-
     @pytest.mark.asyncio
     async def test_returns_the_failure_of_a_dump_that_failed(
-        self, monkeypatch: pytest.MonkeyPatch, recorded: AsyncMock
+        self, monkeypatch: pytest.MonkeyPatch, dump_failure_record: AsyncMock
     ) -> None:
         """The run goes on without the paths of the failed dump."""
         task = dump_task()
@@ -257,11 +234,11 @@ class TestDumpTask:
 
         assert result.status == DumpStatus.FAILURE
         assert result.failed_paths == task.output_paths
-        recorded.assert_awaited_once_with(task, "RuntimeError: boom")
+        dump_failure_record.assert_awaited_once_with(task, "RuntimeError: boom")
 
     @pytest.mark.asyncio
     async def test_records_the_error_that_the_retries_hid(
-        self, monkeypatch: pytest.MonkeyPatch, recorded: AsyncMock
+        self, monkeypatch: pytest.MonkeyPatch, dump_failure_record: AsyncMock
     ) -> None:
         """A dump that fails after its last retry records the last error, not the DBOS message."""
         task = dump_task()
@@ -277,11 +254,13 @@ class TestDumpTask:
 
         await workflow_body(workflows.dump_task)(task)
 
-        recorded.assert_awaited_once_with(task, "OSError: HTTP 500 for HTTP PUT")
+        dump_failure_record.assert_awaited_once_with(
+            task, "OSError: HTTP 500 for HTTP PUT"
+        )
 
     @pytest.mark.asyncio
     async def test_raises_the_cancellation_and_records_no_failure(
-        self, monkeypatch: pytest.MonkeyPatch, recorded: AsyncMock
+        self, monkeypatch: pytest.MonkeyPatch, dump_failure_record: AsyncMock
     ) -> None:
         """DBOS raises a cancel as a BaseException, so the generic handler of the dump never sees it."""
         monkeypatch.setattr(
@@ -293,7 +272,7 @@ class TestDumpTask:
         with pytest.raises(dbos_error.DBOSWorkflowCancelledError):
             await workflow_body(workflows.dump_task)(dump_task())
 
-        recorded.assert_not_awaited()
+        dump_failure_record.assert_not_awaited()
 
 
 class TestShutdown:

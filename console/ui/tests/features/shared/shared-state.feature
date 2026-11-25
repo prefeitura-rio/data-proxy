@@ -9,7 +9,7 @@ Feature: Scenarios that change data that other scenarios read
     Then the preview says "Nothing changes"
     When I apply the previewed import
     Then I see the message "Saved."
-    And I see the row of the schema "test"
+    And I see the row of the schema "default__test"
 
   @import-ttl
   Scenario: An applied import updates a value and a second import restores it
@@ -39,18 +39,18 @@ Feature: Scenarios that change data that other scenarios read
   Scenario: An admin of a schema pauses and resumes the schedule of the schema
     Given I sign in as "web_admin"
     When I open the "Sync" tab
-    And I pause the schedule "sync-test"
-    Then the schedule "sync-test" shows the status "PAUSED"
-    When I resume the schedule "sync-test"
-    Then the schedule "sync-test" shows the status "ACTIVE"
+    And I pause the schedule "sync-default__test"
+    Then the schedule "sync-default__test" shows the status "PAUSED"
+    When I resume the schedule "sync-default__test"
+    Then the schedule "sync-default__test" shows the status "ACTIVE"
 
   Scenario: An admin of a schema changes the cron of its schedule
     Given I sign in as "web_admin"
     When I open the "Sync" tab
-    And I change the cron of the schedule "sync-test" to "30 3 * * 1"
-    Then the schedule "sync-test" shows the cron "30 3 * * 1"
-    When I change the cron of the schedule "sync-test" to "0 2 * * *"
-    Then the schedule "sync-test" shows the cron "0 2 * * *"
+    And I change the cron of the schedule "sync-default__test" to "30 3 * * 1"
+    Then the schedule "sync-default__test" shows the cron "30 3 * * 1"
+    When I change the cron of the schedule "sync-default__test" to "0 2 * * *"
+    Then the schedule "sync-default__test" shows the cron "0 2 * * *"
 
   # The Access page asks for the first schema of the user, and it answers 406 while a scenario adds or deletes one.
   # An admin reaches every schema, so this file runs when no other scenario runs.

@@ -7,7 +7,7 @@
   }
 }
 #}
-CREATE FUNCTION {{ schema }}.dl_latest_snapshot() RETURNS bigint
+CREATE FUNCTION {{ schema }}.snapshot() RETURNS bigint
 LANGUAGE sql AS 'SELECT 7::bigint';
 
 CREATE FUNCTION {{ schema }}.t_dl_fn(

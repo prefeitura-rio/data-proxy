@@ -17,13 +17,13 @@ class TestGrantProxyConfig:
         self, console_api: Postgres
     ) -> None:
         """Keep the console views and the other functions closed to a request with no token."""
-        await add_schema(console_api, "sales", claim="cpf")
+        await add_schema(console_api, "default__sales", claim="cpf")
         await console_api.connection.execute(b"SET LOCAL ROLE anon")
 
         config = await scalar(console_api, "SELECT console.config()")
 
         assert isinstance(config, dict)
-        assert list(config["schemas"]) == ["sales"]
+        assert list(config["schemas"]) == ["default__sales"]
         assert (
             await refusal(console_api, "SELECT console.sync_config()") == INSUFFICIENT
         )

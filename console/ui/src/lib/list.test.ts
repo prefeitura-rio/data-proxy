@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { containsFilter, pageOf, paramsWith, parseTotal, rangeQuery, rangeText } from './list';
+import { containsFilter, parsePage, paramsWith, parseTotal, rangeQuery, rangeText } from './list';
 
-describe('pageOf', () => {
+describe('parsePage', () => {
 	it.each([
 		['a missing page', '', 0],
 		['a page number', 'page=3', 3],
@@ -9,13 +9,13 @@ describe('pageOf', () => {
 		['text', 'page=abc', 0],
 		['a fraction', 'page=1.5', 0]
 	])('reads %s', (_, query, page) => {
-		expect(pageOf(new URLSearchParams(query), 25)).toEqual({ page, size: 25 });
+		expect(parsePage(new URLSearchParams(query), 25)).toEqual({ page, size: 25 });
 	});
 });
 
-describe('pageOf with a key', () => {
+describe('parsePage with a key', () => {
 	it('reads the page of another list', () => {
-		expect(pageOf(new URLSearchParams('page=4&tasks_page=2'), 50, 'tasks_page')).toEqual({ page: 2, size: 50 });
+		expect(parsePage(new URLSearchParams('page=4&tasks_page=2'), 50, 'tasks_page')).toEqual({ page: 2, size: 50 });
 	});
 });
 

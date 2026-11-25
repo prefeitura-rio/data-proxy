@@ -35,115 +35,6 @@
 {%- endmacro %}
 
 {#
-{
-  "kind": "macro",
-  "name": "postgres.rls_mapping_values",
-  "description": "Render RLS unit mappings as SQL VALUES rows.",
-  "inputs": {
-    "rls_mappings": "Mappings with column, unit_type, duckdb_type and group fields."
-  },
-  "returns": "Comma-separated SQL VALUES rows."
-}
-#}
-{% macro rls_mapping_values(rls_mappings) -%}
-{% for mapping in rls_mappings %}
-('{{ mapping.column }}', '{{ mapping.unit_type }}', '{{ mapping.duckdb_type | replace("'", "''") }}', {{ mapping.group if mapping.group != '' else 'NULL::integer' }}){% if not loop.last %}, {% endif %}
-{% else %}
-('', '', '', NULL::integer)
-{% endfor %}
-{%- endmacro %}
-
-{#
-The caller returns an empty result for NULL.
-#}
-
-{#
-A table with no rules is denied by default. Only a token with schema:* or *, or a subject with the grant (*, *), reads it.
-#}
-
-{#
-{
-  "kind": "macro",
-  "name": "postgres.rls_where_clause",
-  "description": "Render the PL/pgSQL block that builds the row-level security predicate. It reads v_subject and sets v_where: empty text for every row, WHERE (...) for a filter, NULL for no row.",
-  "inputs": {
-    "schema": "PostgreSQL schema that owns access_policy.",
-    "schema_literal": "SQL literal of the schema name, for the all_rows check of the schemas claim.",
-    "rls_mappings": "Unit mappings used to build the access-policy predicate. An empty list matches no grant.",
-    "list_form": "Render each column as CAST(col AS VARCHAR) IN (SELECT unnest([...])), which DuckDB runs about four times faster than an IN with thousands of literals. Use it for every read that only DuckDB runs: the aggregate function, the change feed, and a table function without a fallback source. A fallback source also receives the predicate and cannot push the list down, so a table with a fallback keeps the literal list."
-  },
-  "returns": "A PL/pgSQL block assigning v_where. A list column matches with list_has_any, because IN does not apply to it."
-}
-#}
-{% macro rls_where_clause(schema, schema_literal, rls_mappings, list_form=false) -%}
-{% set predicate_format =
-  "'CAST(%I AS VARCHAR) IN (SELECT unnest([%s]))'" if list_form else "'%I IN (%s)'"
-%}
-  -- A token with schema:* for this schema, or with *, or a subject with the grant (*, *),
-  -- reads every row. Every other request reads the rows of its unit grants, so a table with no
-  -- rules, which has no unit mapping, returns no row.
-  IF rbac.all_rows({{ schema_literal }}) OR EXISTS (
-    SELECT 1 FROM {{ schema }}.access_policy p
-    WHERE p.subject = v_subject AND p.unit_type = '*' AND p.unit_id = '*'
-  ) THEN
-    v_where := '';
-  ELSE
-    SELECT string_agg(term, ' OR ') INTO v_where
-    FROM (
-      SELECT
-        CASE WHEN count(*) = 1 THEN min(rule_filter)
-          ELSE '(' || string_agg(rule_filter, ' AND ' ORDER BY col, ut) || ')'
-        END AS term
-      FROM (
-        SELECT
-          t.col,
-          t.ut,
-          coalesce(t.grp, -row_number() OVER (ORDER BY t.col, t.ut)) AS key,
-          CASE
-            WHEN count(p.unit_id) = 0 THEN NULL
-            WHEN t.ty = 'VARCHAR[]' THEN
-              format('list_has_any(%I, [%s])', t.col, string_agg(quote_literal(p.unit_id), ','))
-            ELSE format(
-              {{ predicate_format }},
-              t.col,
-              string_agg(quote_literal(p.unit_id), ',')
-            )
-          END AS rule_filter
-        FROM (VALUES
-          {{ rls_mapping_values(rls_mappings) }}
-        ) AS t(col, ut, ty, grp)
-        LEFT JOIN {{ schema }}.access_policy p
-          ON p.unit_type = t.ut AND p.subject = v_subject
-        GROUP BY t.grp, t.col, t.ty, t.ut
-      ) AS rules
-      GROUP BY key
-      HAVING bool_and(rule_filter IS NOT NULL)
-    ) AS terms;
-
-    v_where := 'WHERE (' || v_where || ')';
-  END IF;
-{%- endmacro %}
-
-{#
-{
-  "kind": "macro",
-  "name": "postgres.rls_unit_array_checks",
-  "description": "Render per-column IN checks against access_policy for the scoped policy.",
-  "inputs": {
-    "rls_mappings": "Unit mappings used to build the access-policy predicate.",
-    "claim_setting": "PostgreSQL session setting containing the current claim.",
-    "schema": "PostgreSQL schema that owns access_policy."
-  },
-  "returns": "A SQL predicate over access_policy."
-}
-#}
-{% macro rls_unit_array_checks(rls_mappings, claim_setting, schema) -%}
-{% for mapping in rls_mappings %}
-"{{ mapping.column }}"::text IN (SELECT unit_id FROM {{ schema }}.access_policy WHERE subject = current_setting({{ claim_setting }}, true) AND unit_type = '{{ mapping.unit_type }}'){% if not loop.last %} OR {% endif %}
-{% endfor %}
-{%- endmacro %}
-
-{#
 A PostgreSQL backend keeps one DuckDB connection for all of its requests, so each schema needs an alias of its own.
 With one shared alias, a backend that attached the catalog of one schema would read that catalog for every other schema.
 The DuckDB secret ducklake_catalog holds the catalog address and credentials.
@@ -228,7 +119,7 @@ A backend that serves for an hour then keeps about 30 MB after a heavy answer, a
 #}
 {% macro duckdb_query_select(columns, duckdb_view) -%}
     FROM duckdb.query(
-      'SELECT {{ columns | map(attribute='name') | join(', ') }} FROM {{ duckdb_view }}'
+      'SELECT {% for column in columns %}{% if column.is_json %}CAST(to_json({{ column.name }}) AS VARCHAR) AS {{ column.name }}{% else %}{{ column.name }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %} FROM {{ duckdb_view }}'
     ) r
 {%- endmacro %}
 

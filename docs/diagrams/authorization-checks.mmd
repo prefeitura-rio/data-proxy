@@ -1,0 +1,14 @@
+%% Authorization checks
+flowchart TD
+  request["Request"] --> token{"Has a token?"}
+  token -->|"no"| denied["403 RBAC: access denied<br/>from the gateway"]
+  token -->|"yes"| valid{"Valid token?"}
+  valid -->|"no"| refused["401 from the gateway"]
+  valid -->|"yes"| role["Switch to the role<br/>of the role claim"]
+  role --> schema{"Is the schema in the<br/>schemas claim?"}
+  schema -->|"no"| none["200, no rows"]
+  schema -->|"yes"| all{"Does the claim have * or<br/>schema:* ?"}
+  all -->|"yes"| every["Every row of the table"]
+  all -->|"no"| policy{"Does an access policy row<br/>match the subject and the unit?<br/>A grant * and * matches all.<br/>A table with no rules has<br/>no unit to match."}
+  policy -->|"yes"| unit["The rows of those units"]
+  policy -->|"no"| none

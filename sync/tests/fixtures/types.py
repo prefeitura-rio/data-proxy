@@ -1,10 +1,12 @@
 import subprocess
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from os import environ
 from typing import ClassVar, Self, TypedDict, final
+from unittest.mock import AsyncMock
 
 from dbos import error as dbos_error
+from google.cloud.bigquery import Row
 from minio import Minio
 from psycopg import AsyncConnection
 from psycopg.sql import SQL, Identifier
@@ -60,9 +62,12 @@ class BigQueryQueryResult:
 
     rows: list[dict[str, str | int | None]]
 
-    def result(self) -> list[dict[str, str | int | None]]:
-        """Return fixture rows as the BigQuery query job does."""
-        return self.rows
+    def result(self) -> list[Row]:
+        """Return fixture rows as the BigQuery query job does, as driver rows."""
+        return [
+            Row(tuple(row.values()), {name: index for index, name in enumerate(row)})
+            for row in self.rows
+        ]
 
 
 @final
@@ -277,3 +282,48 @@ class RecordedOptions:
     def __exit__(self, *_: object) -> None:
         """Clear the options."""
         RecordedOptions.active = {}
+
+
+STORE_KEYS = ["a", "b", "c"]
+
+
+class StoreStub:
+    """An object store with one page of keys. Its delete answers with the keys that it refuses."""
+
+    def __init__(self, refused: dict[str, str]) -> None:
+        self.delete_objects = AsyncMock(
+            return_value={
+                "Errors": [{"Key": key, "Code": code} for key, code in refused.items()]
+            }
+        )
+
+    def get_paginator(self, name: str) -> StoreStub:
+        assert name == "list_objects_v2"
+        return self
+
+    async def paginate(
+        self, **_: str
+    ) -> AsyncIterator[dict[str, list[dict[str, str]]]]:
+        yield {"Contents": [{"Key": key} for key in STORE_KEYS]}
+
+
+@dataclass(slots=True)
+class RecordedConnection:
+    """A database connection that records its statements, answers queries with fixed rows, and counts the commits."""
+
+    rows: list[object] = field(default_factory=list)
+    statements: list[tuple[str, str, object]] = field(default_factory=list)
+    commits: int = 0
+
+    async def execute(self, sql: str, *, params: object = None) -> None:
+        """Record the statement."""
+        self.statements.append(("execute", sql, params))
+
+    async def query(self, sql: str, *, params: object = None) -> list[object]:
+        """Record the query and return the fixed rows."""
+        self.statements.append(("query", sql, params))
+        return self.rows
+
+    async def commit(self) -> None:
+        """Count the commit."""
+        self.commits += 1

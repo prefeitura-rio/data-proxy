@@ -1,0 +1,19 @@
+version: "2"
+formatters:
+  enable:
+    - gofumpt
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - contextcheck
+    - durationcheck
+    - errorlint
+    - exhaustive
+    - gosec
+    - nilerr
+    - nilnesserr
+    - noctx
+    - rowserrcheck
+    - sqlclosecheck
+    - wastedassign

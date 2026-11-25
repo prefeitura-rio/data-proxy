@@ -175,7 +175,7 @@ export const asEditor = (groups: Groups): Editor => ({
 });
 
 /** The conditions in the order that the form sends them, with the number of their card, or 0 for an alternative. */
-export const fieldsOf = (groups: Groups): { entry: Item; group: number }[] => [
+export const listFields = (groups: Groups): { entry: Item; group: number }[] => [
 	...groups.any.map((entry) => ({ entry, group: 0 })),
 	...groups.cards.flatMap((card, index) => card.items.map((entry) => ({ entry, group: index + 1 })))
 ];
@@ -261,7 +261,7 @@ export type Explained = { everything: boolean; any: Found[]; cards: CardResult[]
 
 const WILDCARD = '*';
 
-const valuesOf = (grants: Grant[], unitType: string) => [
+const listGrantValues = (grants: Grant[], unitType: string) => [
 	...new Set(
 		grants.filter((grant) => grant.unit_type === unitType && grant.unit_id !== null).map((grant) => grant.unit_id ?? '')
 	)
@@ -279,7 +279,7 @@ export function explain(editor: Editor, grants: Grant[]): Explained {
 	const find = (rule: Rule): Found => ({
 		column: rule.column,
 		unit_type: rule.unit_type,
-		values: valuesOf(grants, rule.unit_type)
+		values: listGrantValues(grants, rule.unit_type)
 	});
 	const any = editor.any.map(find);
 	const cards = editor.cards

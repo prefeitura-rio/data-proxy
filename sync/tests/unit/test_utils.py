@@ -1,7 +1,14 @@
 import pytest
 
 from sync.settings import settings
-from sync.utils import RemovalLimitError, json_digest, limit_removals, sha256_hex
+from sync.utils import (
+    RemovalLimitError,
+    destination_name,
+    json_digest,
+    limit_removals,
+    sha256_hex,
+    truncate_identifier,
+)
 from tests.helpers.core import exactly
 
 
@@ -62,3 +69,24 @@ class TestLimitRemovals:
         else:
             with pytest.raises(RemovalLimitError, match=exactly(message)):
                 limit_removals(names, "tables")
+
+
+class TestNames:
+    """One function joins a schema and a table, and one cuts a name where PostgreSQL cuts it."""
+
+    def test_joins_a_schema_and_a_table_with_a_dot(self) -> None:
+        assert destination_name("sales", "orders") == "sales.orders"
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [
+            pytest.param("orders", "orders", id="short-name"),
+            pytest.param("a" * 63, "a" * 63, id="63-bytes-fit"),
+            pytest.param("a" * 64, "a" * 63, id="64-bytes-lose-one"),
+            pytest.param(
+                "a" * 62 + "é", "a" * 62, id="a-character-is-never-cut-in-half"
+            ),
+        ],
+    )
+    def test_cuts_a_name_at_63_bytes(self, name: str, expected: str) -> None:
+        assert truncate_identifier(name) == expected

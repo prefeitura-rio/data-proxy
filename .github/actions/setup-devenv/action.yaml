@@ -1,12 +1,19 @@
 name: Setup devenv
-description: Install Nix, configure the devenv cache, and install devenv
+description: Install Nix, configure the devenv and data-proxy caches, and install devenv
+inputs:
+  cachix-auth-token:
+    description: The token that lets the job push to the data-proxy cache. Leave it empty to only pull.
+    default: ""
 runs:
   using: composite
   steps:
     - uses: cachix/install-nix-action@b85815f71a6de0ddee80b8a80a98d43f4bcc66c7 # v31
     - uses: cachix/cachix-action@97e5ff84d02b3b4f9936339f767e17f03c9252ed # v16
       with:
-        name: devenv
+        name: data-proxy
+        extraPullNames: devenv
+        authToken: ${{ inputs.cachix-auth-token }}
+        skipPush: ${{ inputs.cachix-auth-token == '' }}
     - name: Install devenv
       shell: bash
       run: nix profile add nixpkgs#devenv

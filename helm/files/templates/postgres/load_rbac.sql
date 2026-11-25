@@ -119,7 +119,7 @@ BEGIN
     FOR role_name IN SELECT name FROM rbac_in_roles LOOP
         EXECUTE format('GRANT USAGE ON SCHEMA rbac TO %I', role_name);
         EXECUTE format(
-            'GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.mine(text, text), rbac.all_rows(text), rbac.unknown(text) TO %I',
+            'GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.mine(text, text), rbac.whole(text), rbac.unknown(text) TO %I',
             role_name
         );
     END LOOP;
@@ -133,4 +133,4 @@ $rbac_load$;
 UPDATE rbac.revision SET value = value + 1;
 
 GRANT USAGE ON SCHEMA rbac TO {{ anonymous_role }};
-GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.mine(text, text), rbac.all_rows(text), rbac.unknown(text) TO {{ anonymous_role }};
+GRANT EXECUTE ON FUNCTION rbac.load(), rbac.can(text), rbac.mine(text), rbac.mine(text, text), rbac.whole(text), rbac.unknown(text) TO {{ anonymous_role }};

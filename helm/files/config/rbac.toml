@@ -43,8 +43,14 @@ permissions = ["read_api"]
 
 [[roles]]
 name = "dp_policy"
-description = "APIs that register their own access policies"
-permissions = ["read_policy", "create_policy", "edit_policy", "delete_policy"]
+description = "APIs that register their own access policies, and read the configuration of their schemas"
+permissions = [
+  "read_config",
+  "read_policy",
+  "create_policy",
+  "edit_policy",
+  "delete_policy",
+]
 
 [[roles]]
 name = "dp_console"

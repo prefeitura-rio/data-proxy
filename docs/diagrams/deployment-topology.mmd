@@ -1,0 +1,36 @@
+%% Deployment topology
+flowchart TD
+  gateway["Istio gateway"]
+  s3[("Object storage<br/>SeaweedFS")]
+  redis[("Redis cache")]
+  subgraph release["Helm release"]
+    proxy["Proxy<br/>KEDA: 1 to 6"]
+    postgrest["PostgREST<br/>KEDA: 1 to 6"]
+    pgdog["PgDog<br/>2 pods, no scaler"]
+    ro["Service -ro"]
+    rw["Service -rw"]
+    sync["Sync workers<br/>KEDA: 3 to 15"]
+    console["Console and notebooks"]
+    subgraph cnpg["CNPG: KEDA 2 to 6"]
+      primary["Primary"]
+      standbys["Standbys"]
+      secrets[("DuckDB secrets<br/>shared volume")]
+      primary -->|"WAL replication"| standbys
+      primary -->|"writes"| secrets
+      standbys -->|"reads"| secrets
+    end
+    proxy --> postgrest
+    postgrest -->|"queries"| pgdog
+    postgrest -->|"LISTEN connection"| rw
+    pgdog -->|"read-only transactions"| ro
+    pgdog -->|"other transactions"| rw
+    ro --> standbys
+    rw --> primary
+    sync -->|"DBOS state and catalog"| rw
+    console -->|"views and actions"| postgrest
+  end
+  gateway --> proxy
+  gateway --> console
+  proxy -->|"cache"| redis
+  sync -->|"write Parquet"| s3
+  cnpg -->|"pg_duckdb reads Parquet"| s3

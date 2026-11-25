@@ -1,0 +1,28 @@
+%% CI jobs
+flowchart LR
+  push["Push, pull request<br/>or manual start"]
+  subgraph validation["Parallel checks"]
+    changes["changes<br/>which images and chart changed"]
+    checks["checks<br/>chart, docs and tools"]
+    sync["test-sync"]
+    console["test-console"]
+    proxy["test-proxy"]
+    terraform["test-terraform"]
+  end
+  subgraph main["Chart publication on main"]
+    build["build-images<br/>fill the layer cache"] --> pushimg["push-images<br/>push and sign"] --> helm["helm<br/>publish the chart"] --> docs["docs<br/>publish the site"]
+  end
+  push --> changes
+  push --> checks
+  push --> sync
+  push --> console
+  push --> proxy
+  push --> terraform
+  changes --> build
+  checks -->|"tests pass"| pushimg
+  sync --> pushimg
+  console --> pushimg
+  proxy --> pushimg
+  subgraph providerflow["Tagged provider publication"]
+    tag["vX.Y.Z push"] --> reviewed["Validate main history<br/>and increasing version"] --> taggedtests["Test exact tagged commit"] --> goreleaser["GoReleaser<br/>build, sign and publish"] --> registry["Publish registry metadata"]
+  end

@@ -10,7 +10,6 @@ use lib.nu [
     local-kubeconfig
     NAMESPACE
     poll
-    read-data
     wrap-helmfile
     wait-for
     wrap-kubectl
@@ -96,7 +95,7 @@ def run-cronjob [kubecfg: path, cronjob: string, description: string]: nothing -
     }
 }
 
-# Print the log of one pod as it grows, once the container has started. Returns false when the stream failed.
+# Stream pod logs after startup and return whether streaming succeeds.
 def stream-log [kubecfg: path, pod: string]: nothing -> bool {
     let started = poll {||
         try {
@@ -122,13 +121,13 @@ def stream-log [kubecfg: path, pod: string]: nothing -> bool {
 
 # Return the TestRun manifest from its file, with a new name, the image of this run, and the settings in its environment.
 def testrun-manifest [yaml_path: path, testrun: string, image_tag: string, settings: record]: nothing -> string {
-    let env_names = read-data $yaml_path | get spec.runner.env | get name
+    let env_names = open $yaml_path | get spec.runner.env | get name
     let added = $settings
     | columns
     | where $it not-in $env_names
     | each {|name| {name: $name, value: ($settings | get --optional $name | into string)} }
 
-    read-data $yaml_path
+    open $yaml_path
     | update metadata.name $testrun
     | update spec.runner.image $'($IMAGE_REGISTRY)/k6:($image_tag)'
     | update spec.runner.env {|run|
@@ -273,11 +272,13 @@ def run-profile [
 }
 
 # Run the k6 smoke profile: one virtual user for 40 seconds.
+@example "Run a cluster smoke test" { nu --no-config-file scripts/cluster.nu k6 smoke }
 export def "main k6 smoke" []: nothing -> nothing {
     run-profile (local-kubeconfig) smoke
 }
 
 # Run the standard k6 load profile.
+@example "Run capacity load tests" { nu --no-config-file scripts/cluster.nu k6 load --capacity --peak-rate 25 }
 export def "main k6 load" [
     --capacity # Use capacity thresholds and extra VU headroom.
     --report-only # Do not gate fallback and heavy-route thresholds.
@@ -302,6 +303,7 @@ export def "main k6 load" [
 }
 
 # Run the full E2E suite against the deployed release.
+@example "Run selected cluster scenarios" { nu --no-config-file scripts/cluster.nu k6 e2e --scenarios cache,access }
 export def "main k6 e2e" [
     --build # Build and deploy fresh local images before the E2E run.
     --scenarios: string = '' # Comma-separated scenarios to run, such as `cache,access`. Empty runs all.

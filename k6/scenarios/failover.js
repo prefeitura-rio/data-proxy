@@ -28,14 +28,14 @@ const { expect, requirePrecondition } = scenario("failover");
 const PROMOTION_TIMEOUT_SECONDS = 300;
 const REBUILD_TIMEOUT_SECONDS = 900;
 const RUN_TIMEOUT_SECONDS = 600;
-const PROBE_ROW = [{ subject: "e2e_failover_probe", unit_type: "unit", unit_id: "unit_failover" }];
+const PROBE_ROW = [{ scope: SCHEMA.replace("__", "."), subject: "e2e_failover_probe", unit_type: "unit", unit_id: "unit_failover" }];
 
 /**
  * Reads the primary that the Cluster reports.
  * @param {Kubernetes} k8s
  * @returns {string | undefined}
  */
-function primaryOf(k8s) {
+function currentPrimary(k8s) {
     return clusterObject(k8s).status?.currentPrimary;
 }
 
@@ -45,7 +45,7 @@ function primaryOf(k8s) {
  * @param {Kubernetes} k8s
  */
 export function failover(k8s) {
-    const before = primaryOf(k8s);
+    const before = currentPrimary(k8s);
     requirePrecondition("the cluster has a primary", before !== undefined, {});
     requirePrecondition("the cluster is settled before the failover", clusterSettled(k8s), {});
     if (before === undefined) return;
@@ -55,13 +55,13 @@ export function failover(k8s) {
     let failedReads = 0;
     const deadline = Date.now() + PROMOTION_TIMEOUT_SECONDS * 1000;
 
-    while (Date.now() < deadline && primaryOf(k8s) === before) {
+    while (Date.now() < deadline && currentPrimary(k8s) === before) {
         if (readUncached(userToken()).status !== 200) failedReads += 1;
         sleep(2);
     }
 
     info("reads_during_outage", { down: "primary", failed: failedReads });
-    const after = primaryOf(k8s);
+    const after = currentPrimary(k8s);
     expect("CNPG promotes another instance to primary", after !== undefined && after !== before);
 
     expect(
@@ -82,7 +82,7 @@ export function failover(k8s) {
     expect("the policy write is removed again", changeAccessPolicy("DELETE", "?subject=eq.e2e_failover_probe") < 300);
 
     const feed = proxyGet(
-        `/rpc/dl_changes_${FULL_TABLE}?select=change_type&start_snapshot=0&limit=1`,
+        `/rpc/changes?table=${FULL_TABLE}&select=change_type&start_snapshot=0&limit=1`,
         clientToken("admin"),
     );
 

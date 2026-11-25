@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import * as v from 'valibot';
 import { api } from '#lib/server/api.js';
 import { listFiles } from '#lib/server/catalog.js';
-import { createGrant, prefixOf } from '#lib/server/grant.js';
+import { createGrant, policyPrefix } from '#lib/server/grant.js';
 import { identityFor } from '#lib/server/identities.js';
 import { storageIam } from '#lib/server/iam.js';
 import { catalogKeys } from '#lib/server/keys.js';
@@ -37,7 +37,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			const credentials = iam
 				? await identityFor(
 						schema,
-						{ bucket: signer.bucket, prefix: prefixOf(dataPath, signer.bucket) },
+						{ bucket: signer.bucket, prefix: policyPrefix(dataPath, signer.bucket) },
 						{
 							iam: storageIam(iam),
 							store: catalogKeys(catalogUrl),

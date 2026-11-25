@@ -35,7 +35,7 @@ check("redis.read", function(case) return store_with(case.raw):read("key") end, 
 --- Run the steps of a case on a fresh store, and return the warnings that the store wrote.
 ---@param case table
 ---@return string[] warnings
-local function warnings_of(case)
+local function collect_warnings(case)
 	package.loaded["proxy.redis"] = nil
 	local FreshRedis = require("proxy.redis")
 	local warnings, clock = {}, 0
@@ -62,7 +62,7 @@ local function warnings_of(case)
 	return warnings
 end
 
-check("redis.warnings", warnings_of, {
+check("redis.warnings", collect_warnings, {
 	{
 		name = "warns with the reason when the connection fails",
 		open_error = "connection refused",
@@ -136,9 +136,9 @@ end
 --- The two counters that one call returns, as a list.
 ---@param case table
 ---@return integer[]
-local function counters_of(case) return { generation_call(case) } end
+local function collect_counters(case) return { generation_call(case) } end
 
-check("redis.generations", counters_of, {
+check("redis.generations", collect_counters, {
 	{
 		name = "reads the policy and the data counters",
 		operation = "generations",
@@ -201,9 +201,3 @@ describe("redis.generations keys", function()
 		function() assert.same({ "policy:generation", "cache:generation:" }, keys_for(string.rep("a", 64))) end
 	)
 end)
-
-check("redis.bump_generation", generation_call, {
-	{ name = "counts up with incr", operation = "bump_generation", incr_reply = 8, expected = true },
-	{ name = "reports a failed incr", operation = "bump_generation", incr_error = "READONLY", expected = false },
-	{ name = "reports a failed connection", operation = "bump_generation", open_error = "refused", expected = false },
-})

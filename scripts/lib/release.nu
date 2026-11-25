@@ -1,42 +1,45 @@
 use ../lib.nu [
     fail
     IMAGES
-    read-text
-    write-text
 ]
 
 # Return the paths of a list that belong to the chart: the files of helm/ except its tests, and the values file.
+@example "Select chart changes" { ['helm/values.yaml' 'docs/index.md'] | chart-files } --result ['helm/values.yaml']
 export def chart-files []: list<string> -> list<string> {
     where (($it | str starts-with helm/) and ($it !~ ^helm/tests/)) or $it == helm/values.yaml
 }
 
 # Return the rows of IMAGES that a list of changed paths rebuilds, or every row when a full build is forced.
+@example "Select every build image" { images-changed [] true | is-not-empty } --result true
 export def images-changed [files: list<string>, force_full: bool]: nothing -> list<record> {
     $IMAGES | where $force_full or ($files | any {$in =~ $it.change_pattern})
 }
 
-# Return true when a commit can release the chart: a `feat`, a `fix` or a type with `!`, as in cog.toml, that changes
-# a file outside the Terraform provider, the docs and llms.txt. A provider or docs commit never releases the chart.
+# Return whether a release-level commit changes files outside the provider and documentation.
+@example "Recognize a product feature" { release-commit {subject: 'feat: add a project', files: ['sync/src/sync/main.py']} } --result true
 export def release-commit [commit: record<subject: string, files: list<string>>]: nothing -> bool {
     let level = $commit.subject =~ '^(feat|fix)(\([^)]*\))?!?: ' or $commit.subject =~ '^[a-z]+(\([^)]*\))?!: '
-    let product = $commit.files | any {|file| $file !~ '^(terraform/|docs/|llms\.txt$)' }
+    let product = $commit.files | any {|file| $file !~ '^(provider/|docs/)' }
 
     $level and $product
 }
 
-# Return true when a text is a full chart version such as 2.10.0. A range, a prefix or a channel tag is not one.
+# Return true when a text is a full chart version such as 2.10.0.
+@example "Validate a chart version" { valid-chart-version '2.21.0' } --result true
 export def valid-chart-version [text: string]: nothing -> bool {
     $text =~ '^\d+\.\d+\.\d+$'
 }
 
-# Fail unless a text is a full version such as 0.1.0. The chart and the provider use the same form.
+# Fail unless a text is a full version such as 0.1.0.
+@example "Accept a complete version" { check-version '2.21.0' }
 export def check-version [text: string]: nothing -> nothing {
     if not (valid-chart-version $text) {
         fail $'($text) is not a version such as 0.1.0'
     }
 }
 
-# Return the newest chart version of a list of tags, or null when none is a version. It compares the numbers.
+# Return the newest chart version of a list of tags, or null when none is a version.
+@example "Find the newest release tag" { ['2.9.0' '2.21.0' latest] | newest-version } --result '2.21.0'
 export def newest-version []: list<string> -> oneof<string, nothing> {
     where (valid-chart-version $it)
     | sort-by {|tag| $tag | split row . | each {|part| $part | into int | fill --width 8 --alignment right --character 0 } | str join . }
@@ -45,6 +48,7 @@ export def newest-version []: list<string> -> oneof<string, nothing> {
 }
 
 # Return the version tag that has a digest, from rows of tag and digest, or null when none has it.
+@example "Find a digest version" { version-of-digest [{tag: '2.21.0', digest: 'sha256:example'}] 'sha256:example' } --result '2.21.0'
 export def version-of-digest [tags: list<record<tag: string, digest: string>>, digest: string]: nothing -> oneof<string, nothing> {
     $tags
     | where (valid-chart-version $it.tag) and digest == $digest
@@ -52,139 +56,127 @@ export def version-of-digest [tags: list<record<tag: string, digest: string>>, d
 }
 
 # Return the first tag of a list that is newest first and starts with the prefix, such as helm-v or terraform-v, or null.
+@example "Find a Helm tag" { ['terraform-v0.2.0' 'helm-v2.21.0'] | latest-tag helm-v } --result 'helm-v2.21.0'
 export def latest-tag [prefix: string]: list<string> -> oneof<string, nothing> {
     where ($it | str starts-with $prefix) | get --optional 0
 }
 
-# Return the file name of a provider archive. The name follows the layout of a Terraform mirror.
-export def provider-archive [name: string, version: string, os: string, arch: string]: nothing -> string {
-    $'terraform-provider-($name)_($version)_($os)_($arch).zip'
+# Export one committed Cocogitto changelog section without generating release notes again.
+@example "Export tagged notes" { "## v0.3.0 - 2026-01-01\n\n- feature\n" | release-notes v0.3.0 } --result "## v0.3.0 - 2026-01-01\n\n- feature\n"
+export def release-notes [tag: string]: string -> string {
+    let section = $in | lines | skip until {|line| $line | str starts-with $'## ($tag) - ' }
+    if ($section | is-empty) { fail $'The committed changelog has no section for ($tag)' }
+    $section | skip 1 | take until {|line| $line =~ '^## |^- - -$' }
+    | prepend ($section | first)
+    | str join (char nl)
+    | str trim --right
+    | $in + (char nl)
 }
 
-# Return the version of a provider release tag, such as 0.1.3 for terraform-v0.1.3.
-export def terraform-tag-version []: string -> string {
-    str replace --regex '^terraform-v' ''
+# Return a stable provider version from a current or historical release tag.
+@example "Read a provider version" { provider-version v0.3.0 } --result '0.3.0'
+export def provider-version [tag: string]: nothing -> oneof<string, nothing> {
+    $tag | parse --regex '^(?:terraform-)?v(?<version>(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$' | get --optional 0.version
 }
 
-# Return the bump that one commit subject asks for: minor for a feature or a breaking change, patch for a fix.
-def commit-bump [subject: string]: nothing -> oneof<string, nothing> {
-    if $subject =~ '^feat(\([^)]*\))?: ' or $subject =~ '^[a-z]+(\([^)]*\))?!: ' {
-        'minor'
-    } else if $subject =~ '^fix(\([^)]*\))?: ' {
-        'patch'
-    }
-}
+# Select published stable provider releases and reject duplicate semantic versions.
+@example "Ignore chart releases" { [{tag_name: helm-v2.20.0, draft: false, prerelease: false}] | provider-releases } --result []
+export def provider-releases []: table -> table {
+    let releases = $in | each {|release|
+        let version = provider-version $release.tag_name
+        if $version != null and not $release.draft and not $release.prerelease {
+            $release | insert version $version
+        }
+    } | compact
 
-# Return the bump that the commits of the provider ask for, or null when none needs a release. Only a commit that
-# changes a file of terraform/ counts. The major version stays 0, so a breaking change raises the minor version.
-export def terraform-bump []: list<record<subject: string, files: list<string>>> -> oneof<string, nothing> {
-    let bumps = $in
-    | where ($it.files | any {|file| $file =~ '^terraform/' })
-    | each {|commit| commit-bump $commit.subject }
-    | compact
-
-    if 'minor' in $bumps {
-        'minor'
-    } else if 'patch' in $bumps {
-        'patch'
-    }
-}
-
-# Return the next provider version from the last one, or null for the first release, and a bump.
-export def next-terraform-version [last: oneof<string, nothing>, bump: string]: nothing -> string {
-    if $last == null {
-        return '0.1.0'
+    if ($releases | group-by version | values | any {|group| ($group | length) > 1 }) {
+        fail 'Multiple provider releases contain the same semantic version'
     }
 
-    let parts = $last
-    | parse --regex '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$'
-    | first
-    | into int major minor patch
-
-    match $bump {
-        minor => $'($parts.major).($parts.minor + 1).0'
-        patch => $'($parts.major).($parts.minor).($parts.patch + 1)'
-        _ => (fail $'The bump ($bump) is neither minor nor patch')
-    }
+    $releases
 }
 
-# Return a record from the file name to the hash, from the text of a SHA256SUMS file.
+# Select one supported checksum manifest from the published release assets.
+@example "Find default checksums" { [checksums.txt checksums.txt.sig] | provider-checksum } --result 'checksums.txt'
+export def provider-checksum []: list<string> -> string {
+    let matches = $in | where $it =~ '(^|_)(SHA256SUMS|checksums\.txt)$'
+    if ($matches | length) != 1 { fail 'The provider release must contain one checksum manifest' }
+    $matches | first
+}
+
+# Return artifact checksums indexed by filename from a checksum manifest.
+@example "Read archive checksums" { 'abc  example.zip' | parse-sha256sums } --result {'example.zip': abc}
 export def parse-sha256sums []: string -> record {
     parse --regex '(?m)^(?<hash>[0-9a-f]+)\s+\*?(?<name>\S+)$'
     | reduce --fold {} {|row, sums| $sums | insert $row.name $row.hash }
 }
 
-# Return the files of a provider registry as a table of the path and the body. The registry is static: the service
-# discovery, the versions of the provider and one download file for each version, system and architecture. The inputs
-# are the namespace, the type, the base URL of the release downloads, the signing key (id and armor), the targets and
-# the versions with the checksums of their archives. The documents hold no host name, because the host serves them.
+# Generate registry documents from actual published tags, checksums and archive assets.
+@example "Generate registry discovery" { registry-documents {namespace: example, type: 'data-proxy', base_url: 'https://example.org/releases', key: {id: example, armor: example}, versions: []} | get --optional 0.path } --result '.well-known/terraform.json'
 export def registry-documents [inputs: record]: nothing -> table<path: string, body: record> {
-    let root = $'v1/providers/($inputs.namespace)/($inputs.type)'
-    let discovery = {
-        path: '.well-known/terraform.json'
-        body: {'providers.v1': '/v1/providers/'}
+    let releases = $inputs.versions | each {|release|
+        let sums = $release.assets | provider-checksum
+        if $sums != $release.checksum_file or $'($sums).sig' not-in $release.assets {
+            fail $'The checksum signature is missing for ($release.tag_name)'
+        }
+
+        let archives = $release.sums | transpose filename sha256 | where filename =~ '\.zip$' | each {|archive|
+            let platform = $archive.filename | parse --regex '_(?<os>[a-z]+)_(?<arch>[a-z0-9]+)\.zip$' | get --optional 0
+            if $platform == null or $archive.filename not-in $release.assets or $archive.sha256 !~ '^[0-9a-f]{64}$' {
+                fail $'The provider archive is invalid or missing: ($archive.filename)'
+            }
+            $archive | merge $platform
+        }
+
+        if ($archives | is-empty) or (($archives | uniq-by os arch | length) != ($archives | length)) {
+            fail $'The release has missing or duplicate provider platforms: ($release.tag_name)'
+        }
+        if ($release.assets | where $it =~ '\.zip$' | length) != ($archives | length) {
+            fail $'The checksum manifest omits provider archives: ($release.tag_name)'
+        }
+        $release | insert archives $archives
     }
+    if ($releases | group-by version | values | any {|group| ($group | length) > 1 }) {
+        fail 'Multiple provider releases contain the same semantic version'
+    }
+
+    let root = $'v1/providers/($inputs.namespace)/($inputs.type)'
+    let discovery = {path: '.well-known/terraform.json', body: {'providers.v1': '/v1/providers/'}}
     let versions = {
         path: $'($root)/versions'
-        body: {
-            versions: (
-                $inputs.versions
-                | each {|release|
-                    {
-                        version: $release.version
-                        protocols: ['6.0']
-                        platforms: $inputs.targets
-                    }
-                }
-            )
-        }
+        body: {versions: ($releases | each {|release| {version: $release.version, protocols: ['6.0'], platforms: ($release.archives | select os arch)} })}
     }
-    let downloads = $inputs.versions | each {|release|
-        let base = $'($inputs.base_url)/terraform-v($release.version)'
-        let sums = $'terraform-provider-($inputs.type)_($release.version)_SHA256SUMS'
-
-        $inputs.targets | each {|target|
-            let archive = provider-archive $inputs.type $release.version $target.os $target.arch
-            let hashes = $release.sums | transpose name hash | where name == $archive
-
-            if ($hashes | is-empty) {
-                fail $'The checksums of ($release.version) have no ($archive)'
-            }
-
+    let downloads = $releases | each {|release|
+        let base = $'($inputs.base_url)/($release.tag_name)'
+        $release.archives | each {|archive|
             {
-                path: $'($root)/($release.version)/download/($target.os)/($target.arch)'
+                path: $'($root)/($release.version)/download/($archive.os)/($archive.arch)'
                 body: {
                     protocols: ['6.0']
-                    os: $target.os
-                    arch: $target.arch
-                    filename: $archive
-                    download_url: $'($base)/($archive)'
-                    shasums_url: $'($base)/($sums)'
-                    shasums_signature_url: $'($base)/($sums).sig'
-                    shasum: ($hashes | first | get hash)
-                    signing_keys: {
-                        gpg_public_keys: [
-                            {
-                                key_id: $inputs.key.id
-                                ascii_armor: $inputs.key.armor
-                            }
-                        ]
-                    }
+                    os: $archive.os
+                    arch: $archive.arch
+                    filename: $archive.filename
+                    download_url: $'($base)/($archive.filename)'
+                    shasums_url: $'($base)/($release.checksum_file)'
+                    shasums_signature_url: $'($base)/($release.checksum_file).sig'
+                    shasum: $archive.sha256
+                    signing_keys: {gpg_public_keys: [{key_id: $inputs.key.id, ascii_armor: $inputs.key.armor}]}
                 }
             }
         }
-    }
-    | flatten
+    } | flatten
 
     [$discovery $versions] | append $downloads
 }
 
 # Return the tag that `cog bump --dry-run` prints when a release is due, or null when it prints a message.
+@example "Read a planned Helm release" { 'helm-v2.21.0' | release-tag } --result 'helm-v2.21.0'
 export def release-tag []: string -> oneof<string, nothing> {
     lines | where $it =~ '^helm-v\d+\.\d+\.\d+' | get --optional 0
 }
 
-# Return the next DBOS application version. It raises the major number when the code of the sync changed since the last release.
+# Return the DBOS version with a major bump when sync code changes.
+@example "Advance an application version" { next-dbos-version '3.0.0' true } --result '4.0.0'
 export def next-dbos-version [current: string, changed: bool]: nothing -> string {
     if not $changed { return $current }
 
@@ -197,9 +189,10 @@ export def next-dbos-version [current: string, changed: bool]: nothing -> string
     $'(($parts | first | into int) + 1).0.0'
 }
 
-# Replace one line pattern in a file. It fails unless the pattern matches exactly once.
+# Replace exactly one matching line in a file or fail.
+@example "Update one version line" { replace-once '/tmp/data-proxy-example.txt' '^version:' 'version: 2.21.0' }
 export def replace-once [file: path, pattern: string, line: string]: nothing -> nothing {
-    let text = read-text $file
+    let text = open --raw $file | decode utf-8
     let found = $text | lines | where $it =~ $pattern | length
 
     if $found != 1 {
@@ -211,5 +204,5 @@ export def replace-once [file: path, pattern: string, line: string]: nothing -> 
     | each {|row| if $row =~ $pattern { $line } else { $row } }
     | str join (char nl)
     | $in + (char nl)
-    | write-text $file
+    | save --force $file
 }

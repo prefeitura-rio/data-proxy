@@ -1,5 +1,6 @@
-from collections.abc import AsyncIterator, Iterator
-from unittest.mock import MagicMock
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock
 
 import duckdb
 import psycopg
@@ -9,6 +10,7 @@ from minio import Minio
 from psycopg.sql import SQL, Identifier
 from pydantic import SecretStr
 
+from sync import identities
 from sync.settings import settings
 from sync.sources.bigquery.clients import BigQuery
 from sync.templates import render_template
@@ -125,3 +127,23 @@ def storage(tmp_path_factory: pytest.TempPathFactory) -> Storage:
         if fixture.name == "people_partition_10.parquet":
             client.fput_object("test-bucket", "app/people/data.parquet", str(fixture))
     return Storage(host, int(port), client)
+
+
+@pytest.fixture
+def identity_removal(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    """Stand in for the object store with three stale identities, and return the delete call."""
+
+    @asynccontextmanager
+    async def client(*_: object) -> AsyncGenerator[None]:
+        yield
+
+    remove = AsyncMock()
+    monkeypatch.setattr(identities, "create_iam_client", client)
+    monkeypatch.setattr(
+        identities,
+        "list_users",
+        AsyncMock(return_value=["sig_a", "sig_b", "sig_c"]),
+    )
+    monkeypatch.setattr(identities, "remove_user", remove)
+
+    return remove

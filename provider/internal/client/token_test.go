@@ -1,0 +1,440 @@
+package client_test
+
+import (
+	"context"
+	"data-proxy/internal/client"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"golang.org/x/oauth2"
+)
+
+// The credentials that the fake token endpoint expects.
+const (
+	testClientID     = "terraform"
+	testClientSecret = "secret-123"
+)
+
+// tokenServer is a fake identity provider. It records each request and answers with a fixed response.
+type tokenServer struct {
+	t         *testing.T
+	expiresIn int
+	status    int
+	response  string
+
+	mu       sync.Mutex
+	requests []tokenRequest
+}
+
+// tokenRequest is the form that the token request sent to the fake identity provider.
+type tokenRequest struct {
+	grantType string
+	clientID  string
+	secret    string
+	scope     string
+}
+
+// ServeHTTP records the token request and answers it with token-<n>, or with the status that the test set.
+func (ts *tokenServer) ServeHTTP(writer http.ResponseWriter, req *http.Request) {
+	err := req.ParseForm()
+	if err != nil {
+		ts.t.Errorf("parse the token request: %v", err)
+	}
+
+	clientID, secret, ok := req.BasicAuth()
+	if !ok {
+		clientID, secret = req.PostForm.Get("client_id"), req.PostForm.Get("client_secret")
+	}
+
+	ts.mu.Lock()
+	ts.requests = append(ts.requests, tokenRequest{
+		grantType: req.PostForm.Get("grant_type"),
+		clientID:  clientID,
+		secret:    secret,
+		scope:     req.PostForm.Get("scope"),
+	})
+	count := len(ts.requests)
+	ts.mu.Unlock()
+
+	writer.Header().Set("Content-Type", "application/json")
+
+	if ts.status != 0 {
+		writer.WriteHeader(ts.status)
+
+		_, err = writer.Write([]byte(ts.response))
+		if err != nil {
+			ts.t.Errorf("write the token response: %v", err)
+		}
+
+		return
+	}
+
+	body := map[string]any{"access_token": fmt.Sprintf("token-%d", count), "token_type": "Bearer"}
+	if ts.expiresIn > 0 {
+		body["expires_in"] = ts.expiresIn
+	}
+
+	err = json.NewEncoder(writer).Encode(body)
+	if err != nil {
+		ts.t.Errorf("write the token response: %v", err)
+	}
+}
+
+// count returns how many requests the server received.
+func (ts *tokenServer) count() int {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	return len(ts.requests)
+}
+
+// newTokenSource starts the fake token endpoint and returns a source for it, with a clock that the test moves.
+// The clock starts at the real time, because oauth2 sets the expiry of a token from the real time.
+func newTokenSource(t *testing.T, server *tokenServer, scopes []string) (*client.CredentialsSource, *time.Time) {
+	t.Helper()
+
+	server.t = t
+	httpServer := httptest.NewServer(server)
+	t.Cleanup(httpServer.Close)
+
+	source, err := client.NewCredentialsSource(client.Credentials{
+		TokenURL:     httpServer.URL + "/realms/test/protocol/openid-connect/token",
+		ClientID:     testClientID,
+		ClientSecret: testClientSecret,
+		Scopes:       scopes,
+	}, httpServer.Client())
+	if err != nil {
+		t.Fatalf("NewCredentialsSource: %v", err)
+	}
+
+	clock := time.Now()
+
+	source.SetClock(func() time.Time { return clock })
+
+	return source, &clock
+}
+
+func TestNewCredentialsSourceRejects(t *testing.T) {
+	t.Parallel()
+
+	valid := client.Credentials{ //nolint:gosec // G101 reads the secret as real. It is a fake.
+		TokenURL:     "https://id.example.com/token",
+		ClientID:     "terraform",
+		ClientSecret: "s",
+	}
+
+	tests := []struct {
+		name   string
+		change func(*client.Credentials)
+		want   string
+	}{
+		{
+			name:   "token URL without a scheme",
+			change: func(c *client.Credentials) { c.TokenURL = "id.example.com/token" },
+			want:   `token URL "id.example.com/token": the scheme must be http or https`,
+		},
+		{
+			name:   "token URL with another scheme",
+			change: func(c *client.Credentials) { c.TokenURL = "ftp://id.example.com/token" },
+			want:   `token URL "ftp://id.example.com/token": the scheme must be http or https`,
+		},
+		{
+			name:   "token URL without a host",
+			change: func(c *client.Credentials) { c.TokenURL = "https:///token" },
+			want:   `token URL "https:///token": the host is empty`,
+		},
+		{
+			name:   "token URL that doesn't parse",
+			change: func(c *client.Credentials) { c.TokenURL = "https://id.example.com/%zz" },
+			want:   `parse the token URL: parse "https://id.example.com/%zz": invalid URL escape "%zz"`,
+		},
+		{
+			name:   "token URL over http to a remote host",
+			change: func(c *client.Credentials) { c.TokenURL = "http://id.example.com/token" },
+			want:   `token URL "http://id.example.com/token": use https, or http for a loopback host`,
+		},
+		{
+			name:   "empty client ID",
+			change: func(c *client.Credentials) { c.ClientID = "" },
+			want:   "the client ID is empty",
+		},
+		{
+			name:   "empty client secret",
+			change: func(c *client.Credentials) { c.ClientSecret = "" },
+			want:   "the client secret is empty",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			credentials := valid
+			testCase.change(&credentials)
+
+			source, err := client.NewCredentialsSource(credentials, nil)
+			if err == nil {
+				t.Fatalf("NewCredentialsSource = %v, want an error", source)
+			}
+
+			if err.Error() != testCase.want {
+				t.Errorf("error = %q, want %q", err.Error(), testCase.want)
+			}
+		})
+	}
+}
+
+func TestCredentialsSourceRenewsTheToken(t *testing.T) {
+	t.Parallel()
+
+	server := &tokenServer{expiresIn: 300}
+	source, clock := newTokenSource(t, server, []string{"openid", "data-proxy"})
+
+	before := time.Now()
+
+	first, err := source.Token(context.Background())
+	if err != nil {
+		t.Fatalf("Token: %v", err)
+	}
+
+	after := time.Now()
+
+	if first != "token-1" {
+		t.Errorf("token = %q, want %q", first, "token-1")
+	}
+
+	lifetime := 300 * time.Second
+	if source.Expiry().Before(before.Add(lifetime)) || source.Expiry().After(after.Add(lifetime)) {
+		t.Errorf("expiry = %s, want 5 minutes after the request, between %s and %s",
+			source.Expiry(), before.Add(lifetime), after.Add(lifetime))
+	}
+
+	steps := []struct {
+		name     string
+		callTime func(expiry time.Time) time.Time
+		want     string
+		requests int
+	}{
+		{
+			name:     "a call 31 s before the expiry reuses the token",
+			callTime: func(expiry time.Time) time.Time { return expiry.Add(-31 * time.Second) },
+			want:     "token-1",
+			requests: 1,
+		},
+		{
+			name:     "a call 29 s before the expiry renews it",
+			callTime: func(expiry time.Time) time.Time { return expiry.Add(-29 * time.Second) },
+			want:     "token-2",
+			requests: 2,
+		},
+		{
+			name:     "a call 31 s before the expiry of the new token reuses it",
+			callTime: func(expiry time.Time) time.Time { return expiry.Add(-31 * time.Second) },
+			want:     "token-2",
+			requests: 2,
+		},
+		{
+			name:     "a call after the expiry renews it",
+			callTime: func(expiry time.Time) time.Time { return expiry.Add(time.Minute) },
+			want:     "token-3",
+			requests: 3,
+		},
+	}
+
+	for _, step := range steps {
+		*clock = step.callTime(source.Expiry())
+
+		got, err := source.Token(context.Background())
+		if err != nil {
+			t.Fatalf("%s: Token: %v", step.name, err)
+		}
+
+		if got != step.want {
+			t.Errorf("%s: token = %q, want %q", step.name, got, step.want)
+		}
+
+		if server.count() != step.requests {
+			t.Errorf("%s: token requests = %d, want %d", step.name, server.count(), step.requests)
+		}
+	}
+
+	want := tokenRequest{
+		grantType: "client_credentials",
+		clientID:  testClientID,
+		secret:    testClientSecret,
+		scope:     "openid data-proxy",
+	}
+
+	for i, request := range server.requests {
+		if request != want {
+			t.Errorf("token request %d = %+v, want %+v", i, request, want)
+		}
+	}
+}
+
+func TestCredentialsSourceKeepsATokenWithoutExpiry(t *testing.T) {
+	t.Parallel()
+
+	server := &tokenServer{}
+	source, clock := newTokenSource(t, server, nil)
+
+	for _, elapsed := range []time.Duration{0, 24 * time.Hour} {
+		*clock = clock.Add(elapsed)
+
+		got, err := source.Token(context.Background())
+		if err != nil {
+			t.Fatalf("Token: %v", err)
+		}
+
+		if got != "token-1" {
+			t.Errorf("token = %q, want %q", got, "token-1")
+		}
+	}
+
+	if server.count() != 1 {
+		t.Errorf("token requests = %d, want 1", server.count())
+	}
+
+	if server.requests[0].scope != "" {
+		t.Errorf("scope = %q, want none", server.requests[0].scope)
+	}
+}
+
+func TestCredentialsSourceFetchesOnceForConcurrentCalls(t *testing.T) {
+	t.Parallel()
+
+	server := &tokenServer{expiresIn: 300}
+	source, _ := newTokenSource(t, server, nil)
+
+	const callers = 8
+
+	var waitGroup sync.WaitGroup
+
+	tokens := make([]string, callers)
+	errs := make([]error, callers)
+
+	for i := range callers {
+		waitGroup.Go(func() {
+			tokens[i], errs[i] = source.Token(context.Background())
+		})
+	}
+
+	waitGroup.Wait()
+
+	for index := range callers {
+		if errs[index] != nil {
+			t.Errorf("caller %d: Token: %v", index, errs[index])
+		}
+
+		if tokens[index] != "token-1" {
+			t.Errorf("caller %d: token = %q, want %q", index, tokens[index], "token-1")
+		}
+	}
+
+	if server.count() != 1 {
+		t.Errorf("token requests = %d, want 1", server.count())
+	}
+}
+
+func TestCredentialsSourceErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		server *tokenServer
+		ctx    func() context.Context
+		check  func(*testing.T, error)
+	}{
+		{
+			name: "the identity provider refuses the client",
+			server: &tokenServer{
+				status:   http.StatusUnauthorized,
+				response: `{"error":"unauthorized_client","error_description":"Invalid client or Invalid client credentials"}`,
+			},
+			ctx: context.Background,
+			check: func(t *testing.T, err error) {
+				t.Helper()
+
+				var retrieve *oauth2.RetrieveError
+				if !errors.As(err, &retrieve) {
+					t.Fatalf("error = %v, want an *oauth2.RetrieveError", err)
+				}
+
+				if retrieve.ErrorCode != "unauthorized_client" {
+					t.Errorf("error code = %q, want %q", retrieve.ErrorCode, "unauthorized_client")
+				}
+			},
+		},
+		{
+			name:   "the context ends before the request",
+			server: &tokenServer{expiresIn: 300},
+			ctx: func() context.Context {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+
+				return ctx
+			},
+			check: func(t *testing.T, err error) {
+				t.Helper()
+
+				if !errors.Is(err, context.Canceled) {
+					t.Errorf("error = %v, want context.Canceled", err)
+				}
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			source, _ := newTokenSource(t, testCase.server, nil)
+
+			token, err := source.Token(testCase.ctx())
+			if err == nil {
+				t.Fatalf("Token = %q, want an error", token)
+			}
+
+			if !strings.HasPrefix(err.Error(), "fetch a token from "+source.TokenURL()+": ") {
+				t.Errorf("error = %q, want the prefix with the token URL", err.Error())
+			}
+
+			if strings.Contains(err.Error(), testClientSecret) {
+				t.Errorf("error = %q, want no client secret in it", err.Error())
+			}
+
+			testCase.check(t, err)
+		})
+	}
+}
+
+func TestCredentialsSourceRetriesAfterAFailure(t *testing.T) {
+	t.Parallel()
+
+	server := &tokenServer{expiresIn: 300}
+	source, _ := newTokenSource(t, server, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := source.Token(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Token with an ended context: error = %v, want context.Canceled", err)
+	}
+
+	got, err := source.Token(context.Background())
+	if err != nil {
+		t.Fatalf("Token: %v", err)
+	}
+
+	if got != "token-1" {
+		t.Errorf("token = %q, want %q", got, "token-1")
+	}
+}

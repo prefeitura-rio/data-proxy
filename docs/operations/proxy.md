@@ -37,9 +37,3 @@ A missing required variable, a value of the wrong type or a value outside the li
 | `PROXY_MAX_INFLIGHT` | `0` | Most requests that wait for PostgREST at the same time in one proxy pod. More get a `503` with `Retry-After`. `0` means no limit. The chart sets `32`. |
 | `PROXY_CONFIG_URL` | unset | Address of the configuration function of PostgREST, for example `http://postgrest:3000/rpc/config`. The proxy sends the profile `console` with it. When it's set, the proxy takes its table settings from there. The chart sets it. |
 | `PROXY_CONFIG_REFRESH_SECONDS` | `60` | Seconds between two checks of PostgREST for a new document. The check is a safety net: the sync workers also call the reload endpoint immediately after a change. |
-
-<!-- nav:start -->
----
-
-[Previous: Environment Variables](./environment.md) | [Next: Console variables](./console.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

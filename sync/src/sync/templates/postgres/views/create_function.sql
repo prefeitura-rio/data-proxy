@@ -5,13 +5,14 @@
   "inputs": {
     "schema": "PostgreSQL schema that owns the target objects.",
     "schema_literal": "SQL literal of the schema name, for the schemas claim check.",
+    "scope_path": "SQL literal of the ltree path of the table, for the grants of access.policy.",
     "app_schema": "PostgreSQL schema that holds the routing functions.",
     "function": "PostgreSQL function being created.",
     "dl_function": "Private DuckLake helper function.",
-    "dl_view": "DuckDB view name prepared by the DuckLake helper.",
+    "duckdb_view": "DuckDB view name prepared by the DuckLake helper.",
     "columns": "Structured SQL-safe column metadata. A column with sortable set has a type that DuckDB and PostgreSQL sort the same way.",
     "claim_setting": "PostgreSQL session setting containing the current claim.",
-    "rls_mappings": "Unit mappings used to build the access-policy predicate.",
+    "rls_mappings": "SQL literal of the JSON list of unit mappings that rls_where reads.",
     "source_table": "SQL literal name of the source table, as stored in state.",
     "fallbacks": "Ordered list of {name, function, view} records for configured fallback sources.",
     "user_role": "Role that reads the table view and so must run this function."
@@ -24,7 +25,6 @@
   require_permission,
   require_scope,
   return_query_select,
-  rls_where_clause,
   sql_array
 %}
 -- noqa: disable=PRS
@@ -51,7 +51,9 @@ BEGIN
 
   v_subject := current_setting('{{ claim_setting }}', true);
 
-{{ rls_where_clause(schema, schema_literal, rls_mappings, fallbacks | length == 0) }}
+  v_where := {{ app_schema }}.rls_where(
+    {{ schema_literal }}, {{ scope_path }}, v_subject, {{ rls_mappings }}::jsonb, {{ 'true' if fallbacks | length == 0 else 'false' }}
+  );
   IF v_where IS NULL THEN
     RETURN;
   END IF;
@@ -88,13 +90,13 @@ BEGIN
     v_sources := v_sources || ARRAY[v_plan.name];
 
     IF v_plan.name = 'ducklake' THEN
-      v_snapshot := coalesce(v_pinned, {{ schema }}.dl_latest_snapshot());
+      v_snapshot := coalesce(v_pinned, {{ schema }}.snapshot());
       PERFORM {{ schema }}.{{ dl_function }}(
         v_where, v_snapshot::text, v_pinned IS NOT NULL, v_columns, v_tail
       );
       RETURN QUERY EXECUTE $ducklake_query$
 {{ return_query_select(columns) }}
-{{ duckdb_query_select(columns, dl_view) }}
+{{ duckdb_query_select(columns, duckdb_view) }}
 $ducklake_query$;
 {% for f in fallbacks %}
     ELSIF v_plan.name = '{{ f.name }}' THEN

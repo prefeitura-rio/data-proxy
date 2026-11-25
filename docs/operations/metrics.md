@@ -56,7 +56,7 @@ The SeaweedFS master and volume pods serve Prometheus metrics on port 9327.
 | `SeaweedFS_volumeServer_volumes{collection}`            | Volumes on the volume server. Sum them over the collections.         |
 | `SeaweedFS_volumeServer_max_volumes`                    | Volume slots of the volume server. SeaweedFS sets it from the disk size when the chart sets `maxVolumes: 0`. |
 
-When every slot holds a volume and no volume accepts a write, each upload fails with HTTP 500. The sync then records `extraction_failed` for every table, and the S3 gateway logs `No writable volumes and no free volumes left`. Deleted bytes that compaction did not remove fill the volumes. Alert before this point.
+When every slot has a volume and no volume accepts a write, each upload fails with HTTP 500. The sync then records `extraction_failed` for every table, and the S3 gateway logs `No writable volumes and no free volumes left`. Deleted bytes that compaction didn't remove fill the volumes. Alert before this point.
 
 ```promql
 sum(SeaweedFS_volumeServer_max_volumes) - sum(SeaweedFS_volumeServer_volumes) < 5
@@ -117,9 +117,3 @@ sum by (schema) (publish_tables_total{status="success"})
 ```
 
 ---
-
-<!-- nav:start -->
----
-
-[Previous: Lookup Layout](./lookups.md) | [Next: Backups](./backups.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

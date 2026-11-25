@@ -1,11 +1,9 @@
 {#
 {
   "kind": "template",
-  "description": "Insert one access-policy grant. Parameters: subject, unit_type, unit_id.",
-  "inputs": {
-    "schema": "SQL-safe PostgreSQL schema identifier."
-  }
+  "description": "Insert one grant into access.policy. Parameters: subject, scope, unit_type, unit_id.",
+  "inputs": {}
 }
 #}
-INSERT INTO {{ schema }}.access_policy (subject, unit_type, unit_id)
-VALUES (%(subject)s, %(unit_type)s, %(unit_id)s)
+INSERT INTO access.policy (subject, scope, unit_type, unit_id)
+VALUES (%(subject)s, %(scope)s::ltree, %(unit_type)s, %(unit_id)s)

@@ -71,7 +71,7 @@
 	<div bind:this={box} class="flex flex-col gap-3">
 		<input type="hidden" name="table_name" value={table ?? ''} />
 
-		{#each rules.fieldsOf(groups) as { entry, group } (entry.id)}
+		{#each rules.listFields(groups) as { entry, group } (entry.id)}
 			<input type="hidden" name="rule_column" value={entry.column} />
 			<input type="hidden" name="rule_unit_type" value={entry.unit_type} />
 			<input type="hidden" name="rule_group" value={group} />
@@ -180,7 +180,7 @@
 		{/if}
 
 		<p class="rounded-box bg-base-200 p-3 text-sm" data-testid="rule-sentence">{sentence}</p>
-		<RuleExplain editor={rules.asEditor(groups)} {schema} />
+		<RuleExplain editor={rules.asEditor(groups)} {schema} {table} />
 		<p class="sr-only" aria-live="polite">{announce}</p>
 	</div>
 </FormDialog>

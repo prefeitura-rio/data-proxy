@@ -5,53 +5,7 @@ This page shows the parts of Data Proxy and how they depend on each other. Data 
 ## Components
 
 ```mermaid
-%% System components
-flowchart TD
-  subgraph clients["Clients"]
-    api_client["API client"]
-    browser["Browser"]
-  end
-  idp["Identity provider"]
-  gateway["Istio gateway"]
-  subgraph serving["Serving layer"]
-    proxy["Proxy (OpenResty)"]
-    redis["Redis cache"]
-    postgrest["PostgREST"]
-    pgdog["PgDog"]
-  end
-  subgraph pg["PostgreSQL"]
-    appdb["Application database"]
-    catalog["ducklake database"]
-  end
-  s3["SeaweedFS (S3): Parquet files"]
-  subgraph sync["Sync layer"]
-    workers["Sync workers (DBOS)"] --> duckdb["DuckDB (ducklake extension)"]
-  end
-  source["Source"]
-  subgraph console["Console layer"]
-    app["Console server"]
-    notebooks["Notebook"]
-  end
-  api_client --> gateway
-  browser --> console
-  gateway --> proxy
-  gateway -->|"signing keys (JWKS)"| idp
-  proxy --> redis
-  proxy --> postgrest
-  postgrest -->|"signing keys (JWKS)"| idp
-  postgrest --> pgdog
-  pgdog -->|"reads to standbys, writes to primary"| appdb
-  pg -->|"pg_duckdb reads Parquet"| s3
-  workers -->|"DBOS state"| appdb
-  duckdb -->|"commits snapshots"| catalog
-  duckdb -->|"writes Parquet"| s3
-  workers --> source
-  workers -->|"new generation"| redis
-  app --> postgrest
-  app -->|"sign in (OpenID Connect)"| idp
-  app -->|"file lists"| catalog
-  app -->|"storage identities"| s3
-  notebooks -->|"signed links"| s3
+{{#include ../diagrams/system-components.mmd}}
 ```
 
 ## Layers
@@ -65,7 +19,7 @@ flowchart TD
 PostgreSQL stores metadata only:
 
 - Roles and grants
-- `access_policy` and `access_log`
+- `access.policy` and `access.log`
 - PostgreSQL views and `SECURITY DEFINER` functions
 - DBOS workflow state
 
@@ -120,9 +74,3 @@ See [Data model](../model.md) for the tables.
 ## Kubernetes
 
 The chart deploys one CloudNativePG (CNPG) cluster with a primary and at least one standby, one PgDog workload, one PostgREST workload and one proxy workload. See [Topology](../operations/topology.md).
-
-<!-- nav:start -->
----
-
-[Previous: Data Proxy](../index.md) | [Next: Serving layer](./serving.md) | [Home](../index.md)
-<!-- nav:end -->

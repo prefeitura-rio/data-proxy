@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { identityOf } from './identity';
+import { decodeIdentity } from './identity';
 
 const token = (claims: object) => `header.${Buffer.from(JSON.stringify(claims)).toString('base64url')}.signature`;
 
-describe('identityOf', () => {
+describe('decodeIdentity', () => {
 	it.each([
 		[
 			'the user name and the role',
@@ -14,7 +14,7 @@ describe('identityOf', () => {
 		['the subject when there is no user name', { role: 'dp_console', sub: 'abc' }, 'abc', 'dp_console'],
 		['an empty role when the token has none', { preferred_username: 'web_console' }, 'web_console', '']
 	])('reads %s', (_, claims, name, role) => {
-		expect(identityOf(token(claims))).toEqual({ name, role });
+		expect(decodeIdentity(token(claims))).toEqual({ name, role });
 	});
 
 	it.each([
@@ -22,6 +22,6 @@ describe('identityOf', () => {
 		['a payload that is not JSON', 'a.bm90IGpzb24.c'],
 		['a payload without a name or a subject', token({ role: 'dp_admin' })]
 	])('returns null for %s', (_, value) => {
-		expect(identityOf(value)).toBeNull();
+		expect(decodeIdentity(value)).toBeNull();
 	});
 });

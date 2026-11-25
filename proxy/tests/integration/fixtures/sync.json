@@ -1,10 +1,12 @@
 {
-    "noCachePaths": ["/access_policy", "/private"],
+    "noCachePaths": ["/audit", "/private"],
     "schemas": {
-        "test": {
+        "default__test": {
             "tables": [
                 { "name": "project.test.people", "cache_ttl": 60 }
             ]
-        }
+        },
+        "default__sales": { "tables": [] },
+        "default__hr": { "tables": [] }
     }
 }

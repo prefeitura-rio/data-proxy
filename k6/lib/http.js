@@ -2,7 +2,7 @@
 import http from "k6/http";
 import { scenario } from "./check.js";
 import { rememberRequest } from "./log.js";
-import { API_URL, FULL_TABLE, HOST, POSTGREST_URL, PROXY_ADMIN_URL, SCHEMA } from "./env.js";
+import { API_URL, FULL_TABLE, HOST, POSTGREST_URL, PROXY_ADMIN_URL, SCHEMA, schemaPath } from "./env.js";
 
 const ducklake = scenario("ducklake");
 
@@ -50,7 +50,7 @@ export function authHeaders(token) {
  */
 export function proxyGet(path, token, extra = {}) {
     return rememberRequest(
-        http.get(`${API_URL}${path}`, {
+        http.get(`${API_URL}${schemaPath(extra["Accept-Profile"] ?? SCHEMA)}${path}`, {
             headers: { ...authHeaders(token), ...extra },
             tags: { name: `proxy:${path.split("?")[0]}` },
         }),
@@ -83,7 +83,7 @@ export function directPostgrest(path, token, extra = {}) {
  * @param {string} name
  * @returns {string}
  */
-export function headerOf(r, name) {
+export function readHeader(r, name) {
     const wanted = name.toLowerCase();
     const key = Object.keys(r.headers).find((k) => k.toLowerCase() === wanted);
 
@@ -96,7 +96,7 @@ export function headerOf(r, name) {
  * @returns {string}
  */
 export function cacheHeader(r) {
-    return headerOf(r, "X-Cache");
+    return readHeader(r, "X-Cache");
 }
 
 /**
@@ -105,7 +105,7 @@ export function cacheHeader(r) {
  * @returns {string}
  */
 export function sourceHeader(r) {
-    return headerOf(r, "X-Source");
+    return readHeader(r, "X-Source");
 }
 
 /**
@@ -114,7 +114,7 @@ export function sourceHeader(r) {
  * @returns {string}
  */
 export function snapshotHeader(r) {
-    return headerOf(r, "X-DuckLake-Snapshot");
+    return readHeader(r, "X-DuckLake-Snapshot");
 }
 
 /**
@@ -153,7 +153,7 @@ export function isRecord(value) {
  * @param {string} key
  * @returns {Record<string, unknown>}
  */
-export function memberOf(value, key) {
+export function readRecord(value, key) {
     const member = isRecord(value) ? value[key] : undefined;
 
     return isRecord(member) ? member : {};
@@ -164,7 +164,7 @@ export function memberOf(value, key) {
  * @param {unknown} body
  * @returns {Record<string, unknown>[]}
  */
-export function recordsOf(body) {
+export function filterRecords(body) {
     return Array.isArray(body) ? body.filter(isRecord) : [];
 }
 
@@ -173,8 +173,8 @@ export function recordsOf(body) {
  * @param {K6Response} r
  * @returns {Record<string, unknown>[]}
  */
-export function rowsOf(r) {
-    return recordsOf(safeJson(r));
+export function readRows(r) {
+    return filterRecords(safeJson(r));
 }
 
 /**
@@ -183,7 +183,7 @@ export function rowsOf(r) {
  * @returns {string}
  */
 export function snapshotValue(token) {
-    const response = directPostgrest("/rpc/dl_latest_snapshot", token);
+    const response = directPostgrest("/rpc/snapshot", token);
     const body = safeJson(response);
 
     ducklake.requirePrecondition(

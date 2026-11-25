@@ -17,7 +17,7 @@
 
 	let { data, form }: PageProps = $props();
 
-	const pending = $derived(data.health.some((row) => !row.schema_exists || !row.access_policy));
+	const pending = $derived(data.health.some((row) => !row.schema_exists));
 
 	$effect(() => {
 		if (!pending) {

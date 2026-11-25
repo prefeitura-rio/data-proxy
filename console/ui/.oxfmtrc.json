@@ -1,0 +1,25 @@
+{
+	"$schema": "./node_modules/oxfmt/configuration_schema.json",
+	"useTabs": true,
+	"singleQuote": true,
+	"printWidth": 120,
+	"trailingComma": "none",
+	"sortPackageJson": false,
+	"svelte": true,
+	"sortTailwindcss": {
+		"stylesheet": "./src/app.css"
+	},
+	"ignorePatterns": [
+		"**/*.toml",
+		"**/.features-gen",
+		"**/.svelte-kit",
+		"**/.venv",
+		"**/build",
+		"**/dist",
+		"**/node_modules",
+		"**/playwright-report",
+		"**/pnpm-lock.yaml",
+		"**/site",
+		"**/test-results"
+	]
+}

@@ -30,7 +30,7 @@ The tables of the `console` schema contain the configuration ([Console](console/
 | Field      | Required                | Meaning                                                                                   |
 | ---------- | ----------------------- | ----------------------------------------------------------------------------------------- |
 | `source`   | No                      | One external source for every table in this schema. Defaults to `{ "type": "bigquery" }`. |
-| `claim`    | When a table uses `rls` | JSON Web Token (JWT) claim matched against `access_policy.subject`.                       |
+| `claim`    | When a table uses `rls` | JSON Web Token (JWT) claim matched against `access.policy.subject`.                       |
 | `tables`   | No                      | Tables in this PostgreSQL schema. Defaults to `[]`.                                       |
 | `ducklake` | No                      | Schema-level DuckLake settings, including `encrypted`.                                    |
 
@@ -127,14 +127,8 @@ A `full` table creates one dump task. A partitioned table creates one extraction
 
 ## Schema initialization
 
-The provision job creates configured schemas, `access_policy`, `access_log`, row policies and triggers. It doesn't create application data tables in PostgreSQL. The sync workflow creates the views.
+The provision job creates the role that reads the metadata of each configured schema, and then the schema. The migrations create `access.policy`, `access.log`, their row policies and their triggers. The job doesn't create application data tables in PostgreSQL. The sync workflow creates the views.
 
 Application table names are PostgreSQL views over DuckLake functions.
 
 ---
-
-<!-- nav:start -->
----
-
-[Previous: Console layer](architecture/console.md) | [Next: Using the API](./using.md) | [Home](./index.md)
-<!-- nav:end -->

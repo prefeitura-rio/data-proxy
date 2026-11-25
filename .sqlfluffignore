@@ -8,7 +8,10 @@ sync/src/sync/templates/postgres/insert_scope.sql
 sync/src/sync/templates/postgres/macros.sql
 
 # These contain dialect-specific syntax not supported by SQLFluff.
+# The two DESCRIBE templates give an unknown number of columns (AM04), because the source decides them.
+sync/src/sync/templates/duckdb/describe_parquet.sql
 sync/src/sync/templates/duckdb/describe_source.sql
+sync/src/sync/templates/postgres/describe_source.sql
 sync/src/sync/templates/duckdb/setup.sql
 
 # Jinja macro source and imports are validated through rendering.
@@ -19,6 +22,7 @@ helm/files/templates/postgres/set_db_schemas.sql
 helm/files/templates/postgres/reset_db_schemas.sql
 sync/src/sync/templates/postgres/drop_view_objects.sql
 sync/src/sync/templates/postgres/write_view_signature.sql
+sync/src/sync/templates/postgres/write_meta.sql
 
 # Test templates with prepared parameters; validated through execution tests.
 sync/tests/templates/bigquery/partitions.sql
@@ -42,3 +46,5 @@ sync/tests/templates/postgres/select_plan_sources.sql
 sync/tests/templates/postgres/select_workflows.sql
 sync/tests/templates/postgres/view_columns.sql
 helm/files/templates/postgres/create_roles.sql
+sync/tests/templates/postgres/select_rpc_catalog.sql
+sync/tests/templates/postgres/select_function_names.sql

@@ -5,19 +5,7 @@ This page explains how the console app signs people in, keeps the session and sh
 ## The web app
 
 ```mermaid
-%% Console sign-in
-sequenceDiagram
-  participant u as Browser
-  participant app as Console server
-  participant idp as Identity provider
-  u->>app: open the console
-  app-->>u: redirect to sign-in
-  u->>idp: sign in
-  idp-->>u: redirect with a code
-  u->>app: GET /auth/callback
-  app->>idp: exchange code and PKCE verifier<br/>for tokens
-  app->>app: seal the tokens in a cookie
-  app-->>u: the console page
+{{#include ../diagrams/console-sign-in.mmd}}
 ```
 
 The app signs in people with OpenID Connect: the authorization code flow with PKCE and a `state` value. The server keeps the access token and the refresh token in an encrypted cookie. The cookie is `httpOnly`, `SameSite=Lax` and host-only.
@@ -32,7 +20,7 @@ Each tab needs one permission to open, and it shows an action only if the user h
 | --- | --- | --- | --- | --- |
 | Sync | `/sync` | `read_sync` | `start_sync`, `control_sync` | The views `runs`, `tasks`, `steps`, `logs`, `errors`, `overview`, `queues` and `schedules` (one schedule for each schema, with an Edit dialog for its cron). |
 | Config | `/config` | `read_config` | `create_config`, `edit_config`, `delete_config`, `import_config` | The tables `schemas`, `tables` and `rls`, the history, and the import preview. |
-| Access | `/access` | `read_policy` | `create_policy`, `edit_policy`, `delete_policy` | `access_policy` and `access_log` of one schema. |
+| Access | `/access` | `read_policy` | `create_policy`, `edit_policy`, `delete_policy` | `access.policy` and `access.log` of one scope. |
 | Query | `/query` | `read_files` | None | The file lists of a table and the signed links. |
 
 The app has these routes besides the tab pages. Every route sits under the path `/console` of the API host, so `/healthz` is `/console/healthz`. Every request that changes data also needs the console origin, as described above.
@@ -44,7 +32,7 @@ The app has these routes besides the tab pages. Every route sits under the path 
 | `/auth/logout` | POST | No | Deletes the session cookie. It redirects to the end-session address of the identity provider, or to `/auth/login` when the provider has none. |
 | `/config/export` | GET | Yes | Downloads `sync.json`, which `console.sync_config()` builds from the rows that the user may read. |
 | `/query/grant` | POST | Yes | Takes `{schema, tables}` and returns the signed links for the files of those tables. It needs `read_files` and the schema, which `console.table_files()` checks. It answers 503 when the query tab isn't set up. |
-| `/sync/runs/<id>/logs` | GET | Yes | Streams the status and the new log lines of the run as server-sent events, one read each second, until the sync run finishes or the page leaves. The query `after`, or the header `Last-Event-ID` of a reconnect, limits the lines to a later time. The query `settle` keeps the stream open for 30 seconds after the status finishes, because a resume or a retry may follow. It answers 404 for an unknown run. |
+| `/sync/runs/<id>/logs` | GET | Yes | Streams the status and the new log lines of the run as server-sent events. It reads each second until the sync run finishes or the page leaves. The query `after`, or the header `Last-Event-ID` of a reconnect, limits the lines to a later time. The query `settle` keeps the stream open for 30 seconds after the status finishes, because a resume or a retry may follow. It answers 404 for an unknown run. |
 | `/healthz` | GET | No | Answers `ok`. The probes of the Deployment use it. |
 
 The code of the app is in `console/ui/src`:
@@ -65,16 +53,10 @@ The Access page adds grants in one form:
 - Write one unit id, or a list of ids separated by a comma or a new line. A space after the comma is optional, so `north,south` and `north, south` mean the same.
 - The page writes one row for each id. A row that exists is skipped, and the message says how many.
 - The wildcard grant is the single pair `*` and `*`. A list can't mix `*` with other ids.
-- A list holds at most 100 ids. The Edit dialog changes one row.
+- A list has at most 100 ids. The Edit dialog changes one row.
 
 ## Live data
 
 The Sync tab and the page of a sync run reload their data at an interval that the user picks. The choices are off, 2, 5, 10, 30 and 60 seconds. The default is 5 seconds, and the choice stays in the browser. The console polls, because it reads through PostgREST and DBOS sends no notification when a workflow changes its status. The log of a run is the exception, and it streams over server-sent events.
 
 The token of the user needs the claims that [Required JWT claims](../security/claims.md) lists.
-
-<!-- nav:start -->
----
-
-[Previous: Console](./index.md) | [Next: Database views](./views.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

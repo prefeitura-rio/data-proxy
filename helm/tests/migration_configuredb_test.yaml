@@ -2,22 +2,10 @@ suite: Init-db Job
 templates:
   - jobs.yaml
 tests:
-  - it: creates configured schemas before their policy tables
+  - it: ships the template that creates a configured schema
     asserts:
       - isNotNull:
           path: data["postgres_create_schema.sql"]
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-configure-db-sql
-        template: jobs.yaml
-
-  - it: grants user access to configured schemas
-    set:
-      sync.config.schemas.test.tables: []
-    asserts:
-      - matchRegex:
-          path: data["postgres_setup_access_policy.sql"]
-          pattern: "GRANT USAGE ON SCHEMA"
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql
@@ -115,23 +103,6 @@ tests:
       - matchRegex:
           path: data["postgres_call_reload_postgrest.sql"]
           pattern: "SELECT \\{\\{ schema \\}\\}.reload_postgrest\\(\\)"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-configure-db-sql
-        template: jobs.yaml
-
-  - it: makes every access policy write wait for the standbys
-    asserts:
-      - matchRegex:
-          path: data["postgres_setup_access_policy.sql"]
-          pattern: "synchronous_commit', 'remote_apply'"
-        documentSelector:
-          path: metadata.name
-          value: data-proxy-configure-db-sql
-        template: jobs.yaml
-      - notMatchRegex:
-          path: data["postgres_setup_access_policy.sql"]
-          pattern: "wait_for_standbys"
         documentSelector:
           path: metadata.name
           value: data-proxy-configure-db-sql

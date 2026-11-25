@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { urlOf } from './fetch-url';
+import { requestUrl } from './fetch-url';
 import { authorizeUrl, discover, exchangeCode, pkce, refreshSession, type Discovery, type OidcConfig } from './oidc';
 
 const discovery: Discovery = {
@@ -18,7 +18,7 @@ const config: OidcConfig = {
 function tokenFetch(body: unknown, status = 200) {
 	const calls: { url: string; body: URLSearchParams }[] = [];
 	const fetchFn: typeof fetch = (url, init) => {
-		calls.push({ url: urlOf(url), body: new URLSearchParams(typeof init?.body === 'string' ? init.body : '') });
+		calls.push({ url: requestUrl(url), body: new URLSearchParams(typeof init?.body === 'string' ? init.body : '') });
 
 		return Promise.resolve(new Response(JSON.stringify(body), { status }));
 	};

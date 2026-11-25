@@ -75,6 +75,12 @@ check("log.format_note", function(case) return log.format_note(case.event, case.
 		expected = "Proxy Redis cache failed: operation=write",
 	},
 	{
+		name = "writes the method, the path and the user of a request that names no schema",
+		event = "schema-unknown",
+		fields = { method = "GET", path = "/people", sub = "alice" },
+		expected = "Proxy path names no known schema: method=GET path=/people sub=alice",
+	},
+	{
 		name = "uses the fallback message for an unknown event",
 		event = "unknown",
 		fields = { error = "x" },

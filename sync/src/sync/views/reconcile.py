@@ -32,6 +32,7 @@ ROUTING_TEMPLATES: Final = (
     "response",
     "filter",
     "aggregate",
+    "generic",
 )
 
 
@@ -58,7 +59,7 @@ class ReconciliationContext:
 
         self.existing_views = await existing_views(self.pg_conn, self.schema_names)
         self.existing_functions = await existing_functions(
-            self.pg_conn, self.schema_names
+            self.pg_conn, self.schema_names, desired_rpc
         )
         self.existing_view_signatures = await existing_view_signatures(
             self.pg_conn, self.schema_names

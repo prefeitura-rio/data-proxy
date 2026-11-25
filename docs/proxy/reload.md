@@ -4,9 +4,9 @@ The proxy needs two parts of `sync.json`: the cache lifetime of each table (`cac
 
 With `PROXY_CONFIG_URL` set, it takes both from PostgREST: `GET /rpc/config` with the header `Accept-Profile: console`. The function `console.config()` builds the document from the configuration tables of the console. It contains only the table names and their `cache_ttl`. All nginx workers of a pod share one copy, and a worker parses it again only when the copy changes.
 
-The proxy needs no credentials for this call. The chart grants the anonymous role the `EXECUTE` right on that one function, and nothing else in the `console` schema. To keep the endpoint inside the cluster, the proxy refuses every request that has the profile `console` in `Accept-Profile` or `Content-Profile`. It answers 403. The proxy calls PostgREST for the configuration on its own, so this block doesn't touch the call.
+The proxy needs no credentials for this call. The chart grants the anonymous role the `EXECUTE` right on that one function, and nothing else in the `console` schema. To keep the endpoint inside the cluster, the proxy refuses every request that has the profile `console` or `access` in `Accept-Profile` or `Content-Profile`. It answers 403. The proxy calls PostgREST for the configuration on its own, so this block doesn't touch the call.
 
-The first `sync.json` comes from the file `/config/sync.json` when the file exists. The chart doesn't mount one. Before the first answer of PostgREST, the proxy uses its defaults: the lifetime of `PROXY_CACHE_TTL` and no cache for `/access_policy`.
+The first `sync.json` comes from the file `/config/sync.json` when the file exists. The chart doesn't mount one. Before the first answer of PostgREST, the proxy uses its defaults: the lifetime of `PROXY_CACHE_TTL` and no schema, so every data path answers 404.
 
 The proxy takes a new document in three ways:
 
@@ -23,9 +23,3 @@ A trigger on the three configuration tables queues a `reload_proxy` workflow. A 
 A document that doesn't match the schema, or an unreachable PostgREST, changes nothing. The proxy keeps the last good settings, and `POST /reload` answers 502 with the reason. `POST /reload` answers 409 when `PROXY_CONFIG_URL` isn't set, and 405 for any other method.
 
 The admin port has no authentication, so no ingress may route it.
-
-<!-- nav:start -->
----
-
-[Previous: Retries and limits](./limits.md) | [Next: Database Schema](../database.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

@@ -18,7 +18,7 @@ from .constants import DEFAULT_SOURCE
 from .sources.partitions import PhysicalPartition, TaskSelection
 from .sources.registry import sources
 from .types import NonEmptyString
-from .utils import sha256_hex
+from .utils import destination_name, sha256_hex
 
 
 class Strategy(StrEnum):
@@ -274,7 +274,7 @@ class SyncConfig(BaseModel):
                     table
                     for table in schema.tables
                     if name in scope.schemas
-                    or f"{name}.{table.table_name}" in scope.tables
+                    or destination_name(name, table.table_name) in scope.tables
                 ]
             )
             > 0
@@ -321,7 +321,8 @@ class SyncConfig(BaseModel):
     def reject_duplicate_destination_table_names(self) -> Self:
         """Require each schema to map every destination table name once."""
         destinations = [
-            f"{table.resolved_schema}.{table.table_name}" for table in self.tables
+            destination_name(table.resolved_schema, table.table_name)
+            for table in self.tables
         ]
         duplicates = sorted(
             {name for name in destinations if destinations.count(name) > 1}

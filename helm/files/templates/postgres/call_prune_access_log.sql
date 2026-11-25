@@ -1,10 +1,8 @@
 {#
 {
   "kind": "template",
-  "description": "Call the prune_access_log procedure with retention and schema psql variables.",
-  "inputs": {
-    "schema": "SQL-safe PostgreSQL schema identifier."
-  }
+  "description": "Call the procedure access.prune_log with the retention psql variable.",
+  "inputs": {}
 }
 #}
-CALL {{ schema }}.prune_access_log(:'retention'::interval, :'schema')
+CALL access.prune_log(:'retention'::interval)

@@ -8,7 +8,7 @@ from sync.ducklake import DuckLakePaths
 from sync.settings import settings
 from sync.templates import render_template
 
-SCHEMA = "test"
+SCHEMA = "default__test"
 
 RUN_ID = "00000000-0000-4000-8000-0000000000f1"
 
@@ -64,7 +64,7 @@ with connect(
             "postgres/create_table_files_function",
             {
                 "schema": Identifier(SCHEMA),
-                "function": Identifier("dl_table_files"),
+                "function": Identifier("files"),
                 "metadata_schema": SCHEMA,
                 "data_path": paths.data,
             },
@@ -78,14 +78,14 @@ with connect(
                 workflow_name => 'run_sync',
                 queue_name => 'sync',
                 positional_args => ARRAY[
-                    to_json(now()), json_build_object('schemas', ARRAY['test'], 'tables', ARRAY[]::text[])
+                    to_json(now()), json_build_object('schemas', ARRAY['default__test'], 'tables', ARRAY[]::text[])
                 ],
                 authenticated_user => 'seed'
             ) AS id
             FROM generate_series(1, 30)
         )
         INSERT INTO data_proxy.scope (workflow_id, run_id, schema_name)
-        SELECT id, id, 'test' FROM runs
+        SELECT id, id, 'default__test' FROM runs
         """
     )
     connection.execute(
@@ -103,15 +103,15 @@ with connect(
     )
     connection.execute(
         """
-        INSERT INTO test.access_policy (subject, unit_type, unit_id)
-        SELECT 'seed-subject-' || lpad(n::text, 2, '0'), 'cpf', '9000' || lpad(n::text, 2, '0')
+        INSERT INTO access.policy (subject, scope, unit_type, unit_id)
+        SELECT 'seed-subject-' || lpad(n::text, 2, '0'), 'default.test', 'cpf', '9000' || lpad(n::text, 2, '0')
         FROM generate_series(1, 60) AS n
         """
     )
     connection.execute(
         """
         INSERT INTO data_proxy.errors (reason, fields)
-        SELECT 'seed error ' || n, jsonb_build_object('schema', 'test', 'table', 'full_table')
+        SELECT 'seed error ' || n, jsonb_build_object('schema', 'default__test', 'table', 'full_table')
         FROM generate_series(1, 15) AS n
         """
     )
@@ -127,19 +127,19 @@ with connect(
         UNION ALL
         SELECT
             %(run)s || '-dump-' || lpad(n::text, 2, '0'), CASE WHEN n = 60 THEN 'ERROR' ELSE 'SUCCESS' END,
-            'dump_task', 'seed-run', 'dump', 'test', %(run)s, ms + n * 1000, ms + n * 1000 + 500,
+            'dump_task', 'seed-run', 'dump', 'default__test', %(run)s, ms + n * 1000, ms + n * 1000 + 500,
             ms + n * 1000, ms + n * 1000 + 500
         FROM base, generate_series(1, 60) AS n
         UNION ALL
         SELECT
-            %(run)s || '-publish', 'SUCCESS', 'publish_schema', 'seed-run', 'publish', 'test', %(run)s,
+            %(run)s || '-publish', 'SUCCESS', 'publish_schema', 'seed-run', 'publish', 'default__test', %(run)s,
             ms + 70000, ms + 71000, ms + 70000, ms + 71000
         FROM base
         """,
         {"run": RUN_ID},
     )
     connection.execute(
-        "INSERT INTO data_proxy.scope (workflow_id, run_id, schema_name) VALUES (%s, %s, 'test')",
+        "INSERT INTO data_proxy.scope (workflow_id, run_id, schema_name) VALUES (%s, %s, 'default__test')",
         (RUN_ID, RUN_ID),
     )
     connection.execute(
@@ -168,7 +168,7 @@ with connect(
                 'level', CASE WHEN mod(n, 100) = 0 THEN 'ERROR' ELSE 'INFO' END,
                 'message', 'seed log line ' || n,
                 'fields', '{}'::json,
-                'schema', 'test',
+                'schema', 'default__test',
                 'table', 'full_table'
             )::text,
             n, 'portable_json'
@@ -189,7 +189,7 @@ with connect(
         (BIG_LOG_RUN_ID,),
     )
     connection.execute(
-        "INSERT INTO data_proxy.scope (workflow_id, run_id, schema_name) VALUES (%s, %s, 'test')",
+        "INSERT INTO data_proxy.scope (workflow_id, run_id, schema_name) VALUES (%s, %s, 'default__test')",
         (BIG_LOG_RUN_ID, BIG_LOG_RUN_ID),
     )
     connection.execute(
@@ -202,7 +202,7 @@ with connect(
                 'level', 'INFO',
                 'message', 'big log line ' || n,
                 'fields', '{}'::json,
-                'schema', 'test',
+                'schema', 'default__test',
                 'table', 'full_table'
             )::text,
             n, 'portable_json'
@@ -213,8 +213,8 @@ with connect(
     connection.execute(
         """
         INSERT INTO console.config_history (changed_by, action, object, schema_name, key)
-        SELECT 'seed', 'update', 'tables', 'test', 'seed.table.' || n FROM generate_series(1, 30) AS n
+        SELECT 'seed', 'update', 'tables', 'default__test', 'seed.table.' || n FROM generate_series(1, 30) AS n
         UNION ALL
-        SELECT 'seed', 'update', 'schemas', 'test', 'test' FROM generate_series(1, 2)
+        SELECT 'seed', 'update', 'schemas', 'default__test', 'default__test' FROM generate_series(1, 2)
         """
     )

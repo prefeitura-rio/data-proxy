@@ -12,6 +12,7 @@ return {
 	module_file = "^(.+)%.lua$",
 	parameter = "^([^=]*)=(.*)$",
 	percent_escape = "^[0-9A-Fa-f][0-9A-Fa-f]$",
+	project_path = "^/([a-z][a-z0-9]*)/([a-z][a-z0-9_]*)(.*)$",
 	table_name = "([^.]+)$",
 	table_path = "^/([^/?]+)",
 	whole_number = "^%d+$",

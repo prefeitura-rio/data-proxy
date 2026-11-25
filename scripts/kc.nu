@@ -1,30 +1,10 @@
-use lib.nu [fail read-data]
+use lib.nu [fail ]
 
-# Create the console client in a Keycloak realm, and check a token.
-#
-# `nu scripts/kc.nu client --host <host> > console-client.json` prints the document for the partial import. It reads the
-# roles from rbac.toml, so the client roles always match the rules. Then do these steps in the realm:
-#
-# 1. Open Realm settings, Action, Partial import, and choose the file. It creates the client `data-proxy-console-web`,
-#    one client role for each role of rbac.toml, and the mappers for `role`, `schemas`, `projects` and the audience.
-# 2. Open Clients, data-proxy-console-web, Credentials, and copy the client secret.
-# 3. Give each person one client role of the client, and set the user attribute `schemas` to their schemas, or the
-#    attribute `projects` to their projects. A realm with the declarative user profile drops an attribute that the
-#    profile lacks. `nu scripts/kc.nu user-profile-attribute` prints the attributes to add in Realm settings, User
-#    profile, JSON editor, inside `attributes`.
-# 4. If you rename an existing client, set the Client ID of the mapper that makes the `role` claim to the new ID in the
-#    dedicated client scope. The roles and the secret stay with the client.
-# 5. Check a token. Turn on Direct access grants for the client during the check, and turn it off afterwards:
-#
-#    nu scripts/token.nu --issuer <issuer> --client-id data-proxy-console-web --client-secret <secret> --username <user> --password <password>
-#    nu scripts/kc.nu check <access_token> --issuer <issuer>
-#
-# `check` fails with a list of the problems. It tests the issuer, the audience `data-proxy`, one role of rbac.toml, a
-# `schemas` or `projects` claim that isn't empty, and `preferred_username`. Use `--audience` when the gateway expects another audience.
 
 const RULES = 'helm/files/config/rbac.toml'
 
 # Return the names of the roles in the rules.
+@example "Read client role names" { role-names {roles: [{name: dp_api}]} } --result [dp_api]
 export def role-names [rules: record]: nothing -> list<string> {
     $rules.roles | get name
 }
@@ -43,8 +23,8 @@ def mapper [name: string, kind: string, config: record]: nothing -> record {
     }
 }
 
-# Return the document that Keycloak reads in Realm settings > Action > Partial import. It creates the client of the
-# console with one client role for each role of the rules and the claims that the data proxy reads.
+# Return the Keycloak client import document with the configured roles and claims.
+@example "Generate a console client import" { partial-import {roles: [{name: dp_api}]} {id: 'data-proxy-console-web', host: 'proxy.example.org', audience: 'data-proxy'} | get clients }
 export def partial-import [
     rules: record
     client: record<id: string, host: string, audience: string>
@@ -109,8 +89,7 @@ export def partial-import [
     }
 }
 
-# Return an attribute that a realm with the declarative user profile needs for a claim. Without it Keycloak drops the
-# user attribute, and the mapper puts nothing in the token.
+# Return a user-profile attribute definition for a token claim.
 def claim-attribute [name: string, display_name: string]: nothing -> record {
     {
         name: $name
@@ -125,13 +104,14 @@ def claim-attribute [name: string, display_name: string]: nothing -> record {
     }
 }
 
-# Return the attribute of the claim `schemas`. Add it to the `attributes` of the user profile.
+# Return the user-profile attribute definition for the schemas claim.
+@example "Describe the schemas claim" { schemas-attribute | get name } --result 'schemas'
 export def schemas-attribute []: nothing -> record {
     claim-attribute schemas 'Data proxy schemas'
 }
 
-# Return the attribute of the claim `projects`. A user with it reads every schema of the projects, also the schemas that
-# come later. Add it to the `attributes` of the user profile.
+# Return the user-profile attribute definition for the projects claim.
+@example "Describe the projects claim" { projects-attribute | get name } --result 'projects'
 export def projects-attribute []: nothing -> record {
     claim-attribute projects 'Data proxy projects'
 }
@@ -141,8 +121,8 @@ def as-list [claim: oneof<string, list<string>, nothing>]: nothing -> list<strin
     [$claim] | flatten | compact
 }
 
-# Return the problems of the claims of an access token: a wrong issuer or audience, a role that the rules lack, and a
-# missing or empty `schemas` or `preferred_username` claim. An empty list means that the token is right.
+# Return access-token claim errors for issuer, audience, role, schema access and username.
+@example "Validate access-token claims" { token-problems {iss: 'https://id.example.org', aud: 'data-proxy', role: dp_api, schemas: ['default.orders'], preferred_username: reader} {issuer: 'https://id.example.org', audience: 'data-proxy', roles: [dp_api]} } --result []
 export def token-problems [
     claims: record
     expected: record<issuer: string, audience: string, roles: list<string>>
@@ -173,7 +153,8 @@ export def token-problems [
 }
 
 # Return the claims of a JSON Web Token, without a check of the signature.
-export def claims-of [token: string]: nothing -> record {
+@example "Decode a token payload" { let payload = ('{"sub":"reader"}' | encode base64 --url --nopad); decode-claims $"header.($payload).signature" | get sub } --result 'reader'
+export def decode-claims [token: string]: nothing -> record {
     let parts = $token | parse '{header}.{payload}.{signature}'
 
     if ($parts | is-empty) {
@@ -187,7 +168,7 @@ export def claims-of [token: string]: nothing -> record {
     }
 }
 
-# Print the partial import document for the console client. The roles come from rbac.toml.
+# Print the Keycloak client import document using the roles from rbac.toml.
 def "main client" [
     --host: string # The public host of the API and the console, such as data-proxy.dados.rio
     --audience: string = data-proxy # The audience of the gateway (ingress.auth.audience)
@@ -197,7 +178,7 @@ def "main client" [
         fail '--host is required'
     }
 
-    partial-import (read-data $RULES) {id: $client_id, host: $host, audience: $audience} | to json --indent 2 | print
+    partial-import (open $RULES) {id: $client_id, host: $host, audience: $audience} | to json --indent 2 | print
 }
 
 # Print the attributes to add to the user profile of the realm, as JSON.
@@ -205,7 +186,7 @@ def "main user-profile-attribute" []: nothing -> nothing {
     [(schemas-attribute) (projects-attribute)] | to json --indent 2 | print
 }
 
-# Check the claims of an access token against the roles of rbac.toml. It fails with the list of the problems.
+# Validate token claims against the expected issuer, audience and configured roles.
 def "main check" [
     token: string # The access token of a user of the console client
     --issuer: string # The issuer that the gateway expects (ingress.auth.issuer)
@@ -215,10 +196,10 @@ def "main check" [
         fail '--issuer is required'
     }
 
-    let found = token-problems (claims-of $token) {
+    let found = token-problems (decode-claims $token) {
         issuer: $issuer
         audience: $audience
-        roles: (role-names (read-data $RULES))
+        roles: (role-names (open $RULES))
     }
 
     if ($found | is-not-empty) {

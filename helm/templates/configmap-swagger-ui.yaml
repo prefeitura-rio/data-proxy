@@ -59,7 +59,8 @@ data:
       }
 
       var apiUrl = {{ printf "%s/" (trimSuffix "/" .Values.postgrest.proxyUri) | quote }};
-      var openapiUrl = apiUrl;
+      var schemaPrefix = selectedSchema ? selectedSchema.replace('__', '/') + '/' : '';
+      var openapiUrl = apiUrl + schemaPrefix;
 
       var selectSchema = function(schema) {
         var url = new URL(window.location.href);
@@ -87,9 +88,8 @@ data:
           if (auth && auth.indexOf('Bearer ') !== 0) {
             req.headers.Authorization = 'Bearer ' + auth;
           }
-          if (selectedSchema) {
-            req.headers['Accept-Profile'] = selectedSchema;
-            req.headers['Content-Profile'] = selectedSchema;
+          if (schemaPrefix && req.url.indexOf(openapiUrl) !== 0 && req.url.indexOf(apiUrl) === 0) {
+            req.url = apiUrl + schemaPrefix + req.url.slice(apiUrl.length);
           }
           return req;
         }

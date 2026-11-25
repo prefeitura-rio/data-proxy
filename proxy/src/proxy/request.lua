@@ -74,6 +74,20 @@ function request.read_filter(input)
 	return parser.parse(input.args or "", { limit = can_limit(input) })
 end
 
+--- Ask PostgREST for the exact count where the client asked for a planned or an estimated one.
+--- PostgREST reads its guess from the plan, and the plan of a table function always says 1000 rows.
+---
+--- ```lua
+--- request.exact_count("tx=commit, count=estimated") --> "tx=commit, count=exact"
+--- ```
+---@param prefer string|nil The `Prefer` header.
+---@return string|nil prefer The header with every planned or estimated count replaced.
+local function exact_count(prefer)
+	if prefer == nil then return nil end
+	local exact = constants.count.exact
+	return (prefer:gsub("count=planned", exact):gsub("count=estimated", exact))
+end
+
 --- Make the request headers to send to PostgREST: the allowlisted ones, and the filter header for a read.
 --- The function returns a new table and does not change the input.
 ---@param input NgxRequest
@@ -87,45 +101,64 @@ function request.make_headers(input, filter)
 	if filter_json then names:append(constants.headers.filter) end
 	return tablex.pairmap(function(_, name)
 		if name == constants.headers.filter then return filter_json, name end
+		if name == "Prefer" and constants.http.read_methods[input.method] then
+			return exact_count(input.headers_in.Prefer), name
+		end
 		return input.headers_in[name], name
 	end, names)
 end
 
---- Make the name of the aggregate function of the table in a path.
+--- Make the name of the table in a path, if the path is a plain table.
 ---@param uri string Request path.
 ---@return string|nil name nil if the path is not a plain table name.
 local function whole_table_name(uri)
 	local table_name = uri:match(regex.table_path)
 	if table_name == nil or uri ~= "/" .. table_name or not table_name:match(regex.column_name) then return nil end
 
-	return table_name .. constants.aggregate.function_suffix
+	return table_name
 end
 
---- Make the path of the aggregate function of the table in a path.
+--- Make the call of the aggregate function: one function of the schema for every table, and the table in the query.
 ---@param uri string Request path.
----@return string|nil path nil if the path is not a plain table name, or the name of the function is too long.
-local function aggregate_function_path(uri)
+---@return string|nil path The path of the function, nil if the path is not a plain table name.
+---@return string|nil args The query string of the call, with the name of the table.
+local function aggregate_function_call(uri)
 	local name = whole_table_name(uri)
-	if name == nil or #name > constants.aggregate.max_function_bytes then return nil end
-	return constants.aggregate.rpc_prefix .. name
+	if name == nil then return nil end
+	return constants.aggregate.path, constants.aggregate.table_argument .. "=" .. name
 end
 
---- Find the path of the function that runs the aggregate of the request in DuckDB.
+--- Find the call of the function that runs the aggregate of the request in DuckDB.
 --- The function exists only for a plain read of a table as JSON. Any other request goes to the table.
 ---
 --- ```lua
---- request.aggregate_path({ uri = "/people", headers_in = {} }, { aggregate = { items = { ... } } })
---- --> "/rpc/people_aggregate"
---- request.aggregate_path({ uri = "/people", headers_in = {} }, { columns = { "id" } }) --> nil
+--- request.aggregate_call({ uri = "/people", headers_in = {} }, { aggregate = { items = { ... } } })
+--- --> "/rpc/agg", "table=people"
+--- request.aggregate_call({ uri = "/people", headers_in = {} }, { columns = { "id" } }) --> nil
 --- ```
 ---@param input NgxRequest
 ---@param filter FilterDocument|nil The document of the filter header.
 ---@return string|nil path nil if the request has no aggregate function.
-function request.aggregate_path(input, filter)
+---@return string|nil args The query string of the call.
+function request.aggregate_call(input, filter)
 	if filter == nil or filter.aggregate == nil or not can_limit(input) then return nil end
 	if request.normalize_accept(input.headers_in.Accept) ~= constants.http.default_media_type then return nil end
 
-	return aggregate_function_path(input.uri)
+	return aggregate_function_call(input.uri)
+end
+
+--- Read the count mode of a preference that holds only a count: `count=exact`, `count=planned` or `count=estimated`.
+---
+--- ```lua
+--- request.count_preference(" count=planned ") --> "count=planned"
+--- request.count_preference("count=exact, return=minimal") --> nil
+--- ```
+---@param prefer string|nil The `Prefer` header.
+---@return string|nil mode nil if the header holds anything else than one of the count modes.
+function request.count_preference(prefer)
+	local value = stringx.strip(prefer or "")
+	if List(constants.count.prefers):contains(value) then return value end
+	return nil
 end
 
 --- The conditions of a read that the proxy answers with a count in DuckDB. All of them must hold.
@@ -133,7 +166,7 @@ end
 local count_rules = {
 	function(input) return input.method == "GET" end,
 	function(input) return input.headers_in.Range == nil end,
-	function(input) return stringx.strip(input.headers_in.Prefer or "") == constants.count.prefer end,
+	function(input) return request.count_preference(input.headers_in.Prefer) ~= nil end,
 	function(input) return not (input.headers_in.Accept or ""):find("vnd.pgrst", 1, true) end,
 	function(input) return request.normalize_accept(input.headers_in.Accept) == constants.http.default_media_type end,
 }
@@ -147,20 +180,21 @@ local function count_page(input)
 	return page
 end
 
---- Plan the answer of a read with `Prefer: count=exact`: a count in DuckDB and a page that the proxy pins to the
+--- Plan the answer of a read with `Prefer: count=exact`, `count=planned` or `count=estimated`: a count in DuckDB and a page that the proxy pins to the
 --- snapshot of the count, so PostgREST does not read every row to count it.
 --- The plan exists only for a plain GET of a table as JSON, with a `limit`, no `Range`, and no other preference.
 ---
 --- ```lua
 --- request.count_plan({ method = "GET", uri = "/people", args = "limit=20", headers_in = { Prefer = "count=exact" } })
---- --> { path = "/rpc/people_aggregate", count_headers = { ... }, page_headers = { ... } }
+--- --> { path = "/rpc/agg", args = "table=people", count_headers = { ... }, page_headers = { ... } }
 --- ```
 ---@param input NgxRequest
 ---@return CountPlan|nil plan nil if the request keeps the path of PostgREST.
 function request.count_plan(input)
 	if tablex.find_if(count_rules, function(rule) return not rule(input) end) ~= nil then return nil end
 
-	local path, page = aggregate_function_path(input.uri), count_page(input)
+	local path, args = aggregate_function_call(input.uri)
+	local page = count_page(input)
 	if path == nil or page == nil then return nil end
 
 	local page_headers = request.make_headers(input, page)
@@ -168,15 +202,54 @@ function request.count_plan(input)
 	local count = { where = page.where, aggregate = { items = { constants.count.item } } }
 	local count_headers = tablex.copy(page_headers)
 	count_headers[constants.headers.filter] = cjson.encode(count)
-	return { path = path, count_headers = count_headers, page_headers = page_headers }
+	return {
+		path = path,
+		args = args,
+		count_headers = count_headers,
+		page_headers = page_headers,
+		applied = request.count_preference(input.headers_in.Prefer),
+	}
 end
 
---- Tell whether a request asks for the internal profile, which only the cluster may use.
+--- Tell whether a request asks for an internal profile, which only the cluster may use.
 ---@param headers table<string, string|nil> The request headers.
 ---@return boolean
-function request.asks_for_console(headers)
-	local internal = constants.internal_profile
-	return headers["Accept-Profile"] == internal or headers["Content-Profile"] == internal
+function request.asks_for_internal_profile(headers)
+	local internal = constants.internal_profiles
+	return internal[headers["Accept-Profile"] or ""] == true or internal[headers["Content-Profile"] or ""] == true
+end
+
+--- Split a path into the name of the schema of the database and the path of PostgREST.
+---@param uri string Request path.
+---@return string|nil profile `project__schema`, or nil if the path doesn't start with a usable project and schema.
+---@return string|nil path The rest of the path, `/` if nothing follows the schema.
+local function split_path(uri)
+	local project, schema, rest = uri:match(regex.project_path)
+	if project == nil or constants.reserved_projects[project] then return nil end
+	if rest ~= "" and rest:sub(1, 1) ~= "/" then return nil end
+
+	return project .. constants.schema_separator .. schema, rest == "" and "/" or rest
+end
+
+--- Read the project and the schema from the start of a path, and give the profile and the path of PostgREST.
+--- The path is `/project/schema/table`. The profile is the name of the schema of the database, `project__schema`.
+--- A project that the services of the host reserve, a schema that the configuration doesn't list, and a path with
+--- fewer than two segments give nil.
+---
+--- ```lua
+--- request.route("/sales/orders/people", { sales__orders = true })  --> { profile = "sales__orders", path = "/people" }
+--- request.route("/sales/orders", { sales__orders = true })         --> { profile = "sales__orders", path = "/" }
+--- request.route("/console/orders/people", { console__orders = true }) --> nil
+--- request.route("/sales/other/people", { sales__orders = true })   --> nil
+--- ```
+---@param uri string Request path.
+---@param known table<string, boolean>|nil The schemas of the configuration, by physical name.
+---@return {profile: string, path: string}|nil route nil if the path names no known schema.
+function request.route(uri, known)
+	local profile, path = split_path(uri)
+	if profile == nil or known == nil or not known[profile] then return nil end
+
+	return { profile = profile, path = path }
 end
 
 --- Join a claim that is a text or a list of texts, with commas.
@@ -272,7 +345,7 @@ end
 ---@param config SyncConfig
 ---@param sub string
 ---@return string|nil
-local function scope_of(config, sub)
+local function find_scope(config, sub)
 	if config.scopes == nil then return nil end
 
 	return config.scopes[sub]
@@ -286,6 +359,7 @@ end
 function request.make_context(input, deps)
 	local identity = request.jwt_identity(input.headers_in.Authorization)
 	local filter = request.read_filter(input)
+	local aggregate_path, aggregate_args = request.aggregate_call(input, filter)
 
 	local table_settings = sync.table_for(deps.config, input.uri)
 	local ttl_seconds = (table_settings and table_settings.cache_ttl) or input.cache_ttl or ""
@@ -295,7 +369,7 @@ function request.make_context(input, deps)
 		uri = input.uri,
 		args = input.args or "",
 		sub = identity.sub,
-		scope = scope_of(deps.config, identity.sub),
+		scope = find_scope(deps.config, identity.sub),
 		schemas = identity.schemas,
 		projects = identity.projects,
 		role = identity.role,
@@ -304,7 +378,8 @@ function request.make_context(input, deps)
 		data_generation = input.data_generation,
 		revision = deps.config.revision,
 		headers = request.make_headers(input, filter),
-		aggregate_path = request.aggregate_path(input, filter),
+		aggregate_path = aggregate_path,
+		aggregate_args = aggregate_args,
 		count = request.count_plan(input),
 		postgrest = input.postgrest,
 		cache_ttl = tostring(ttl_seconds),

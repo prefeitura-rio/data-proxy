@@ -28,7 +28,7 @@ from .sources.partitions import (
 )
 from .sources.source import PartitionedSource, Source
 from .state import read_table_signature, read_table_state
-from .types import DatabaseRow, DuckDBParams
+from .types import DatabaseRow, DescribeRow, DuckDBParams
 from .utils import json_digest
 
 if TYPE_CHECKING:
@@ -61,7 +61,7 @@ async def discover_json_columns(
     rows = await Executor[DuckDBParams, list[DatabaseRow]](conn=duckdb_conn).query(
         "duckdb/describe_source",
         {"source": source.scan(table)},
-        expect=tuple[str, str],
+        expect=DescribeRow,
     )
 
     return [row[0] for row in rows if "STRUCT" in row[1].upper()]

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://repomix.com/schemas/latest/schema.json",
+  "output": {
+    "style": "markdown",
+    "headerText": "Documentation of Data Proxy, as Markdown pages. Each page starts with its path in the book.",
+    "fileSummary": false,
+    "directoryStructure": true,
+    "git": { "sortByChanges": false }
+  },
+  "ignore": {
+    "useGitignore": false,
+    "useDotIgnore": false,
+    "useDefaultPatterns": false
+  },
+  "security": { "enableSecurityCheck": true }
+}

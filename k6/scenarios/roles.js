@@ -23,11 +23,12 @@ import {
     removePolicy,
     removeSchema,
     rerunConfigureDb,
-    rowsOf,
+    readRows,
     runSqlJob,
     safeJson,
     scenario,
     SCHEMA,
+    schemaIdentity,
     tokenClaims,
     waitUntil,
     withRow,
@@ -80,12 +81,12 @@ const CATALOG_DOCUMENT = {
 const PROBES = {
     read_api: (client) => proxyGet(`/${FULL_TABLE}?select=unit_id&limit=1`, clientToken(client)).status === 200,
     read_ducklake: (client) =>
-        proxyGet(`/rpc/dl_changes_${FULL_TABLE}?select=change_type&start_snapshot=0&limit=1`, clientToken(client))
+        proxyGet(`/rpc/changes?table=${FULL_TABLE}&select=change_type&start_snapshot=0&limit=1`, clientToken(client))
             .status === 200,
     read_files: (client) =>
         consoleCall("GET", `/rpc/table_files?schema_name=${SCHEMA}&table_name=${FULL_SOURCE}`, client).status === 200,
     read_sync: (client) => consoleRows("/runs?limit=1", client) > 0,
-    start_sync: (client) => consoleCall("POST", "/rpc/start_sync", client, { schemas: ["console_bad"] }).status !== 403,
+    start_sync: (client) => consoleCall("POST", "/rpc/start_sync", client, { schemas: ["default__console_bad"] }).status !== 403,
     control_sync: (client) =>
         consoleCall("POST", "/rpc/cancel_run", client, { run: "e2e-no-such-run" }).status !== 403,
     read_config: (client) => consoleRows(`/schemas?name=eq.${SCHEMA}`, client) > 0,
@@ -95,7 +96,7 @@ const PROBES = {
             removeSchema,
             () =>
                 consoleCall("POST", "/schemas", client, {
-                    name: PROBE_SCHEMA,
+                    ...schemaIdentity(PROBE_SCHEMA),
                     source: "bigquery",
                     settings: { project: "probe" },
                 }).status === 201,
@@ -105,7 +106,7 @@ const PROBES = {
             createSchema,
             removeSchema,
             () =>
-                rowsOf(
+                readRows(
                     consoleCall("PATCH", `/schemas?name=eq.${PROBE_SCHEMA}`, client, {
                         settings: { project: "changed" },
                     }),
@@ -115,7 +116,7 @@ const PROBES = {
         withRow(
             createSchema,
             removeSchema,
-            () => rowsOf(consoleCall("DELETE", `/schemas?name=eq.${PROBE_SCHEMA}`, client)).length === 1,
+            () => readRows(consoleCall("DELETE", `/schemas?name=eq.${PROBE_SCHEMA}`, client)).length === 1,
         ),
     import_config: (client) => consoleCall("POST", "/rpc/import_config", client, CATALOG_DOCUMENT).status !== 403,
     grant_all: (client) =>
@@ -124,25 +125,25 @@ const PROBES = {
             removeGrantProbeSchema,
             () =>
                 consoleCall("POST", "/schemas", client, {
-                    name: GRANT_PROBE_SCHEMA,
+                    ...schemaIdentity(GRANT_PROBE_SCHEMA),
                     source: "bigquery",
                     settings: { project: "probe" },
                 }).status === 201,
         ),
-    read_policy: (client) => postgrestRows(SCHEMA, "/access_policy?select=subject&limit=1", client) > 0,
+    read_policy: (client) => postgrestRows("access", "/policy?select=subject&limit=1", client) > 0,
     create_policy: (client) =>
         withRow(
             nothing,
             removePolicy,
-            () => postgrestCall(SCHEMA, "POST", "/access_policy", client, policyRow).status === 201,
+            () => postgrestCall("access", "POST", "/policy", client, policyRow).status === 201,
         ),
     edit_policy: (client) =>
         withRow(
             createPolicy,
             removePolicy,
             () =>
-                rowsOf(
-                    postgrestCall(SCHEMA, "PATCH", `/access_policy?subject=eq.${PROBE_SUBJECT}`, client, {
+                readRows(
+                    postgrestCall("access", "PATCH", `/policy?subject=eq.${PROBE_SUBJECT}`, client, {
                         unit_id: "unit_probe_2",
                     }),
                 ).length === 1,
@@ -152,7 +153,7 @@ const PROBES = {
             createPolicy,
             removePolicy,
             () =>
-                rowsOf(postgrestCall(SCHEMA, "DELETE", `/access_policy?subject=eq.${PROBE_SUBJECT}`, client)).length ===
+                readRows(postgrestCall("access", "DELETE", `/policy?subject=eq.${PROBE_SUBJECT}`, client)).length ===
                 1,
         ),
 };
@@ -226,17 +227,17 @@ function accessCatalog(k8s) {
         [
             "access-relations",
             "SELECT string_agg(c.relname, ',' ORDER BY c.relname) FROM pg_class AS c INNER JOIN pg_namespace AS n ON c.relnamespace = n.oid WHERE n.nspname = 'console' AND c.relkind IN ('r', 'v')",
-            "config_history,errors,health,logs,overview,projects,queues,rls,runs,schedules,schemas,steps,synced,tables,tasks",
+            "catalog,config_history,errors,health,logs,overview,projects,queues,rls,runs,schedules,schemas,steps,synced,tables,tasks",
         ],
         [
             "access-functions",
             "SELECT string_agg(DISTINCT p.proname, ',' ORDER BY p.proname) FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'console' AND p.prorettype <> 'trigger'::regtype",
-            "cancel_run,config,control_run,control_schedule,export_config,guard_run,guard_schedule,import_config,import_preview,import_schemas,mine_table,pause_schedule,permissions,resume_run,resume_schedule,retry_run,schedule_schema,scopes,set_schedule,start_scope,start_sync,sync_config,table_files,username",
+            "cancel_run,config,control_run,control_schedule,export_config,guard_run,guard_schedule,import_config,import_preview,import_schemas,mine_table,pause_schedule,permissions,replace_rls,resume_run,resume_schedule,retry_run,rules,schedule_schema,scopes,set_schedule,start_scope,start_sync,sync_config,table_files,username",
         ],
         [
             "access-rbac-functions",
             "SELECT string_agg(DISTINCT p.proname, ',' ORDER BY p.proname) FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'rbac'",
-            "all_rows,can,load,mine,unknown",
+            "can,load,mine,unknown,whole",
         ],
         ["access-no-old-schemas", "SELECT to_regnamespace('admin') IS NULL AND to_regnamespace('authz') IS NULL", "t"],
         [
@@ -246,12 +247,17 @@ function accessCatalog(k8s) {
         ],
         [
             "access-helper-functions",
-            "SELECT coalesce(string_agg(p.proname, ','), '') FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'test' AND (p.proname ~ '_(dl|bq)_fn$' OR p.proname = 'dl_table_files') AND has_function_privilege('dp_api', p.oid, 'EXECUTE')",
+            "SELECT coalesce(string_agg(p.proname, ','), '') FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'default__test' AND (p.proname ~ '_(dl|bq)_fn$' OR p.proname = 'files') AND has_function_privilege('dp_api', p.oid, 'EXECUTE')",
             "",
         ],
         [
             "access-table-functions",
-            "SELECT count(*) FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'test' AND p.proname ~ '_fn$' AND p.proname !~ '_(dl|bq)_fn$' AND NOT has_function_privilege('dp_api', p.oid, 'EXECUTE')",
+            "SELECT count(*) FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'default__test' AND p.proname ~ '_fn$' AND p.proname !~ '_(dl|bq)_fn$' AND NOT has_function_privilege('dp_api', p.oid, 'EXECUTE')",
+            "0",
+        ],
+        [
+            "access-no-old-schema-name",
+            "SELECT count(*) FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE strpos(n.nspname, '__') > 0 AND strpos(p.prosrc, 'rbac.mine(''') > 0 AND strpos(p.prosrc, 'rbac.mine(''' || n.nspname || ''')') = 0",
             "0",
         ],
         [
@@ -302,10 +308,10 @@ function claimShapes() {
     const path = `/${FULL_TABLE}?select=unit_id&limit=5`;
     const text = proxyGet(path, clientToken("schemas_text"));
     expect("a schemas claim that is a plain text is served", text.status === 200);
-    expect("a schemas claim that is a plain text reads the rows of its schema", rowsOf(text).length > 0);
+    expect("a schemas claim that is a plain text reads the rows of its schema", readRows(text).length > 0);
     const empty = proxyGet(path, clientToken("schemas_empty"));
     expect("a token with an empty schemas claim is served", empty.status === 200);
-    expect("a token with an empty schemas claim reads no row", rowsOf(empty).length === 0);
+    expect("a token with an empty schemas claim reads no row", readRows(empty).length === 0);
 }
 
 const PROJECT_A = "e2eprojecta";
@@ -343,18 +349,18 @@ function projectClaim() {
         expect("a project token adds a schema that did not exist when it got its token", first.status === 201);
         expect(
             "a schema of a project takes the name of the project and its short name",
-            rowsOf(first)[0]?.name === `${PROJECT_A}_first`,
+            readRows(first)[0]?.name === `${PROJECT_A}__first`,
         );
 
         // A read goes to a standby, which may not have the new row yet, so a check waits for it.
-        const listed = () => rowsOf(consoleCall("GET", "/schemas?select=name,project", "project_user"));
+        const listed = () => readRows(consoleCall("GET", "/schemas?select=name,project", "project_user"));
         /** @param {string} name */
         const lists = (name) => waitUntil(15, () => listed().some((row) => row.name === name), name);
-        expect("a project token reads the schema that it added", lists(`${PROJECT_A}_first`));
+        expect("a project token reads the schema that it added", lists(`${PROJECT_A}__first`));
 
         const second = consoleCall("POST", "/schemas", "project_user", { project: PROJECT_A, short_name: "second" });
         expect("a project token adds a second schema", second.status === 201);
-        expect("a project claim reads a schema that came after", lists(`${PROJECT_A}_second`));
+        expect("a project claim reads a schema that came after", lists(`${PROJECT_A}__second`));
         expect(
             "a project token reads the schemas of its project only",
             listed().length === 2 && listed().every((row) => row.project === PROJECT_A),
@@ -367,27 +373,27 @@ function projectClaim() {
         );
         expect(
             "a token of another project reads no schema of the project",
-            rowsOf(consoleCall("GET", `/schemas?project=eq.${PROJECT_A}`, "project_other")).length === 0,
+            readRows(consoleCall("GET", `/schemas?project=eq.${PROJECT_A}`, "project_other")).length === 0,
         );
         expect(
             "a token of another project reads no row of the project",
-            rowsOf(consoleCall("GET", `/projects?name=eq.${PROJECT_A}`, "project_other")).length === 0,
+            readRows(consoleCall("GET", `/projects?name=eq.${PROJECT_A}`, "project_other")).length === 0,
         );
         expect(
             "a project is not deleted while it has a schema",
             consoleCall("DELETE", `/projects?name=eq.${PROJECT_A}`, "project_user").status >= 400 &&
-                rowsOf(consoleCall("GET", `/projects?name=eq.${PROJECT_A}`, "project_user")).length === 1,
+                readRows(consoleCall("GET", `/projects?name=eq.${PROJECT_A}`, "project_user")).length === 1,
         );
 
-        const schema = `${PROJECT_A}_first`;
+        const schema = `${PROJECT_A}__first`;
         expect(
             "provision creates the schema of the project",
             waitUntil(
                 PROVISION_TIMEOUT_SECONDS,
                 () => {
-                    const health = rowsOf(consoleCall("GET", `/health?name=eq.${schema}`, "project_user"))[0];
+                    const health = readRows(consoleCall("GET", `/health?name=eq.${schema}`, "project_user"))[0];
 
-                    return health?.schema_exists === true && health.access_policy === true;
+                    return health?.schema_exists === true;
                 },
                 "provision to create the schema of the project",
             ),
@@ -397,19 +403,19 @@ function projectClaim() {
             "PostgREST serves the schema of the project to its token",
             waitUntil(
                 PROVISION_TIMEOUT_SECONDS,
-                () => postgrestCall(schema, "GET", "/access_policy", "project_policy").status === 200,
+                () => postgrestCall(schema, "GET", "/", "project_policy").status === 200,
                 "PostgREST to serve the schema of the project",
             ),
         );
 
-        const policy = { subject: "project_subject", unit_type: "unit", unit_id: "unit_1" };
+        const policy = { scope: `${PROJECT_A}.first`, subject: "project_subject", unit_type: "unit", unit_id: "unit_1" };
         expect(
-            "a project token writes the access policy of a schema of its project",
-            postgrestCall(schema, "POST", "/access_policy", "project_policy", policy).status === 201,
+            "a policy token of a project writes the access policy of a schema of its project",
+            postgrestCall("access", "POST", "/policy", "project_policy", policy).status === 201,
         );
         expect(
-            "a policy token of another schema is refused the access policy of the project",
-            [401, 403].includes(postgrestCall(schema, "POST", "/access_policy", "policy", policy).status),
+            "a policy token of another scope is refused the access policy of the project",
+            [401, 403].includes(postgrestCall("access", "POST", "/policy", "policy", policy).status),
         );
     } finally {
         removeProjects();
@@ -480,7 +486,7 @@ function rulesReload(k8s) {
 
     const restored = proxyGet(path, token);
     expect("the original rules give the role its access back", restored.status === 200);
-    expect("the original rules give the role its rows back", rowsOf(restored).length > 0);
+    expect("the original rules give the role its rows back", readRows(restored).length > 0);
 }
 
 /** @type {Step[]} */

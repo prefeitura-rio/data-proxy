@@ -86,7 +86,7 @@ local max_profile_bytes = 63
 --- The schema that a profile names, or the empty name if the profile is missing or too long to be a schema.
 ---@param profile string|nil
 ---@return string
-local function schema_of(profile)
+local function normalize_schema(profile)
 	if type(profile) == "string" and #profile <= max_profile_bytes then return profile end
 	return ""
 end
@@ -107,7 +107,7 @@ function Redis:generations(profile)
 	end
 
 	local keys = constants.redis
-	local data_key = keys.data_generation_prefix .. schema_of(profile)
+	local data_key = keys.data_generation_prefix .. normalize_schema(profile)
 	local replies, read_error = connection:mget(keys.generation_key, data_key)
 	self:release(connection)
 	if read_error or type(replies) ~= "table" then
@@ -116,25 +116,6 @@ function Redis:generations(profile)
 	end
 
 	return tonumber(replies[1]) or 0, tonumber(replies[2]) or 0
-end
-
---- Count one change of the access policy.
----@return boolean counted false if Redis did not answer.
-function Redis:bump_generation()
-	local connection, open_error = self:open()
-	if not connection then
-		warn("connection", open_error)
-		return false
-	end
-
-	local count, incr_error = connection:incr(constants.redis.generation_key)
-	self:release(connection)
-	if not count then
-		warn("write", incr_error)
-		return false
-	end
-
-	return true
 end
 
 --- Store one entry. The entry expires after the TTL.

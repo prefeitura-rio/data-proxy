@@ -1,34 +1,12 @@
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock
 
 import pytest
 
 from sync import s3
 from sync.settings import settings
+from tests.fixtures.types import STORE_KEYS, StoreStub
 from tests.helpers.core import exactly
-
-KEYS = ["a", "b", "c"]
-
-
-class StoreStub:
-    """An object store with one page of keys. Its delete answers with the keys that it refuses."""
-
-    def __init__(self, refused: dict[str, str]) -> None:
-        self.delete_objects = AsyncMock(
-            return_value={
-                "Errors": [{"Key": key, "Code": code} for key, code in refused.items()]
-            }
-        )
-
-    def get_paginator(self, name: str) -> StoreStub:
-        assert name == "list_objects_v2"
-        return self
-
-    async def paginate(
-        self, **_: str
-    ) -> AsyncIterator[dict[str, list[dict[str, str]]]]:
-        yield {"Contents": [{"Key": key} for key in KEYS]}
 
 
 class TestClearS3Prefix:
@@ -55,7 +33,7 @@ class TestClearS3Prefix:
 
         store.delete_objects.assert_awaited_once_with(
             Bucket=settings.S3_BUCKET,
-            Delete={"Objects": [{"Key": key} for key in KEYS]},
+            Delete={"Objects": [{"Key": key} for key in STORE_KEYS]},
         )
 
     @pytest.mark.parametrize(

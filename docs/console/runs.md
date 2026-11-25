@@ -7,25 +7,7 @@ The functions `console.cancel_run(run)`, `console.resume_run(run)`, `console.ret
 Cancel, resume and the schedule actions enqueue a workflow in the queue `control`, and the sync worker runs it with the DBOS API. [Console layer](../architecture/console.md#run-control) shows the sequence. A sync run accepts an action only in the right status. The diagram shows the moves, and the table lists the rules:
 
 ```mermaid
-%% Run statuses
-stateDiagram-v2
-  [*] --> ENQUEUED: start_sync
-  ENQUEUED --> PENDING: a worker takes it
-  PENDING --> SUCCESS
-  PENDING --> ERROR
-  PENDING --> MAX_RECOVERY_ATTEMPTS_EXCEEDED: the worker is lost too many times
-  ENQUEUED --> CANCELLED: cancel
-  PENDING --> CANCELLED: cancel
-  DELAYED --> CANCELLED: cancel
-  CANCELLED --> ENQUEUED: resume
-  MAX_RECOVERY_ATTEMPTS_EXCEEDED --> ENQUEUED: resume
-  state Ended {
-    SUCCESS
-    ERROR
-    CANCELLED
-    MAX_RECOVERY_ATTEMPTS_EXCEEDED
-  }
-  Ended --> [*]: run again as a new run
+{{#include ../diagrams/run-statuses.mmd}}
 ```
 
 
@@ -54,9 +36,3 @@ A schedule doesn't backfill. A run whose time passes while no sync worker runs i
 A schedule action needs the schema of the schedule in the `schemas` claim. A token without that schema gets 404, as for a sync run. A bad cron returns 400, and the worker never sees it.
 
 The setting `LISTEN_QUEUES` limits the queues that one worker listens to. It contains queue names separated by commas, and an empty value means every queue. The test stack runs a second worker with `LISTEN_QUEUES=control,schedules`. The browser tests therefore run the control workflows and the schedule reconcile, and never a sync run.
-
-<!-- nav:start -->
----
-
-[Previous: Database views](./views.md) | [Next: Configuration](./configuration.md) | [Index](./index.md) | [Home](../index.md)
-<!-- nav:end -->

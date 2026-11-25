@@ -1,0 +1,43 @@
+%% API read sequence
+sequenceDiagram
+  participant c as Client
+  participant gw as Istio gateway
+  participant n as Proxy
+  participant r as Redis
+  participant api as PostgREST
+  participant db as PostgreSQL standby
+  participant s3 as SeaweedFS
+  participant src as Source
+  c->>gw: GET with Bearer JWT
+  gw->>gw: check the JWT
+  alt JWT not valid
+    gw-->>c: 401
+  else JWT valid
+    gw->>n: forward the request
+    n->>r: look up the cache key
+    alt cache hit
+      r-->>n: cached answer
+      n-->>c: response (HIT)
+    else cache miss
+      n->>api: forward the JWT
+      api->>api: switch to the role
+      api->>db: read-only transaction (PgDog)
+      db->>db: pre_request, checks
+      alt not allowed
+        db-->>c: 403
+      else no policy match
+        db-->>api: empty list
+      else allowed
+        db->>s3: scan Parquet (RLS)
+        s3-->>db: rows
+        opt fallback
+          db->>src: read other partitions
+          src-->>db: rows
+        end
+        db-->>api: rows
+      end
+      api-->>n: rows, X-Source
+      n->>r: store if not empty
+      n-->>c: response (MISS)
+    end
+  end

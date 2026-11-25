@@ -2,6 +2,7 @@
 
 local helpers = require("tests.unit.helpers")
 local postgrest = require("proxy.postgrest")
+local tablex = require("pl.tablex")
 
 local check = helpers.check(describe, it)
 
@@ -46,7 +47,8 @@ describe("postgrest.query with an aggregate", function()
 		args = "select=a,n:b.sum()",
 		started = 0,
 		postgrest = "http://postgrest",
-		aggregate_path = "/rpc/people_aggregate",
+		aggregate_path = "/rpc/agg",
+		aggregate_args = "table=people",
 	}
 
 	--- Make a sender that gives the answers in order, and records the uri and the args of each call.
@@ -63,13 +65,13 @@ describe("postgrest.query with an aggregate", function()
 
 	local function no_sleep() end
 
-	it("sends the aggregate function first, without the query string, and returns its answer", function()
+	it("sends the aggregate function first, with the table in the query string, and returns its answer", function()
 		local sender, seen = recording({ { status = 200, body = '[{"a":1,"n":5}]' } })
 
 		local response = postgrest.query(aggregate, sender, no_sleep)
 
 		assert.same({ status = 200, body = '[{"a":1,"n":5}]' }, response)
-		assert.same({ { uri = "/rpc/people_aggregate", args = "" } }, seen)
+		assert.same({ { uri = "/rpc/agg", args = "table=people" } }, seen)
 	end)
 
 	it("returns a partial answer of the function, so the cap of the function reaches the client", function()
@@ -88,8 +90,46 @@ describe("postgrest.query with an aggregate", function()
 		local response = postgrest.query(aggregate, sender, no_sleep)
 
 		assert.same({ status = 200, body = "[1]" }, response)
-		assert.same({ "/rpc/people_aggregate", "/people" }, { seen[1].uri, seen[2].uri })
+		assert.same({ "/rpc/agg", "/people" }, { seen[1].uri, seen[2].uri })
 		assert.same("select=a,n:b.sum()", seen[2].args)
+	end)
+
+	describe("the reason of the fallback in the log", function()
+		local log = require("proxy.log")
+		local original = log.write
+		local written
+
+		before_each(function()
+			written = {}
+			log.write = function(_, event, _, fields) written[#written + 1] = { event = event, fields = fields } end
+		end)
+
+		after_each(function() log.write = original end)
+
+		it("logs aggregate-declined when the function answers null, which is not a failure", function()
+			local sender = recording({ { status = 200, body = "null" }, { status = 200, body = "[1]" } })
+
+			postgrest.query(aggregate, sender, no_sleep)
+
+			assert.same({ "aggregate-declined" }, { written[1].event })
+			assert.same(1, #written)
+		end)
+
+		it("logs aggregate-failed with the status when the function fails", function()
+			local sender = recording({ { status = 500, body = "{}" }, { status = 200, body = "[1]" } })
+
+			postgrest.query(aggregate, sender, no_sleep)
+
+			assert.same({ event = "aggregate-failed", fields = { status = 500 } }, written[1])
+		end)
+
+		it("logs nothing when the function answers", function()
+			local sender = recording({ { status = 200, body = '[{"n":1}]' } })
+
+			postgrest.query(aggregate, sender, no_sleep)
+
+			assert.same({}, written)
+		end)
 	end)
 
 	it("treats a null with spaces and a new line as null", function()
@@ -107,7 +147,7 @@ describe("postgrest.query with an aggregate", function()
 			local response = postgrest.query(aggregate, sender, no_sleep)
 
 			assert.same({ status = 200, body = "[1]" }, response)
-			assert.same({ "/rpc/people_aggregate", "/people" }, { seen[1].uri, seen[2].uri })
+			assert.same({ "/rpc/agg", "/people" }, { seen[1].uri, seen[2].uri })
 		end)
 	end
 
@@ -152,9 +192,11 @@ describe("postgrest.query with a count", function()
 		postgrest = "http://postgrest",
 		headers = { Prefer = "count=exact" },
 		count = {
-			path = "/rpc/people_aggregate",
+			path = "/rpc/agg",
+			args = "table=people",
 			count_headers = { ["X-DuckLake-Filter"] = "count" },
 			page_headers = { ["X-DuckLake-Filter"] = "page" },
+			applied = "count=exact",
 		},
 	}
 
@@ -186,8 +228,8 @@ describe("postgrest.query with a count", function()
 
 		postgrest.query(counted, sender, no_sleep)
 
-		assert.same({ "/rpc/people_aggregate", "/people" }, { seen[1].uri, seen[2].uri })
-		assert.same({ "", "limit=20&offset=40" }, { seen[1].args, seen[2].args })
+		assert.same({ "/rpc/agg", "/people" }, { seen[1].uri, seen[2].uri })
+		assert.same({ "table=people", "limit=20&offset=40" }, { seen[1].args, seen[2].args })
 		assert.same({ ["X-DuckLake-Filter"] = "count" }, seen[1].headers)
 		assert.same({ ["X-DuckLake-Filter"] = "page", ["X-DuckLake-Snapshot"] = "239" }, seen[2].headers)
 		assert.same("count=exact", counted.headers.Prefer)
@@ -203,6 +245,19 @@ describe("postgrest.query with a count", function()
 		assert.same("count=exact", response.headers["Preference-Applied"])
 		assert.same("ducklake", response.headers["X-Source"])
 		assert.same("[1]", response.body)
+	end)
+
+	it("reports the count mode that the client asked for in Preference-Applied", function()
+		local planned = tablex.copy(counted)
+		planned.headers = { Prefer = "count=planned" }
+		planned.count = tablex.copy(counted.count)
+		planned.count.applied = "count=planned"
+		local sender = recording({ total, page("40-59/*") })
+
+		local response = assert(postgrest.query(planned, sender, no_sleep))
+
+		assert.same("40-59/1281450", response.headers["Content-Range"])
+		assert.same("count=planned", response.headers["Preference-Applied"])
 	end)
 
 	it("gives 200 for a page that holds every row", function()

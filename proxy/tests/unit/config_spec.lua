@@ -9,7 +9,7 @@ local REQUIRED = { PROXY_REDIS_HOST = "cache", PROXY_POSTGREST = "http://127.0.0
 --- A variable of the case with the value false is removed.
 ---@param case table
 ---@return fun(name: string): string|nil
-local function getenv_of(case)
+local function make_getenv(case)
 	local variables = {}
 	for name, value in pairs(REQUIRED) do
 		variables[name] = value
@@ -20,7 +20,7 @@ local function getenv_of(case)
 	return function(name) return variables[name] end
 end
 
-check("config.load setting", function(case) return config.load(getenv_of(case))[case.field] end, {
+check("config.load setting", function(case) return config.load(make_getenv(case))[case.field] end, {
 	{ name = "defaults the cache lifetime to 300 seconds", field = "cache_ttl", expected = 300 },
 	{ name = "defaults the body limit to 262144 bytes", field = "max_body", expected = 262144 },
 	{ name = "defaults the Redis port to 6379", field = "redis_port", expected = 6379 },
@@ -62,7 +62,7 @@ check("config.load setting", function(case) return config.load(getenv_of(case))[
 })
 
 check("config.load refusal", function(case)
-	local loaded, result = pcall(config.load, getenv_of(case))
+	local loaded, result = pcall(config.load, make_getenv(case))
 	if loaded then return result end
 	return nil, result
 end, {

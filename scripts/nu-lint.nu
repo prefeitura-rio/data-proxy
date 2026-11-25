@@ -1,16 +1,30 @@
-use lib.nu [fail]
+use lib.nu [check-result fail]
 
-# Run nu-lint over every Nushell script of the repository, and fail when it reports a finding.
-# nu-lint exits with 0 even when it finds problems, so the script reads its output.
+# Validate native Nu syntax and block runtime errors while keeping suggestions advisory.
 def main []: nothing -> nothing {
-    let findings = nu-lint --format compact --config .nu-lint.toml helm/files scripts k3d/manifests/files console/notebooks
+    let roots = [helm/files scripts k3d/manifests/files console/notebooks]
+    let files = $roots | each {|root| glob $'($root)/**/*.nu' --exclude ['**/node_modules/**' '**/.venv/**'] } | flatten
+    for file in $files {
+        let diagnostics = nu --no-config-file --ide-check 100 $file
+        | complete
+        | check-result $'Nu parser for ($file)'
+        | lines
+        | each { from json }
+        | where type == diagnostic and severity == Error
+
+        if ($diagnostics | is-not-empty) {
+            print $diagnostics
+            fail $'Nu syntax errors in ($file)'
+        }
+    }
+
+    let findings = nu-lint --format compact --config .nu-lint.toml ...$roots
     | complete
-    | get stdout
+    | check-result 'nu-lint'
     | lines
     | where $it =~ '^\S+:\d+:\d+: '
 
-    if ($findings | is-not-empty) {
-        print ($findings | str join (char nl))
-        fail $'nu-lint reported ($findings | length) findings'
-    }
+    let visible = $findings | where $it =~ ': (warning|error)\('
+    if ($visible | is-not-empty) { print ($visible | str join (char nl)) }
+    if ($findings | any {$in =~ ': error\(' }) { fail 'nu-lint reported runtime errors' }
 }

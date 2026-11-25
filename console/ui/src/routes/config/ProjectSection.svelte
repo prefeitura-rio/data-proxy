@@ -19,7 +19,7 @@
 	const gone = new SvelteSet<string>();
 
 	const rows = $derived(projects.filter((project) => !gone.has(project.name)));
-	const countOf = (name: string) => schemas.filter((schema) => schema.project === name).length;
+	const countProjectSchemas = (name: string) => schemas.filter((schema) => schema.project === name).length;
 	const create = new Submission();
 	const remove = new Submission({
 		inline: true,
@@ -41,9 +41,9 @@
 		{#each rows as project (project.name)}
 			<tr>
 				<td>{project.name}</td>
-				<td>{countOf(project.name)}</td>
+				<td>{countProjectSchemas(project.name)}</td>
 				<td class="whitespace-nowrap">
-					{#if can.delete && project.name !== DEFAULT_PROJECT && countOf(project.name) === 0}
+					{#if can.delete && project.name !== DEFAULT_PROJECT && countProjectSchemas(project.name) === 0}
 						<DeleteButton onclick={() => (removing = project)} />
 					{/if}
 				</td>

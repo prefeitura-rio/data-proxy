@@ -26,8 +26,9 @@
 	let removing = $state<PolicyRow | null>(null);
 	const gone = new SvelteSet<string>();
 
-	const keyOf = (row: PolicyRow) => `${row.subject}|${row.unit_type}|${row.unit_id}`;
-	const rows = $derived(data.policy.filter((row) => !gone.has(keyOf(row))));
+	const policyRowKey = (row: PolicyRow) => `${row.scope}|${row.subject}|${row.unit_type}|${row.unit_id}`;
+	const scopeLabel = (scope: string) => (scope === '' ? '*' : scope);
+	const rows = $derived(data.policy.filter((row) => !gone.has(policyRowKey(row))));
 	const add = new Submission();
 	const update = new Submission({
 		inline: true,
@@ -38,7 +39,7 @@
 	const remove = new Submission({
 		inline: true,
 		begin: () => {
-			const key = removing ? keyOf(removing) : '';
+			const key = removing ? policyRowKey(removing) : '';
 
 			gone.add(key);
 
@@ -53,9 +54,9 @@
 <PageHeader title="Access">
 	<form method="GET" action={resolve('/access')}>
 		<label class="flex items-center gap-2 text-sm">
-			<span class="text-base-content/70">Schema</span>
-			<select class="select select-sm" name="schema" onchange={(event) => event.currentTarget.form?.requestSubmit()}>
-				{#each data.schemas as name (name)}<option selected={name === data.schema}>{name}</option>{/each}
+			<span class="text-base-content/70">Scope</span>
+			<select class="select select-sm" name="scope" onchange={(event) => event.currentTarget.form?.requestSubmit()}>
+				{#each data.scopes as name (name)}<option selected={name === data.scope}>{name}</option>{/each}
 			</select>
 		</label>
 		<noscript><button class="btn btn-sm" type="submit">Show</button></noscript>
@@ -64,9 +65,12 @@
 
 <FormAlert {form} />
 
-{#if data.schema}
+{#if data.scope}
 	<Section title="Access policy">
-		<p class="text-sm text-base-content/70">A change takes effect immediately.</p>
+		<p class="text-sm text-base-content/70">
+			A grant covers its scope and what is below it. The scope * covers every project. A change takes effect
+			immediately.
+		</p>
 		<FilterForm
 			action={resolve('/access')}
 			label="Search the policy"
@@ -78,13 +82,14 @@
 			<Field label="Subject or unit id contains" name="q" defaultValue={page.url.searchParams.get('q') ?? ''} />
 		</FilterForm>
 		<Table
-			head={['Subject', 'Unit type', 'Unit id', '']}
+			head={['Scope', 'Subject', 'Unit type', 'Unit id', '']}
 			caption="Access policy"
 			count={rows.length}
 			empty="No policy matches this search."
 		>
-			{#each rows as row (keyOf(row))}
+			{#each rows as row (policyRowKey(row))}
 				<tr>
+					<td>{scopeLabel(row.scope)}</td>
 					<td>{row.subject}</td>
 					<td>{row.unit_type ?? ''}</td>
 					<td>{row.unit_id ?? ''}</td>
@@ -107,7 +112,18 @@
 			pageKeys={['page']}
 		/>
 		{#if data.can.create}
-			<form method="POST" action={`?/add&schema=${data.schema}`} use:enhance={add.submit} class="toolbar">
+			<form
+				method="POST"
+				action={`?/add&scope=${encodeURIComponent(data.scope)}`}
+				use:enhance={add.submit}
+				class="toolbar"
+			>
+				<label class="flex flex-col gap-1 text-sm">
+					<span>Scope</span>
+					<select class="select select-sm" name="scope">
+						{#each data.scopes as name (name)}<option selected={name === data.scope}>{name}</option>{/each}
+					</select>
+				</label>
 				<Field label="Subject" name="subject" placeholder="subject" required />
 				<Field label="Unit type" name="unit_type" placeholder="unit type" required />
 				<label class="flex min-w-64 flex-col gap-1 text-sm">
@@ -130,17 +146,18 @@
 
 	<LogSection log={data.log} total={data.logTotal} page={data.logPage} params={page.url.searchParams} />
 {:else}
-	<p class="text-base-content/70">No schema to show.</p>
+	<p class="text-base-content/70">No scope to show.</p>
 {/if}
 
 <FormDialog
 	open={editing !== null}
 	title="Edit access policy of {editing?.subject ?? ''}"
-	action={`?/edit&schema=${data.schema}`}
+	action={`?/edit&scope=${encodeURIComponent(data.scope ?? '')}`}
 	submission={update}
 	onclose={() => (editing = null)}
 >
 	{#if editing}
+		<input type="hidden" name="old_scope" value={editing.scope} />
 		<input type="hidden" name="old_subject" value={editing.subject} />
 		<input type="hidden" name="old_unit_type" value={editing.unit_type ?? ''} />
 		<input type="hidden" name="old_unit_id" value={editing.unit_id ?? ''} />
@@ -153,7 +170,7 @@
 <FormDialog
 	open={removing !== null}
 	title="Delete access policy of {removing?.subject ?? ''}"
-	action={`?/remove&schema=${data.schema}`}
+	action={`?/remove&scope=${encodeURIComponent(data.scope ?? '')}`}
 	submission={remove}
 	onclose={() => (removing = null)}
 	confirm="Delete"
@@ -161,8 +178,10 @@
 >
 	{#if removing}
 		<p>
-			{removing.subject} loses access to {removing.unit_type}:{removing.unit_id}. The change takes effect immediately.
+			{removing.subject} loses access to {removing.unit_type}:{removing.unit_id} in {scopeLabel(removing.scope)}. The
+			change takes effect immediately.
 		</p>
+		<input type="hidden" name="old_scope" value={removing.scope} />
 		<input type="hidden" name="old_subject" value={removing.subject} />
 		<input type="hidden" name="old_unit_type" value={removing.unit_type ?? ''} />
 		<input type="hidden" name="old_unit_id" value={removing.unit_id ?? ''} />

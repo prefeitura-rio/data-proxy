@@ -1,13 +1,13 @@
-# An aggregate read goes to the aggregate function of the table, with the aggregate in the filter header
-# and no query string. The answer keeps the source and the snapshot.
-GET http://{{host}}/agg_ok?select=grp,n:qty.sum()&unit=eq.u1
+# An aggregate read goes to the aggregate function of the schema, with the table in the query string and the
+# aggregate in the filter header. The answer keeps the source and the snapshot.
+GET http://{{host}}/default/test/agg_ok?select=grp,n:qty.sum()&unit=eq.u1
 
 HTTP 200
 X-Source: ducklake
 X-DuckLake-Snapshot: 7
 [Asserts]
 jsonpath "$[0].via" == "rpc"
-jsonpath "$[0].args" == ""
+jsonpath "$[0].args" == "table=agg_ok"
 jsonpath "$[0].filter.aggregate.group[0].column" == "grp"
 jsonpath "$[0].filter.aggregate.group[0].alias" == "grp"
 jsonpath "$[0].filter.aggregate.items[0].fn" == "sum"
@@ -18,7 +18,7 @@ jsonpath "$[0].filter.columns" count == 3
 
 # The answer is stored under the key of the original request. The second read is a hit and does not
 # call the function again.
-GET http://{{host}}/agg_ok?select=grp,n:qty.sum()&unit=eq.u1
+GET http://{{host}}/default/test/agg_ok?select=grp,n:qty.sum()&unit=eq.u1
 
 HTTP 200
 X-Cache: HIT
@@ -27,7 +27,7 @@ jsonpath "$[0].n" == 1
 
 # A function that cut its answer at the cap gives a partial answer. The proxy sends it as it is and does not
 # store it, because it keeps only the answers with the status 200.
-GET http://{{host}}/agg_cap?select=grp,n:qty.sum()
+GET http://{{host}}/default/test/agg_cap?select=grp,n:qty.sum()
 
 HTTP 206
 Content-Range: 0-1/*
@@ -36,27 +36,27 @@ X-Cache: MISS
 jsonpath "$" count == 2
 jsonpath "$[0].via" == "rpc"
 
-GET http://{{host}}/agg_cap?select=grp,n:qty.sum()
+GET http://{{host}}/default/test/agg_cap?select=grp,n:qty.sum()
 
 HTTP 206
 X-Cache: MISS
 
 # A function that answers null sends the original request to the table.
-GET http://{{host}}/agg_null?select=grp,n:qty.sum()
+GET http://{{host}}/default/test/agg_null?select=grp,n:qty.sum()
 
 HTTP 200
 [Asserts]
 jsonpath "$.upstream" == "postgrest"
 
 # A function that does not exist sends the original request to the table.
-GET http://{{host}}/agg_gone?select=grp,n:qty.sum()
+GET http://{{host}}/default/test/agg_gone?select=grp,n:qty.sum()
 
 HTTP 200
 [Asserts]
 jsonpath "$.upstream" == "postgrest"
 
 # A read that needs every row, or another media type, never calls the function.
-GET http://{{host}}/agg_ok?select=grp,n:qty.sum()&case=count
+GET http://{{host}}/default/test/agg_ok?select=grp,n:qty.sum()&case=count
 Prefer: count=exact
 
 HTTP 200
@@ -65,7 +65,7 @@ jsonpath "$.upstream" == "postgrest"
 
 # The order, the limit and the offset of a group column go to the function inside the aggregate.
 # The aggregate leaves the top of the filter, so the table function never cuts the rows before the sum.
-GET http://{{host}}/agg_ok?select=grp,n:qty.sum()&order=grp.desc.nullslast&limit=3&offset=1
+GET http://{{host}}/default/test/agg_ok?select=grp,n:qty.sum()&order=grp.desc.nullslast&limit=3&offset=1
 
 HTTP 200
 [Asserts]
@@ -79,7 +79,7 @@ jsonpath "$[0].filter.limit" not exists
 jsonpath "$[0].filter.order" not exists
 
 # An alias on a column of the group goes to the function with the column and the alias.
-GET http://{{host}}/agg_ok?select=grupo:grp,n:qty.sum()
+GET http://{{host}}/default/test/agg_ok?select=grupo:grp,n:qty.sum()
 
 HTTP 200
 [Asserts]
@@ -88,13 +88,13 @@ jsonpath "$[0].filter.aggregate.group[0].column" == "grp"
 jsonpath "$[0].filter.aggregate.group[0].alias" == "grupo"
 
 # An order on a value that is not a column of the group goes to the table.
-GET http://{{host}}/agg_ok?select=grp,n:qty.sum()&order=qty
+GET http://{{host}}/default/test/agg_ok?select=grp,n:qty.sum()&order=qty
 
 HTTP 200
 [Asserts]
 jsonpath "$.upstream" == "postgrest"
 
-GET http://{{host}}/agg_ok?select=grp,n:qty.sum()&case=csv
+GET http://{{host}}/default/test/agg_ok?select=grp,n:qty.sum()&case=csv
 Accept: text/csv
 
 HTTP 200
@@ -102,10 +102,45 @@ HTTP 200
 jsonpath "$.upstream" == "postgrest"
 
 # A write never calls the function.
-POST http://{{host}}/agg_ok?select=grp,n:qty.sum()
+POST http://{{host}}/default/test/agg_ok?select=grp,n:qty.sum()
 Content-Type: application/json
 {"a":1}
 
 HTTP 200
 [Asserts]
 jsonpath "$.upstream" == "postgrest"
+
+# The planned and the estimated counts read a guess of the planner, which is 1000 rows for a table behind a function.
+# The proxy counts in DuckDB for them as it does for the exact count, and reports the mode that the client asked for.
+GET http://{{host}}/default/test/counted?select=id&limit=5
+Prefer: count=planned
+
+HTTP 206
+Content-Range: 0-4/60
+Preference-Applied: count=planned
+X-DuckLake-Snapshot: 7
+[Asserts]
+jsonpath "$[0].prefer" == "dropped"
+jsonpath "$" count == 5
+
+GET http://{{host}}/default/test/counted?select=id&limit=5&id=gt.0
+Prefer: count=estimated
+
+HTTP 206
+Content-Range: 0-4/60
+Preference-Applied: count=estimated
+
+GET http://{{host}}/default/test/counted?select=id&limit=5&id=gt.1
+Prefer: count=exact
+
+HTTP 206
+Content-Range: 0-4/60
+Preference-Applied: count=exact
+
+# A planned count without a limit has no count plan. PostgREST gets the exact count, not the guess of 1000 rows.
+GET http://{{host}}/default/test/counted?select=id&id=gt.2
+Prefer: count=planned
+
+HTTP 200
+[Asserts]
+jsonpath "$[0].prefer" == "count=exact"
