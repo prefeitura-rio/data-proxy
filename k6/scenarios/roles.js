@@ -81,7 +81,7 @@ const CATALOG_DOCUMENT = {
 const PROBES = {
     read_api: (client) => proxyGet(`/${FULL_TABLE}?select=unit_id&limit=1`, clientToken(client)).status === 200,
     read_ducklake: (client) =>
-        proxyGet(`/rpc/${FULL_TABLE}_dl_chg?select=change_type&start_snapshot=0&limit=1`, clientToken(client))
+        proxyGet(`/rpc/changes?table=${FULL_TABLE}&select=change_type&start_snapshot=0&limit=1`, clientToken(client))
             .status === 200,
     read_files: (client) =>
         consoleCall("GET", `/rpc/table_files?schema_name=${SCHEMA}&table_name=${FULL_SOURCE}`, client).status === 200,
@@ -237,7 +237,7 @@ function accessCatalog(k8s) {
         [
             "access-rbac-functions",
             "SELECT string_agg(DISTINCT p.proname, ',' ORDER BY p.proname) FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'rbac'",
-            "all_rows,can,load,mine,unknown",
+            "can,load,mine,unknown,whole",
         ],
         ["access-no-old-schemas", "SELECT to_regnamespace('admin') IS NULL AND to_regnamespace('authz') IS NULL", "t"],
         [
@@ -247,7 +247,7 @@ function accessCatalog(k8s) {
         ],
         [
             "access-helper-functions",
-            "SELECT coalesce(string_agg(p.proname, ','), '') FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'default__test' AND (p.proname ~ '_(dl|bq)_fn$' OR p.proname = 'dl_table_files') AND has_function_privilege('dp_api', p.oid, 'EXECUTE')",
+            "SELECT coalesce(string_agg(p.proname, ','), '') FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'default__test' AND (p.proname ~ '_(dl|bq)_fn$' OR p.proname = 'files') AND has_function_privilege('dp_api', p.oid, 'EXECUTE')",
             "",
         ],
         [

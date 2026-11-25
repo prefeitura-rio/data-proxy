@@ -160,7 +160,7 @@ export function waitForLocalTables(token) {
 export function fallbackDates(token) {
     const headers = { Authorization: `Bearer ${token}`, "Accept-Profile": "default__test" };
 
-    const snapshot = setupGet(`${POSTGREST_URL}/rpc/dl_latest_snapshot`, {
+    const snapshot = setupGet(`${POSTGREST_URL}/rpc/snapshot`, {
         headers,
         tags: { name: "load_setup:snapshot" },
     });
@@ -228,7 +228,7 @@ export function visibleIds(token) {
 export function readableSnapshots(token) {
     const headers = { Authorization: `Bearer ${token}`, "Accept-Profile": "default__test" };
 
-    const latest = setupGet(`${POSTGREST_URL}/rpc/dl_latest_snapshot`, {
+    const latest = setupGet(`${POSTGREST_URL}/rpc/snapshot`, {
         headers,
         tags: { name: "load_setup:snapshot" },
     });

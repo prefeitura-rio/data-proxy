@@ -82,7 +82,7 @@ export function failover(k8s) {
     expect("the policy write is removed again", changeAccessPolicy("DELETE", "?subject=eq.e2e_failover_probe") < 300);
 
     const feed = proxyGet(
-        `/rpc/${FULL_TABLE}_dl_chg?select=change_type&start_snapshot=0&limit=1`,
+        `/rpc/changes?table=${FULL_TABLE}&select=change_type&start_snapshot=0&limit=1`,
         clientToken("admin"),
     );
 

@@ -183,7 +183,7 @@ export function readRows(r) {
  * @returns {string}
  */
 export function snapshotValue(token) {
-    const response = directPostgrest("/rpc/dl_latest_snapshot", token);
+    const response = directPostgrest("/rpc/snapshot", token);
     const body = safeJson(response);
 
     ducklake.requirePrecondition(
