@@ -211,7 +211,7 @@ A backend that serves for an hour then keeps about 30 MB after a heavy answer, a
 #}
 {% macro duckdb_query_select(columns, duckdb_view) -%}
     FROM duckdb.query(
-      'SELECT {{ columns | map(attribute='name') | join(', ') }} FROM {{ duckdb_view }}'
+      'SELECT {% for column in columns %}{% if column.is_json %}CAST(to_json({{ column.name }}) AS VARCHAR) AS {{ column.name }}{% else %}{{ column.name }}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %} FROM {{ duckdb_view }}'
     ) r
 {%- endmacro %}
 

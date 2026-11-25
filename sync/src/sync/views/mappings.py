@@ -32,9 +32,14 @@ if TYPE_CHECKING:
 
 
 def is_nested_or_json(duckdb_type: str) -> bool:
-    """Return true when a DuckDB type carries JSON, alone or nested."""
-    upper = duckdb_type.upper()
-    return upper.startswith(("STRUCT", "ARRAY", "LIST", "JSON"))
+    """Return true when a DuckDB type is JSON or holds nested values: a struct, a map, a union, or a list.
+
+    DuckDB names a list `BIGINT[]` and a fixed-size array `INTEGER[3]`, so a type that ends in `]` is nested too.
+    """
+    upper = duckdb_type.strip().upper()
+    return upper.startswith(("STRUCT", "MAP", "UNION", "ARRAY", "LIST", "JSON")) or (
+        upper.endswith("]")
+    )
 
 
 def is_list(duckdb_type: str) -> bool:
@@ -95,13 +100,35 @@ def rls_mapping_entries(
     return entries
 
 
+WHOLE_NUMBER_TYPES: Final = frozenset({"INTEGER", "INT", "BIGINT"})
+FLOATING_POINT_TYPES: Final = frozenset({"DOUBLE", "FLOAT", "REAL"})
+TIMESTAMP_TYPES: Final = frozenset({"TIMESTAMP", "TIMESTAMP_MS", "TIMESTAMP_S"})
+TIMESTAMP_TZ_TYPES: Final = frozenset({"TIMESTAMPTZ", "TIMESTAMP WITH TIME ZONE"})
+
+
 def pg_scalar_type(duckdb_type: str) -> str:
-    """Return the PostgreSQL scalar type for one DuckDB column type."""
-    match duckdb_type.upper():
-        case "DATE" | "BOOLEAN" as t:
-            return t.lower()
-        case t if t.startswith(("INTEGER", "BIGINT", "INT")):
+    """Return the PostgreSQL scalar type for one DuckDB column type.
+
+    A decimal and a floating point value keep a numeric type, so PostgreSQL compares, sums and orders them as numbers.
+    A timestamp keeps a timestamp type, so PostgreSQL orders it by time and not by the text of the time.
+    A nanosecond timestamp stays text, because PostgreSQL keeps microseconds and a cast would merge two values
+    that differ in the last three digits.
+    """
+    upper = duckdb_type.upper()
+    base = upper.split("(")[0].strip()
+    match base:
+        case "DATE" | "BOOLEAN":
+            return base.lower()
+        case t if t in WHOLE_NUMBER_TYPES:
             return "bigint"
+        case "DECIMAL" | "NUMERIC":
+            return "numeric"
+        case t if t in FLOATING_POINT_TYPES:
+            return "double precision"
+        case t if t in TIMESTAMP_TYPES:
+            return "timestamp"
+        case t if t in TIMESTAMP_TZ_TYPES:
+            return "timestamptz"
         case _:
             return "text"
 

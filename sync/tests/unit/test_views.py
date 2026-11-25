@@ -25,11 +25,23 @@ from tests.fixtures.types import NoFallbackSource, RecordedConnection
 from tests.helpers.core import exactly
 
 
+def render_macro(name: str, *arguments: object) -> str:
+    """Render one macro of the serving macros with the arguments of its call."""
+    from sync.constants import SQL_DIR
+    from sync.templates import jinja_environment
+
+    module = (
+        jinja_environment(SQL_DIR).get_template("postgres/macros.sql").make_module()
+    )
+    macro: Callable[..., object] = getattr(module, name)
+    return str(macro(*arguments))
+
+
 class TestSourceMappings:
     """Source adapter and table function mapping behavior."""
 
     def test_marks_nested_columns_as_json(self) -> None:
-        """Map nested DuckDB columns to JSONB-compatible output."""
+        """The table function returns nested columns as text, and the boundary view converts them to jsonb."""
         columns = utils.function_columns(
             [("payload", "STRUCT(id BIGINT)"), ("count", "BIGINT")],
             raw_json=False,
@@ -40,6 +52,82 @@ class TestSourceMappings:
         assert columns[0]["return_type"] == "text"
         assert columns[1]["is_json"] is False
         assert columns[1]["pg_type"] == "bigint"
+
+    @pytest.mark.parametrize(
+        "duckdb_type",
+        [
+            pytest.param("JSON", id="json"),
+            pytest.param("STRUCT(id BIGINT)", id="struct"),
+            pytest.param("BIGINT[]", id="list"),
+            pytest.param("VARCHAR[]", id="list-of-text"),
+            pytest.param("MAP(VARCHAR, BIGINT)", id="map"),
+            pytest.param("INTEGER[3]", id="array"),
+            pytest.param("UNION(a INTEGER, b VARCHAR)", id="union"),
+        ],
+    )
+    def test_marks_every_json_and_nested_type_as_json(self, duckdb_type: str) -> None:
+        """Every nested type reaches the boundary view as JSON text, so the view can convert it."""
+        assert utils.is_nested_or_json(duckdb_type) is True
+
+    @pytest.mark.parametrize(
+        "duckdb_type",
+        [
+            pytest.param("JSON", id="json"),
+            pytest.param("STRUCT(id BIGINT)", id="struct"),
+            pytest.param("BIGINT[]", id="list"),
+            pytest.param("MAP(VARCHAR, BIGINT)", id="map"),
+        ],
+    )
+    def test_converts_every_nested_column_to_jsonb_in_the_boundary_view(
+        self, duckdb_type: str
+    ) -> None:
+        """A client and a JSON path in PostgREST see jsonb, as on a native table."""
+        mapping = utils.boundary_view_mapping("app", "t", "t_fn", [("c", duckdb_type)])
+
+        assert mapping["columns"] == ['"c"::jsonb AS "c"']
+
+    @pytest.mark.parametrize(
+        ("duckdb_type", "expected"),
+        [
+            pytest.param("BIGINT", "bigint", id="bigint"),
+            pytest.param("INTEGER", "bigint", id="integer"),
+            pytest.param("DATE", "date", id="date"),
+            pytest.param("BOOLEAN", "boolean", id="boolean"),
+            pytest.param("VARCHAR", "text", id="text"),
+            pytest.param("DECIMAL(18,2)", "numeric", id="decimal"),
+            pytest.param("DECIMAL(38,0)", "numeric", id="wide-decimal"),
+            pytest.param("DOUBLE", "double precision", id="double"),
+            pytest.param("FLOAT", "double precision", id="float"),
+            pytest.param("REAL", "double precision", id="real"),
+            pytest.param("TIMESTAMP", "timestamp", id="timestamp"),
+            pytest.param("TIMESTAMP WITH TIME ZONE", "timestamptz", id="timestamptz"),
+            pytest.param("TIMESTAMPTZ", "timestamptz", id="timestamptz-short-name"),
+            pytest.param(
+                "TIMESTAMP_NS", "text", id="nanoseconds-would-lose-three-digits"
+            ),
+            pytest.param("TIMESTAMP_MS", "timestamp", id="milliseconds"),
+            pytest.param("TIMESTAMP_S", "timestamp", id="seconds"),
+            pytest.param("INTERVAL", "text", id="interval"),
+        ],
+    )
+    def test_keeps_the_type_of_a_scalar_column(
+        self, duckdb_type: str, expected: str
+    ) -> None:
+        """A decimal and a float keep a numeric type, so PostgreSQL compares and sums them as numbers."""
+        assert utils.return_type_for(duckdb_type) == expected
+
+    def test_asks_duckdb_for_valid_json_of_every_nested_column(self) -> None:
+        """DuckDB prints a STRUCT as {'a': 1} and a LIST as [t1, x], which PostgreSQL rejects as json. to_json prints valid JSON."""
+        columns = utils.function_columns(
+            [("doc", "STRUCT(a BIGINT)"), ("tags", "VARCHAR[]"), ("n", "BIGINT")],
+            raw_json=True,
+        )
+
+        sql = render_macro("duckdb_query_select", columns, "duckdb_view")
+
+        assert 'CAST(to_json("doc") AS VARCHAR) AS "doc"' in sql
+        assert 'CAST(to_json("tags") AS VARCHAR) AS "tags"' in sql
+        assert 'to_json("n")' not in sql
 
     @pytest.mark.parametrize(
         ("duckdb_type", "sortable"),
