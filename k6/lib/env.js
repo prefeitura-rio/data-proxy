@@ -99,7 +99,6 @@ export const VALKEY_POD = "data-proxy-valkey-0";
 export const CONSOLE_VIEWS = [
     "schemas",
     "tables",
-    "rls",
     "queues",
     "schedules",
     "runs",

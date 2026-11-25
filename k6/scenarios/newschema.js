@@ -50,15 +50,18 @@ function newSchema(k8s) {
         const created = [
             consoleCall("POST", "/schemas", "admin", { ...schemaIdentity(NEW_SCHEMA), claim: "preferred_username" }),
             consoleCall("POST", "/tables", "admin", { name: NEW_SCHEMA_SOURCE, schema: NEW_SCHEMA, strategy: "full" }),
-            consoleCall("POST", "/rls", "admin", {
+            consoleCall("POST", "/rpc/replace_rls", "admin", {
                 table_name: NEW_SCHEMA_SOURCE,
-                column_name: "unit_id",
-                unit_type: "unit",
+                groups: [{ conditions: [{ column: "unit_id", unit_type: "unit" }] }],
             }),
         ];
 
         ["the schema", "the table", "the rule"].forEach((what, index) =>
-            requirePrecondition(`the console accepts ${what} of the new schema`, created[index]?.status === 201, {}),
+            requirePrecondition(
+                `the console accepts ${what} of the new schema`,
+                created[index]?.status === (what === "the rule" ? 204 : 201),
+                {},
+            ),
         );
 
         expect(
@@ -67,7 +70,11 @@ function newSchema(k8s) {
                 source: { type: "bigquery" },
                 claim: "preferred_username",
                 tables: [
-                    { name: NEW_SCHEMA_SOURCE, strategy: "full", rls: [{ column: "unit_id", unit_type: "unit" }] },
+                    {
+                        name: NEW_SCHEMA_SOURCE,
+                        strategy: "full",
+                        rls: [{ conditions: [{ column: "unit_id", unit_type: "unit" }] }],
+                    },
                 ],
             }),
         );

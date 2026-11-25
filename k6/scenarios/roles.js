@@ -232,7 +232,7 @@ function accessCatalog(k8s) {
         [
             "access-functions",
             "SELECT string_agg(DISTINCT p.proname, ',' ORDER BY p.proname) FROM pg_proc AS p INNER JOIN pg_namespace AS n ON p.pronamespace = n.oid WHERE n.nspname = 'console' AND p.prorettype <> 'trigger'::regtype",
-            "cancel_run,config,control_run,control_schedule,export_config,guard_run,guard_schedule,import_config,import_preview,import_schemas,mine_table,pause_schedule,permissions,resume_run,resume_schedule,retry_run,schedule_schema,scopes,set_schedule,start_scope,start_sync,sync_config,table_files,username",
+            "cancel_run,config,control_run,control_schedule,export_config,guard_run,guard_schedule,import_config,import_preview,import_schemas,mine_table,pause_schedule,permissions,replace_rls,resume_run,resume_schedule,retry_run,rules,schedule_schema,scopes,set_schedule,start_scope,start_sync,sync_config,table_files,username",
         ],
         [
             "access-rbac-functions",

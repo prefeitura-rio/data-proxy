@@ -1,3 +1,4 @@
+/** @import { Response as K6Response } from 'k6/http' */
 import http from "k6/http";
 import {
     CONSOLE_VIEWS,
@@ -22,6 +23,9 @@ import {
 } from "../lib/index.js";
 
 const { expect, expectEach } = scenario("console");
+
+/** The rule of one unit column, as `replace_rls` takes it and `sync.json` shows it. */
+const UNIT_RULE = { conditions: [{ column: "unit_id", unit_type: "unit" }] };
 
 /**
  * Verifies the API of the console after the sync: reads are scoped to the schemas of the token,
@@ -109,7 +113,7 @@ export function console() {
     );
 }
 
-const CONSOLE_FUNCTIONS = ["config", "sync_config", "username"];
+const CONSOLE_FUNCTIONS = ["config", "sync_config", "username", "rules"];
 const CONSOLE_LEVELS = ["console", "admin"];
 
 /**
@@ -127,6 +131,13 @@ function surface() {
             expect(`${client} calls ${name}`, consoleCall("GET", `/rpc/${name}`, client).status === 200),
         );
     });
+
+    CONSOLE_LEVELS.forEach((client) =>
+        expect(
+            `${client} can't read the table of rules, which only rules() and replace_rls() reach`,
+            consoleCall("GET", "/rls?limit=1", client).status === 403,
+        ),
+    );
 
     expect(
         "the helper function returns the user name of the token",
@@ -224,6 +235,30 @@ function surface() {
 }
 
 /**
+ * Replaces the rules of a table through the function that migration 00018 added. The table `console.rls` is closed to
+ * the token role, so a rule goes in only through this function.
+ * @param {string} table
+ * @param {unknown[]} groups
+ * @param {string} [client]
+ * @returns {K6Response}
+ */
+function replaceRules(table, groups, client = "admin") {
+    return consoleCall("POST", "/rpc/replace_rls", client, { table_name: table, groups });
+}
+
+/**
+ * Counts the rules of the tables that the checks add, by the function that reads them.
+ * @returns {number}
+ */
+function countRules() {
+    const response = consoleCall("GET", "/rpc/rules", "admin");
+
+    return response.status === 200
+        ? readRows(response).filter((row) => String(row.table_name).startsWith("p.d.")).length
+        : -1;
+}
+
+/**
  * Verifies the HTTP contract of the console with an admin: rows in, a document out, and errors as statuses.
  */
 function behaviour() {
@@ -240,16 +275,13 @@ function behaviour() {
             n: 4,
         }),
         consoleCall("POST", "/tables", "admin", { name: "p.d.beta", schema: beta }),
-        consoleCall("POST", "/rls", "admin", {
-            table_name: "p.d.one",
-            column_name: "unit_id",
-            unit_type: "unit",
-        }),
     ];
 
-    ["schema alpha", "schema beta", "table p.d.one", "table p.d.beta", "the rule of p.d.one"].forEach((what, index) =>
+    ["schema alpha", "schema beta", "table p.d.one", "table p.d.beta"].forEach((what, index) =>
         expect(`${what} goes in as a row with a 201`, created[index]?.status === 201),
     );
+
+    expect("the rule of p.d.one goes in through replace_rls with a 204", replaceRules("p.d.one", [UNIT_RULE]).status === 204);
 
     expect(
         "sync.json shows a schema, a table, and a rule that went in as rows",
@@ -261,7 +293,7 @@ function behaviour() {
                     name: "p.d.one",
                     strategy: "partitioned",
                     n: 4,
-                    rls: [{ column: "unit_id", unit_type: "unit" }],
+                    rls: [UNIT_RULE],
                 },
             ],
         }),
@@ -276,11 +308,7 @@ function behaviour() {
         consoleCall("POST", "/tables", "admin", { name: "p.d.two", schema: alpha, strategy: "nope" }).status,
         consoleCall("POST", "/tables", "admin", { name: "p.d.three", schema: "none_such" }).status,
         consoleCall("POST", "/tables", "admin", { name: "p.d.four", schema: alpha, strategy: "full", n: 4 }).status,
-        consoleCall("POST", "/rls", "admin", {
-            table_name: "p.d.beta",
-            column_name: "unit_id",
-            unit_type: "unit",
-        }).status,
+        replaceRules("p.d.beta", [UNIT_RULE]).status,
         consoleCall("DELETE", `/schemas?name=eq.${alpha}`, "admin").status,
     ];
 
@@ -326,8 +354,8 @@ function behaviour() {
         strategy: "full",
         cache_ttl: 60,
         rls: [
-            { column: "unit_id", unit_type: "unit" },
-            { column: "region_id", unit_type: "region" },
+            { conditions: [{ column: "unit_id", unit_type: "unit" }] },
+            { conditions: [{ column: "region_id", unit_type: "region" }] },
         ],
     };
 
@@ -358,7 +386,7 @@ function behaviour() {
         documentBecomes(importName, entry([full, partitioned])),
     );
 
-    const replaced = { ...full, rls: [{ column: "other", unit_type: "unit" }] };
+    const replaced = { ...full, rls: [{ conditions: [{ column: "other", unit_type: "unit" }] }] };
     expect("a second import is accepted", load({ [importKey]: entry([replaced]) }) === 204);
 
     expect(
@@ -378,7 +406,7 @@ function behaviour() {
 
     expect(
         "deleting a table deletes its rules",
-        waitUntil(10, () => consoleRows("/rls?table_name=like.p.d.*", "admin") === 1),
+        waitUntil(10, () => countRules() === 1),
     );
 
     consoleCall("DELETE", "/tables?name=eq.p.d.one", "admin");
@@ -395,7 +423,7 @@ function behaviour() {
 
     expect(
         "the admin removes the rules that the checks added",
-        waitUntil(10, () => consoleRows("/rls?table_name=like.p.d.*", "admin") === 0, "the rules to go"),
+        waitUntil(10, () => countRules() === 0, "the rules to go"),
     );
 }
 
