@@ -42,12 +42,15 @@ Each configured schema contains metadata and views:
 | --- | --- |
 | `<schema>.<table>` | PostgreSQL view over the table function. |
 | `<schema>.<table>_fn()` | `SECURITY DEFINER` function that checks row-level security (RLS), plans the sources, and reads them. |
-| `<schema>.<table>_agg()` | `SECURITY DEFINER` function that applies RLS and runs the aggregate of a request inside DuckDB. It answers `null` for a request that the table function must serve. A table with a name longer than 59 bytes has none. |
-| `<schema>.<table>_dl_chg(bigint, bigint)` | `SECURITY DEFINER` function that returns the DuckLake change feed of the table, with the same schema scope and row policy. |
+| `<schema>.agg("table")` | `SECURITY DEFINER` wrapper that runs the aggregate of a request inside DuckDB for the table in the argument. It answers `null` for a request that the table function must serve. |
+| `<schema>.changes("table", bigint, bigint)` | `SECURITY DEFINER` wrapper that returns the DuckLake change feed of the table, with the same schema scope and row policy. The row is in the column `data`. |
+| `<schema>.hll("table", "column", group_by, lg_k)` | `SECURITY DEFINER` wrapper that estimates the distinct values of a column with a HyperLogLog sketch. |
 | `<schema>.<table>_dl_fn(text, text, boolean, text[], text)` | Private `SECURITY DEFINER` helper that reads DuckLake at one snapshot, with the columns and the tail that the request needs. |
 | `<schema>.<table>_bq_fn(text, text)` | Private `SECURITY DEFINER` helper that reads the schema source (BigQuery today) when a partitioned table sets `fallback: true`. |
 
-Internal functions and procedures live in the application schema (`data_proxy` by default): `request_filter`, `render_ducklake_where`, `requested_snapshot`, source routing, access-log triggers and maintenance procedures. The schema isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as PostgREST RPC endpoints. See [Proxy](proxy/index.md).
+One function, `rls_where`, builds the row policy for the table function and for the three wrappers, so the view and the aggregates never read different rows for one user. The three wrappers call functions of the application schema with the name of the schema. The functions read the columns, the row rules, the claim and the scope of the table from `data_proxy.meta`, which the sync writes with the view. The wrappers exist once for each schema, and no function exists for each table, except `<table>_fn` and the helpers.
+
+Internal functions and procedures live in the application schema (`data_proxy` by default): `meta`, `agg`, `hll`, `changes`, `request_filter`, `render_ducklake_where`, `requested_snapshot`, source routing, access-log triggers and maintenance procedures. The schema isn't in `PGRST_DB_SCHEMAS`, so these objects aren't exposed as PostgREST RPC endpoints. See [Proxy](proxy/index.md).
 
 PostgreSQL doesn't contain materialized application data tables. The table views call DuckDB, which reads the catalog of its own PostgreSQL instance and scans Parquet in SeaweedFS.
 

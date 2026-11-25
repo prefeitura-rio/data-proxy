@@ -42,30 +42,64 @@ Combine filters with `&`. PostgREST applies them with AND. row-level security (R
 
 A `select` with `sum()`, `avg()`, `count()`, `min()` or `max()` and a group runs inside DuckDB, so it stays fast on large tables. See [Query pushdown](proxy/pushdown.md#aggregates).
 
-Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`. A count reads every row, so the proxy doesn't push the `limit` for it.
+## Distinct count estimate
 
-## DuckLake change feed
-
-Each configured table exposes a read-only RPC named `<table>_dl_chg` in its target schema. PostgreSQL cuts a name at 63 bytes, so the RPC of a table with a very long name has the cut name. It accepts `start_snapshot` and an optional `end_snapshot` and returns the DuckLake change type, snapshot ID, row ID and typed row columns.
+Each schema has a read-only RPC named `hll`. It estimates the number of distinct values of a column with a HyperLogLog sketch, in DuckDB. It takes the table in `table` and the column in `column`. The optional `group_by` gives one estimate for each value of another column, and `lg_k` sets the precision from 4 to 21. The default is 12, which gives a mean error of about 1 percent.
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
-  --get "${BASE_URL}/my_project/my_schema/rpc/participants_dl_chg" \
-  --data-urlencode "start_snapshot=12" \
-  --data-urlencode "end_snapshot=15"
+  --get "${BASE_URL}/my_project/my_schema/rpc/hll" \
+  --data-urlencode "table=participants" \
+  --data-urlencode "column=cpf" \
+  --data-urlencode "group_by=city"
 ```
 
-Use the schema RPC `dl_latest_snapshot` to get the current cursor before or after reading a range:
+The answer is `[{"city": "Rio", "estimate": 18211}]`, or `[{"estimate": 18211}]` without `group_by`. The column and the `group_by` column must be a text, a whole number, a date or a true-or-false column. The estimate applies the row policy of the table. The function answers `409` for a table with a fallback source, because it reads only DuckLake.
+
+Use `Prefer: count=exact` to request a total. Read the total from `Content-Range`. A count reads every row, so the proxy doesn't push the `limit` for it.
+
+## DuckLake change feed
+
+Each schema has a read-only RPC named `changes`. It takes the table in the argument `table`, and it accepts `start_snapshot` and an optional `end_snapshot`. It returns the DuckLake change type, the snapshot ID, the row ID and the row. The row is the object `data`, with one key for each column of the table.
+
+```bash
+curl \
+  --header "Authorization: Bearer ${TOKEN}" \
+  --get "${BASE_URL}/my_project/my_schema/rpc/changes" \
+  --data-urlencode "table=participants" \
+  --data-urlencode "start_snapshot=12" \
+  --data-urlencode "end_snapshot=15" \
+  --data-urlencode "select=change_type,cpf:data->>cpf"
+```
+
+A client reads a column with a JSON path, for example `data->>cpf`, and filters with `data->>cpf=eq.1`. The function replaces `<table>_dl_chg`, which gave one typed column for each column. A client of that function reads `data->>column` now.
+
+Use the schema RPC `snapshot` to get the current cursor before or after reading a range:
 
 ```bash
 curl \
   --header "Authorization: Bearer ${TOKEN}" \
   --request POST \
-  "${BASE_URL}/my_project/my_schema/rpc/dl_latest_snapshot"
+  "${BASE_URL}/my_project/my_schema/rpc/snapshot"
 ```
 
 Snapshot bounds are inclusive. The feed returns deleted rows as preimages. The same schema scope and row policy apply to change rows, including deleted preimages. DuckLake keeps the snapshot history for seven days, so consumers must advance their cursor within that window. Compaction preserves change history, but snapshot expiration removes history that references expired snapshots.
+
+## Renamed functions
+
+A release renamed three functions of each data schema and one function of the `rbac` schema. The old names no longer exist, and a request to an old name answers 404. Use the new names.
+
+| Old name | New name |
+| --- | --- |
+| `/rpc/dl_latest_snapshot` | `/rpc/snapshot` |
+| `/rpc/dl_table_files` | `/rpc/files` |
+| `/rpc/dl_chg` | `/rpc/changes` |
+| `rbac.all_rows(schema)` | `rbac.whole(schema)` |
+
+The internal table `data_proxy.table_meta` is now `data_proxy.meta`, and its column `dl_view` is now `view`. Only the sync and the generic functions read it.
+
+Deploy the migration and the sync first, and the proxy after. Until the sync runs, `changes` and `files` refuse every table.
 
 ## Response source and cache
 
