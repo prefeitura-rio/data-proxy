@@ -20,7 +20,6 @@ from psycopg.rows import TupleRow
 
 from sync.dbos import logs, workflows
 from sync.models import (
-    DumpResult,
     DumpTask,
     LoadedConfig,
     SyncPlan,
@@ -74,7 +73,7 @@ def stub_sync_run(
     async def enqueue_workflow(queue: str, workflow: object, *args: object) -> object:
         label = enqueue_label(workflow, args)
         is_dump = workflow is workflows.dump_task
-        result: DumpResult | int | None = DumpResult()
+        result: int | None = None
         if not is_dump:
             result = snapshot_ids[label] if snapshot_ids is not None else snapshot_id
             if publishes is not None:
@@ -83,7 +82,7 @@ def stub_sync_run(
                 )
         events.append(f"enqueue:{label}")
 
-        async def get_result() -> DumpResult | int | None:
+        async def get_result() -> int | None:
             events.append(f"wait:{label}")
             return result
 

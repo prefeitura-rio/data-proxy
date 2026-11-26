@@ -11,8 +11,6 @@ from sync.models import (
     DuckLakePartition,
     DuckLakePartitionTransform,
     DuckLakeTableConfig,
-    DumpResult,
-    DumpStatus,
     DumpTask,
     FullTable,
     PartitionChange,
@@ -422,22 +420,6 @@ class TestDuckLakeConfigValidators:
         assert DuckLakeTableConfig().sort is None
         with pytest.raises(ValidationError, match="at least one column"):
             DuckLakeTableConfig(sort=[])
-
-
-class TestDumpResult:
-    """A dump result says which files failed, and a failure must name at least one."""
-
-    def test_a_failure_without_a_failed_path_is_refused(self) -> None:
-        """Stop a failure that the publish step could not skip."""
-        with pytest.raises(ValidationError, match="must have failed paths"):
-            DumpResult(status=DumpStatus.FAILURE)
-
-    def test_a_failure_with_its_paths_and_a_success_with_none_are_valid(self) -> None:
-        """Accept the two shapes that the dump workflow returns."""
-        assert DumpResult(
-            status=DumpStatus.FAILURE, failed_paths=["s3://b/t"]
-        ).failed_paths == ["s3://b/t"]
-        assert DumpResult().failed_paths == []
 
 
 class TestTableSignatureFields:

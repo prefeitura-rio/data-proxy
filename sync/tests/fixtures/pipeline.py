@@ -1,9 +1,11 @@
 """A sync run with its real steps, a fake source and the real PostgreSQL, S3 and DuckLake of the test stack."""
 
+import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from itertools import count
 from types import SimpleNamespace
 from typing import final
 from unittest.mock import AsyncMock
@@ -187,16 +189,20 @@ async def pipeline(
         if hasattr(workflows, name):
             monkeypatch.setattr(workflows, name, body)
 
+    workflow_ids = count(1)
+
     async def enqueue(
         queue: str, workflow: Callable[..., Awaitable[object]], *args: object
     ) -> object:
-        result = await workflow_body(workflow)(*args)
+        """Run the workflow at once, and raise its error from get_result, like DBOS."""
+        result = asyncio.ensure_future(workflow_body(workflow)(*args))
+        await asyncio.wait([result])
 
         async def get_result() -> object:
-            return result
+            return await result
 
         return SimpleNamespace(
-            get_result=get_result, workflow_id=f"workflow-{id(result)}-{len(args)}"
+            get_result=get_result, workflow_id=f"workflow-{next(workflow_ids)}"
         )
 
     monkeypatch.setattr(

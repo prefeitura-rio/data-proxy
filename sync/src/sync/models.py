@@ -406,22 +406,6 @@ class DumpStatus(StrEnum):
     FAILURE = "error"
 
 
-class DumpResult(BaseModel):
-    """Result of one extraction task."""
-
-    model_config: ClassVar[ConfigDict] = ConfigDict({"extra": "forbid"})
-
-    status: DumpStatus = DumpStatus.SUCCESS
-    failed_paths: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def require_failed_paths_on_failure(self) -> Self:
-        """Require at least one failed path when the status is failure."""
-        if self.status == DumpStatus.FAILURE and len(self.failed_paths) == 0:
-            raise ValueError("Failed extraction must have failed paths")
-        return self
-
-
 class PartitionChange(BaseModel):
     """One partition change: addition, update, or removal."""
 
