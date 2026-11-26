@@ -92,16 +92,34 @@ async def failed_dump_paths(
     return []
 
 
+async def maintain_schema(run_id: str, schema_name: str, document: str) -> int | None:
+    """Apply DuckLake maintenance to one schema and return its snapshot, or log the failure and return none."""
+    try:
+        return await apply_ducklake_maintenance(schema_name, document)
+    except Exception as error:
+        await logs.error("DuckLake maintenance failed", run_id=run_id, error=str(error))
+        return None
+
+
 @DBOS.workflow()
 async def publish_schema(
     run_id: str, plan: SyncPlan, failed_paths: set[str], document: str
 ) -> int | None:
-    """Publish and maintain one schema, then return its new snapshot, if any."""
+    """Publish and maintain one schema, then return its snapshot, or none when nothing has published.
+
+    The maintenance runs also when the commit publishes nothing or fails. A full storage fails every commit,
+    and only the maintenance deletes the files that free it. The planned changes stay until a commit succeeds,
+    so each run of the schema tries again. A failed commit still fails the workflow after the maintenance.
+    """
     SCHEMA.set(plan.schema_name)
 
     await logs.info("Publish started", run_id=run_id)
 
-    outcome = await commit_ducklake_snapshot(plan, failed_paths, document)
+    try:
+        outcome = await commit_ducklake_snapshot(plan, failed_paths, document)
+    except Exception:
+        await maintain_schema(run_id, plan.schema_name, document)
+        raise
 
     await logs.info(
         "Publish completed",
@@ -109,14 +127,12 @@ async def publish_schema(
         published_tables=len(outcome.published_tables),
     )
 
-    if outcome.snapshot_id is None:
-        return None
+    maintained = await maintain_schema(run_id, plan.schema_name, document)
 
-    try:
-        return await apply_ducklake_maintenance(plan.schema_name, document)
-    except Exception as error:
-        await logs.error("DuckLake maintenance failed", run_id=run_id, error=str(error))
+    if outcome.snapshot_id is None or maintained is None:
         return outcome.snapshot_id
+
+    return maintained
 
 
 @DBOS.workflow()

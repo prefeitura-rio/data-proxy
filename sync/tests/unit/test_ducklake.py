@@ -41,7 +41,7 @@ from sync.sources.partitions import (
     TimeRangeSelection,
 )
 from sync.templates import render_template
-from sync.types import DatabaseRow, DuckDBParams
+from sync.types import DatabaseRow, DuckDBParams, TemplateValue
 from sync.utils import RemovalLimitError
 from tests.constants import PARQUET, TEST_SQL_DIR
 from tests.helpers.core import exactly
@@ -316,7 +316,10 @@ class TestDucklakeMaintenance:
     async def test_expires_snapshots_merges_files_and_keeps_every_row(
         self, duckdb: DuckDB, tmp_path: Path
     ) -> None:
-        """After four commits and a maintenance run with no retention, the old snapshots and files are gone and every row is kept."""
+        """After four commits and two maintenance runs with no retention, the old snapshots and files are gone and every row is kept.
+
+        A run deletes the old files before it merges, so the files that the first merge replaces go in the second run.
+        """
         await attach_ducklake(duckdb, tmp_path)
         await create_ducklake_table(duckdb, "people")
         executor: Executor[DuckDBParams, list[DatabaseRow]] = Executor(conn=duckdb)
@@ -330,16 +333,20 @@ class TestDucklakeMaintenance:
         snapshots_before = await snapshot_count(duckdb)
         assert len(list((tmp_path / "data").rglob("*.parquet"))) == self.COMMITS
 
-        await executor.execute(
-            "duckdb/maintenance",
-            mapping={
-                "interval": "0 seconds",
-                "max_compacted_files": Literal(10),
-                "rewrite_delete_threshold": Literal(0.5),
-            },
-        )
+        maintenance: dict[str, TemplateValue] = {
+            "interval": "0 seconds",
+            "max_compacted_files": Literal(10),
+            "rewrite_delete_threshold": Literal(0.5),
+        }
+
+        await executor.execute("duckdb/maintenance", mapping=maintenance)
 
         assert await snapshot_count(duckdb) < snapshots_before
+        assert await ducklake_row_count(duckdb, "people") == rows
+        assert len(list((tmp_path / "data").rglob("*.parquet"))) == self.COMMITS + 1
+
+        await executor.execute("duckdb/maintenance", mapping=maintenance)
+
         assert await ducklake_row_count(duckdb, "people") == rows
         assert len(list((tmp_path / "data").rglob("*.parquet"))) == 1
 

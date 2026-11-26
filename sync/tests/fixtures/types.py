@@ -128,6 +128,7 @@ class Calls:
     """Workflow steps in the order they run, with the outcomes they return."""
 
     snapshot_id: int | None = 42
+    commit_error: Exception | None = None
     maintained_snapshot_id: int = 45
     maintenance_error: Exception | None = None
     names: list[str] = field(default_factory=list)
