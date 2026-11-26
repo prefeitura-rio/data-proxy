@@ -13,7 +13,7 @@ Each row of the table names one workflow or step, its work and its result.
 | `seed_schemas` | Reconciles the PostgreSQL functions and views of every table in a planned schema, and rebuilds the tables whose stored signature changed. | Returns whether the view set changed. |
 | `reconcile_idle_schemas` | Reconciles the PostgreSQL functions and views of the scope when the plan has no change. | Returns whether the view set changed. |
 | `publish_schema` | Inserts scratch Parquet into the schema catalog. | The commit creates a snapshot that every instance sees after replication. |
-| `apply_ducklake_maintenance` | Runs inside `publish_schema` after a publication. | Expires old snapshots, merges files, and removes old and orphaned Parquet files. |
+| `apply_ducklake_maintenance` | Runs inside `publish_schema` after each commit, also one that publishes nothing or fails. | Expires old snapshots, removes old and orphaned Parquet files, and merges files. |
 | `finalize_run` | Clears the scratch objects and the cache. | Keeps the DuckLake data prefix intact. |
 
 A run without a data change still reconciles the views of its scope. Each view stores the signature of its generated definition, so the step rebuilds only a table whose definition changed. This is how a new release reaches a table that didn't change. A run that dumps some tables does the same for every table of its planned schemas, so one run applies a release. The step reads the column types of each table from the source, so each run costs one lookup for each table of the schema. It doesn't dump, publish or clear the cache.
@@ -122,10 +122,11 @@ sequenceDiagram
     cat->>sb: WAL replication
     sb->>sb: next query sees the snapshot
   end
-  opt a snapshot was committed
+  rect rgba(128, 128, 128, 0.15)
+    Note over wk,sb: Maintain, also after a failed commit
     wk->>dd: run maintenance
     dd->>cat: expire snapshots
-    dd->>s3: merge files, remove old files
+    dd->>s3: remove old files, merge files
   end
 ```
 
@@ -133,7 +134,7 @@ sequenceDiagram
 - **Files first:** the writer writes the Parquet files before it commits the snapshot.
 - **State after each table:** the writer saves the signature of a table right after the commit of that table. A failed publish keeps the tables that committed, and the next run skips them.
 - **Retry:** a commit retries while the catalog is locked. `DUCKLAKE_COMMIT_MAX_ATTEMPTS` and `DUCKLAKE_COMMIT_RETRY_SECONDS` set the limit.
-- **Maintenance:** it runs only after a commit made a snapshot. A maintenance error is logged and doesn't stop the sync run.
+- **Maintenance:** it runs after each commit of a schema, also when the commit publishes nothing or fails. A full storage fails every commit, and only the maintenance deletes the files that free it. A schema with a change that didn't commit stays in the plan, so each run of the schema maintains it again. The maintenance removes the old files before it merges, because a merge writes files. A maintenance error is logged and doesn't stop the sync run. A commit error still fails the run after the maintenance.
 - **Retention:** `DUCKLAKE_SNAPSHOT_EXPIRATION` (7 days by default) keeps the files that an older snapshot uses. The CNPG backups cover the catalogs.
 
 See [DuckLake read path](serving.md#ducklake-read-path) for how a catalog reaches the readers.
