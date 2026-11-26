@@ -8,6 +8,7 @@
 	import RefreshControl from '#lib/components/RefreshControl.svelte';
 	import RunProgress from '#lib/components/RunProgress.svelte';
 	import Section from '#lib/components/Section.svelte';
+	import RunStatus from '#lib/components/RunStatus.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import Table from '#lib/components/Table.svelte';
 	import Time from '#lib/components/Time.svelte';
@@ -41,7 +42,7 @@
 	<RefreshControl {refresher} />
 </PageHeader>
 <p class="mb-4 flex flex-wrap items-center gap-1">
-	Status: <StatusBadge status={stream.status} /> Started by {data.run.started_by ??
+	Status: <RunStatus status={stream.status} failed={data.run.failed_task_count} /> Started by {data.run.started_by ??
 		data.run.schedule_name ??
 		'unknown'}.
 	{#if stream.live}

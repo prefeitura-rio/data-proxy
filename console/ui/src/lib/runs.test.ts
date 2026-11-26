@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { controlsFor, runFilters, RUN_STATUSES } from './runs';
+import { controlsFor, failedTasksLabel, runFilters, RUN_STATUSES } from './runs';
 
 describe('runFilters', () => {
 	it.each([
@@ -68,5 +68,16 @@ describe('controlsFor', () => {
 		['a status that DBOS may add later', 'WAITING', both, { cancel: false, resume: false, retry: false }]
 	])('offers the right buttons for %s', (_, status, permissions, expected) => {
 		expect(controlsFor(status, permissions)).toEqual(expected);
+	});
+});
+
+describe('failedTasksLabel', () => {
+	it.each([
+		['no failed task', 0, null],
+		['a count below zero', -1, null],
+		['one failed task', 1, '1 failed task'],
+		['many failed tasks', 188, '188 failed tasks']
+	])('names %s', (_, failed, expected) => {
+		expect(failedTasksLabel(failed)).toBe(expected);
 	});
 });
