@@ -17,6 +17,8 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> Calls:
         plan: SyncPlan, failed_paths: set[str], document: str
     ) -> PublicationResult:
         recorded.names.append("commit_ducklake_snapshot")
+        if recorded.commit_error is not None:
+            raise recorded.commit_error
         return PublicationResult(
             plan=plan, published_tables=set(), snapshot_id=recorded.snapshot_id
         )

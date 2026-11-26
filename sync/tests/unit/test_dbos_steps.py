@@ -473,13 +473,55 @@ class TestPublishSchemaOrder:
         ]
         assert snapshot_id == 45
 
-    async def test_returns_no_snapshot_when_nothing_was_published(
+    async def test_maintains_the_schema_and_returns_no_snapshot_when_nothing_was_published(
         self, calls: Calls
     ) -> None:
+        """A commit that publishes nothing still lets the maintenance free the storage."""
         calls.snapshot_id = None
 
         assert await publish(SyncPlan(schema_name="app")) is None
-        assert "apply_ducklake_maintenance" not in calls.names
+        assert calls.names == [
+            "commit_ducklake_snapshot",
+            "apply_ducklake_maintenance",
+        ]
+
+    async def test_maintains_the_schema_and_raises_the_error_when_the_commit_fails(
+        self, calls: Calls
+    ) -> None:
+        """A failed commit still lets the maintenance free the storage, and the workflow fails with the commit error."""
+        error = RuntimeError("disk full")
+        calls.commit_error = error
+
+        with pytest.raises(RuntimeError) as raised:
+            await publish(SyncPlan(schema_name="app"))
+
+        assert raised.value is error
+        assert calls.names == [
+            "commit_ducklake_snapshot",
+            "apply_ducklake_maintenance",
+        ]
+
+    async def test_raises_the_commit_error_when_the_maintenance_fails_too(
+        self, calls: Calls
+    ) -> None:
+        error = RuntimeError("disk full")
+        calls.commit_error = error
+        calls.maintenance_error = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError) as raised:
+            await publish(SyncPlan(schema_name="app"))
+
+        assert raised.value is error
+        assert calls.names[-1] == "apply_ducklake_maintenance"
+
+    async def test_returns_no_snapshot_when_nothing_was_published_and_maintenance_fails(
+        self, calls: Calls
+    ) -> None:
+        calls.snapshot_id = None
+        calls.maintenance_error = RuntimeError("boom")
+
+        assert await publish(SyncPlan(schema_name="app")) is None
+        assert calls.names[-1] == "apply_ducklake_maintenance"
 
     async def test_returns_the_published_snapshot_when_maintenance_fails(
         self, calls: Calls
