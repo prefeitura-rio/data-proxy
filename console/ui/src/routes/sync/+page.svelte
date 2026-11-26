@@ -12,6 +12,7 @@
 	import RefreshControl from '#lib/components/RefreshControl.svelte';
 	import Section from '#lib/components/Section.svelte';
 	import SubmitButton from '#lib/components/SubmitButton.svelte';
+	import RunStatus from '#lib/components/RunStatus.svelte';
 	import StatusBadge from '#lib/components/StatusBadge.svelte';
 	import Table from '#lib/components/Table.svelte';
 	import { poll } from '#lib/poll.svelte.js';
@@ -83,7 +84,7 @@
 		{#each data.runs as run (run.id)}
 			<tr>
 				<td><a class="link" href={resolve('/sync/runs/[id]', { id: run.id })}>{run.id.slice(0, 8)}</a></td>
-				<td><StatusBadge status={run.status} /></td>
+				<td><RunStatus status={run.status} failed={run.failed_task_count} /></td>
 				<td>{run.started_by ?? run.schedule_name ?? ''}</td>
 				<td><Time value={run.created_at} /></td>
 				<td>{run.task_count} ({run.failed_task_count} failed)</td>

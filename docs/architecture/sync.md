@@ -9,7 +9,7 @@ Each row of the table names one workflow or step, its work and its result.
 | Component | Work | Result |
 | --- | --- | --- |
 | `run_sync` | Plans changed tables and partitions. | Enqueues dump and publish workflows. |
-| `dump_task` | Extracts source data. | Writes independent scratch Parquet files. |
+| `dump_task` | Extracts source data. | Writes independent scratch Parquet files. A failure records `extraction_failed` and ends the task in `ERROR`, and the run publishes the other tables. |
 | `seed_schemas` | Reconciles the PostgreSQL functions and views of every table in a planned schema, and rebuilds the tables whose stored signature changed. | Returns whether the view set changed. |
 | `reconcile_idle_schemas` | Reconciles the PostgreSQL functions and views of the scope when the plan has no change. | Returns whether the view set changed. |
 | `publish_schema` | Inserts scratch Parquet into the schema catalog. | The commit creates a snapshot that every instance sees after replication. |

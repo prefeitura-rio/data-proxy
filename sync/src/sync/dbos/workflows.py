@@ -14,7 +14,6 @@ from sync.constants import DUMP_QUEUE, PUBLISH_QUEUE, SYNC_QUEUE
 from sync.log import SCHEMA, TABLE
 from sync.metrics import observe
 from sync.models import (
-    DumpResult,
     DumpStatus,
     DumpTask,
     SyncConfig,
@@ -48,9 +47,13 @@ from .steps import (
 from .utils import failure_reason
 
 
+class DumpFailedError(Exception):
+    """A dump task failed after its retries, and recorded why in the errors table."""
+
+
 @DBOS.workflow()
-async def dump_task(task: DumpTask) -> DumpResult:
-    """Dump one task, record its result, and return it to the parent workflow."""
+async def dump_task(task: DumpTask) -> None:
+    """Dump one task, and record its failure before it raises, so the task ends in ERROR."""
     SCHEMA.set(task.target_schema)
     TABLE.set(task.table)
 
@@ -58,18 +61,35 @@ async def dump_task(task: DumpTask) -> DumpResult:
 
     try:
         await extract_task(task)
-        result: DumpResult = DumpResult()
     except Exception as error:
-        await record_dump_failure(task, failure_reason(error))
-        result = DumpResult(status=DumpStatus.FAILURE, failed_paths=task.output_paths)
+        reason = failure_reason(error)
+        await record_dump_failure(task, reason)
+        await logs.info(
+            "Dump completed",
+            task_id=task.task_id,
+            status=DumpStatus.FAILURE.value,
+            failed_paths=len(task.output_paths),
+        )
+        raise DumpFailedError(reason) from error
 
     await logs.info(
         "Dump completed",
         task_id=task.task_id,
-        status=result.status.value,
-        failed_paths=len(result.failed_paths),
+        status=DumpStatus.SUCCESS.value,
+        failed_paths=0,
     )
-    return result
+
+
+async def failed_dump_paths(
+    handle: WorkflowHandleAsync[None], task: DumpTask
+) -> list[str]:
+    """Wait for one dump task, and return its paths when it failed, so its tables skip the publish."""
+    try:
+        await handle.get_result()
+    except DumpFailedError:
+        return task.output_paths
+
+    return []
 
 
 @DBOS.workflow()
@@ -128,7 +148,7 @@ async def run_sync(
                 await reload_postgrest()
             return
 
-        dump_handles: list[WorkflowHandleAsync[DumpResult]] = []
+        dump_handles: list[WorkflowHandleAsync[None]] = []
         for task in work.tasks:
             handle = await DBOS.enqueue_workflow_async(DUMP_QUEUE, dump_task, task)
             dump_handles.append(handle)
@@ -145,7 +165,7 @@ async def run_sync(
         failed_paths: dict[str, set[str]] = {}
         for handle, task in zip(dump_handles, work.tasks, strict=True):
             failed_paths.setdefault(task.target_schema, set()).update(
-                (await handle.get_result()).failed_paths
+                await failed_dump_paths(handle, task)
             )
 
         postgrest_reload_required = await seed_schemas(work.plans, loaded.document)

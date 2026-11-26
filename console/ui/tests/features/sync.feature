@@ -86,6 +86,7 @@ Feature: Sync runs
     Given I sign in as "web_admin"
     When I open the seeded run
     Then the run shows the status "SUCCESS"
+    And the run shows the status "1 failed task"
     And the page has no "Live logs" switch
     And the list with the column "Task" says "1 to 50 of 61"
     And the list with the column "Step" says "1 to 50 of 64"

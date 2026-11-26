@@ -26,6 +26,15 @@ export function controlsFor(status: string, permissions: string[]): Controls {
 	};
 }
 
+/** Name the failed tasks of a run, so a run that ends in SUCCESS with failed tasks doesn't read as a plain success. */
+export function failedTasksLabel(failed: number): string | null {
+	if (failed <= 0) {
+		return null;
+	}
+
+	return failed === 1 ? '1 failed task' : `${String(failed)} failed tasks`;
+}
+
 const DAY_MS = 86_400_000;
 
 function isDate(value: string): boolean {

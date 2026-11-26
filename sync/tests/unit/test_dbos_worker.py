@@ -13,7 +13,6 @@ from psycopg import OperationalError
 
 from sync.dbos import main as dbos_main
 from sync.dbos import utils, workflows
-from sync.models import DumpStatus
 from sync.settings import settings
 from sync.utils import RemovalLimitError
 from tests.fixtures.types import (
@@ -233,7 +232,7 @@ class TestServe:
 
 
 class TestDumpTask:
-    """A dump that fails records its failure. A dump that DBOS cancelled records nothing and stays cancelled."""
+    """A dump that fails records its failure and ends in ERROR. A dump that DBOS cancelled records nothing and stays cancelled."""
 
     @pytest.fixture
     def recorded(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
@@ -244,19 +243,20 @@ class TestDumpTask:
         return record
 
     @pytest.mark.asyncio
-    async def test_returns_the_failure_of_a_dump_that_failed(
+    async def test_records_the_failure_of_a_dump_and_raises_it(
         self, monkeypatch: pytest.MonkeyPatch, recorded: AsyncMock
     ) -> None:
-        """The run goes on without the paths of the failed dump."""
+        """The task ends in ERROR, so the console counts it as a failed task of its run."""
         task = dump_task()
         monkeypatch.setattr(
             workflows, "extract_task", AsyncMock(side_effect=RuntimeError("boom"))
         )
 
-        result = await workflow_body(workflows.dump_task)(task)
+        with pytest.raises(
+            workflows.DumpFailedError, match=exactly("RuntimeError: boom")
+        ):
+            await workflow_body(workflows.dump_task)(task)
 
-        assert result.status == DumpStatus.FAILURE
-        assert result.failed_paths == task.output_paths
         recorded.assert_awaited_once_with(task, "RuntimeError: boom")
 
     @pytest.mark.asyncio
@@ -275,9 +275,21 @@ class TestDumpTask:
             ),
         )
 
-        await workflow_body(workflows.dump_task)(task)
+        with pytest.raises(workflows.DumpFailedError):
+            await workflow_body(workflows.dump_task)(task)
 
         recorded.assert_awaited_once_with(task, "OSError: HTTP 500 for HTTP PUT")
+
+    @pytest.mark.asyncio
+    async def test_a_dump_that_works_records_no_failure(
+        self, monkeypatch: pytest.MonkeyPatch, recorded: AsyncMock
+    ) -> None:
+        """The task ends in SUCCESS."""
+        monkeypatch.setattr(workflows, "extract_task", AsyncMock())
+
+        await workflow_body(workflows.dump_task)(dump_task())
+
+        recorded.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_raises_the_cancellation_and_records_no_failure(

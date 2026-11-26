@@ -6,14 +6,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from dbos import error as dbos_error
 from psycopg import OperationalError
 from pydantic import ValidationError
 
 from sync.constants import PUBLISH_QUEUE
 from sync.dbos import steps, workflows
 from sync.models import (
-    DumpResult,
-    DumpStatus,
     LoadedConfig,
     SyncConfig,
     SyncPlan,
@@ -280,32 +279,55 @@ class TestRunSyncUsesOneConfig:
             queue: str, workflow: object, *args: object
         ) -> SimpleNamespace:
             label = enqueue_label(workflow, args)
-            outcome: DumpResult | None = None
+            result = AsyncMock(return_value=None)
 
             if workflow is workflows.publish_schema:
                 published[label] = (args[2], args[3])
             elif label == "one.t":
-                outcome = DumpResult(
-                    status=DumpStatus.FAILURE, failed_paths={"s3://b/one"}
-                )
-            else:
-                outcome = DumpResult()
+                result.side_effect = workflows.DumpFailedError("boom")
 
-            return SimpleNamespace(
-                get_result=AsyncMock(return_value=outcome), workflow_id=label
-            )
+            return SimpleNamespace(get_result=result, workflow_id=label)
 
         monkeypatch.setattr(workflows.DBOS, "enqueue_workflow_async", enqueue)
 
         await run_sync()
 
         assert {name: failed for name, (failed, _) in published.items()} == {
-            "one": {"s3://b/one"},
+            "one": {"s3://b/t"},
             "two": set(),
         }
         document = published["one"][1]
         assert isinstance(document, str)
         assert set(SyncConfig.model_validate_json(document).schemas) == {"one"}
+
+    @pytest.mark.asyncio
+    async def test_stops_on_a_task_error_that_is_not_a_failed_dump(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A task that DBOS cancelled is no failed dump, so the run does not publish without it."""
+        stub_sync_run(
+            monkeypatch,
+            postgrest_reload_required=False,
+            tasks=[dump_task(table="p.d.t")],
+        )
+        enqueued: list[str] = []
+
+        async def enqueue(
+            queue: str, workflow: object, *args: object
+        ) -> SimpleNamespace:
+            enqueued.append(enqueue_label(workflow, args))
+            cancelled = dbos_error.DBOSAwaitedWorkflowCancelledError("task")
+
+            return SimpleNamespace(
+                get_result=AsyncMock(side_effect=cancelled), workflow_id="task"
+            )
+
+        monkeypatch.setattr(workflows.DBOS, "enqueue_workflow_async", enqueue)
+
+        with pytest.raises(dbos_error.DBOSAwaitedWorkflowCancelledError):
+            await run_sync()
+
+        assert enqueued == ["p.d.t"]
 
     @pytest.mark.asyncio
     async def test_plans_only_the_scope_of_an_on_demand_run(
