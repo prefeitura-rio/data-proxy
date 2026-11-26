@@ -2,6 +2,15 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 - - -
+## helm-v2.20.1 - 2026-11-26
+
+### Fixes
+
+- **sync**: count a failed dump task as a failed task of its run [DEV-810] (#62) (6335bbf)
+
+
+- - -
+
 ## helm-v2.20.0 - 2026-11-21
 
 ### Features

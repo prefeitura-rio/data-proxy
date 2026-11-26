@@ -4,7 +4,7 @@ sync:
   ## Number of sync worker replicas before KEDA scaling. KEDA manages this after startup.
   replicas: 1
   ## Container image for the DBOS sync workers.
-  image: ghcr.io/prefeitura-rio/data-proxy-sync:79f676a
+  image: ghcr.io/prefeitura-rio/data-proxy-sync:6335bbf
   imagePullPolicy: IfNotPresent
   ## Mount the local manifests sync-trigger ConfigMap in sync workers.
   trigger:
@@ -97,7 +97,7 @@ sync:
   ## DBOS application and system database configuration.
   dbos:
     applicationName: data-proxy-sync
-    applicationVersion: 3.0.0
+    applicationVersion: 4.0.0
     systemSchema: dbos
     appSchema: data_proxy
   ## The first sync configuration. The provision job imports it once, when the configuration
@@ -402,7 +402,7 @@ cnpg:
 ## The web console. It signs in people with OIDC, calls PostgREST with their token, and runs the query tab.
 console:
   enabled: false
-  image: ghcr.io/prefeitura-rio/data-proxy-console:301d75f
+  image: ghcr.io/prefeitura-rio/data-proxy-console:6335bbf
   imagePullPolicy: IfNotPresent
   ## One replica is enough. The server keeps no state, so more replicas also work.
   resources:
