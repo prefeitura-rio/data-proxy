@@ -61,7 +61,7 @@ These fields describe one table of a schema in `sync.json`. The table says which
 
 ## Pipeline
 
-The scheduled `run_sync` workflow plans the changed tables and partitions, dumps them as scratch Parquet files and publishes each schema to its DuckLake catalog. Publishing runs in parallel across schemas and in sequence within a schema, so each catalog has one writer. After each commit of a schema, also one that publishes nothing or fails, the workflow expires old snapshots, removes old and orphaned files and then merges and rewrites files. A full storage then frees itself without a manual cleanup. A maintenance error is logged and doesn't stop the sync run. [Sync layer](architecture/sync.md) lists the workflows and shows the sequence.
+The scheduled `run_sync` workflow plans the changed tables and partitions, dumps them as scratch Parquet files and publishes each schema to its DuckLake catalog. Publishing runs in parallel across schemas and in sequence within a schema, so each catalog has one writer. After each commit, also a failed one, the workflow expires old snapshots, cleans old files and merges files. A maintenance error is logged and doesn't stop the sync run. [Sync layer](architecture/sync.md) lists the workflows and shows the sequence.
 
 ## DuckLake partitioning and encryption
 
