@@ -11,6 +11,9 @@
           "page": "architecture/sync.md"
         },
         {
+          "page": "architecture/publish.md"
+        },
+        {
           "page": "architecture/console.md"
         }
       ]

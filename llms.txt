@@ -6,6 +6,7 @@
 - Architecture (architecture/index.md)
 - Serving layer (architecture/serving.md)
 - Sync layer (architecture/sync.md)
+- DuckLake write path (architecture/publish.md)
 - Console layer (architecture/console.md)
 - Sync (sync.md)
 - Using the API (using.md)
@@ -110,6 +111,7 @@ flowchart LR
 - Architecture — Components, authentication, authorization and DuckLake pieces.
   - Serving layer — Answers API reads with the cache, PgDog and DuckLake.
   - Sync layer — Copies source tables into DuckLake.
+  - DuckLake write path — Commits each schema to its DuckLake catalog and maintains it.
   - Console layer — The web app, its sign-in and the run control.
 - Sync — The `sync.json` settings, table strategies, partitions and DuckLake sort keys.
 - Using the API — PostgREST profiles, queries and response headers.
@@ -192,7 +194,7 @@ flowchart TD
 | Layer   | What it does                                                                                                   | Page                        |
 | ------- | -------------------------------------------------------------------------------------------------------------- | --------------------------- |
 | Serving | Answers API reads. It checks the token, uses the cache, and reads only the rows that the access policy allows. | Serving layer |
-| Sync    | Copies source tables into DuckLake and keeps the PostgreSQL views in step.                                     | Sync layer     |
+| Sync    | Copies source tables into DuckLake and keeps the PostgreSQL views in step.                                     | Sync layer and DuckLake write path |
 | Console | Shows the system to people and changes the configuration. It starts and controls sync runs.                    | Console layer |
 
 PostgreSQL stores metadata only:
@@ -360,7 +362,7 @@ A backend that attached earlier sees a new snapshot at the start of its next que
 
 The DuckDB secrets `ducklake_catalog_pg` (the PostgreSQL login of the catalog) and `ducklake_catalog` (the catalog itself) contain the address and the credentials. The `configure-db` Job writes them as persistent secrets to the shared volume. The same Job sets default privileges, so `duckdb` can read every metadata schema that `ops` creates later.
 
-The writer writes the Parquet files before it commits the snapshot, so a catalog never points at a missing file. A standby can be a few seconds behind the primary. Snapshot expiration keeps the files that an older snapshot uses. See Sync layer.
+The writer writes the Parquet files before it commits the snapshot, so a catalog never points at a missing file. A standby can be a few seconds behind the primary. Snapshot expiration keeps the files that an older snapshot uses. See DuckLake write path.
 
 ---
 
@@ -459,7 +461,15 @@ sequenceDiagram
   run->>r: count up the cache generation of each schema
 ```
 
-### DuckLake write path
+DuckLake write path shows how a publish worker commits a schema, and how it maintains the catalog.
+
+---
+
+Source: architecture/publish.md
+
+## DuckLake write path
+
+This page shows how the sync layer writes the data of a schema to its DuckLake catalog. Sync layer shows the whole sync run.
 
 A publish worker commits one schema at a time. It uses DuckDB with the DuckLake extension.
 
