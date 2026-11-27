@@ -100,7 +100,7 @@ A backend that attached earlier sees a new snapshot at the start of its next que
 
 The DuckDB secrets `ducklake_catalog_pg` (the PostgreSQL login of the catalog) and `ducklake_catalog` (the catalog itself) contain the address and the credentials. The `configure-db` Job writes them as persistent secrets to the shared volume. The same Job sets default privileges, so `duckdb` can read every metadata schema that `ops` creates later.
 
-The writer writes the Parquet files before it commits the snapshot, so a catalog never points at a missing file. A standby can be a few seconds behind the primary. Snapshot expiration keeps the files that an older snapshot uses. See [Sync layer](sync.md#ducklake-write-path).
+The writer writes the Parquet files before it commits the snapshot, so a catalog never points at a missing file. A standby can be a few seconds behind the primary. Snapshot expiration keeps the files that an older snapshot uses. See [DuckLake write path](./publish.md).
 
 <!-- nav:start -->
 ---

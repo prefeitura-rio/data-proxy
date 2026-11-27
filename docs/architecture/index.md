@@ -59,7 +59,7 @@ flowchart TD
 | Layer   | What it does                                                                                                   | Page                        |
 | ------- | -------------------------------------------------------------------------------------------------------------- | --------------------------- |
 | Serving | Answers API reads. It checks the token, uses the cache, and reads only the rows that the access policy allows. | [Serving layer](serving.md) |
-| Sync    | Copies source tables into DuckLake and keeps the PostgreSQL views in step.                                     | [Sync layer](./sync.md)     |
+| Sync    | Copies source tables into DuckLake and keeps the PostgreSQL views in step.                                     | [Sync layer](./sync.md) and [DuckLake write path](./publish.md) |
 | Console | Shows the system to people and changes the configuration. It starts and controls sync runs.                    | [Console layer](./console.md) |
 
 PostgreSQL stores metadata only:

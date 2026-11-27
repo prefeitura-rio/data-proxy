@@ -43,6 +43,7 @@ flowchart LR
 - [Architecture](architecture/index.md) — Components, authentication, authorization and DuckLake pieces.
   - [Serving layer](architecture/serving.md) — Answers API reads with the cache, PgDog and DuckLake.
   - [Sync layer](architecture/sync.md) — Copies source tables into DuckLake.
+  - [DuckLake write path](architecture/publish.md) — Commits each schema to its DuckLake catalog and maintains it.
   - [Console layer](architecture/console.md) — The web app, its sign-in and the run control.
 - [Sync](./sync.md) — The `sync.json` settings, table strategies, partitions and DuckLake sort keys.
 - [Using the API](using.md) — PostgREST profiles, queries and response headers.
